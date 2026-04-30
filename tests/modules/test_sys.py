@@ -84,3 +84,34 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
     assert changed == {str(note): 1}
     assert "--- man ---\n" in content
     assert "* --man type=str default=None\n" in content
+
+
+def test_apply_ping_outputs_pong(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("--ping\n", encoding="utf-8")
+
+    module = Sys()
+    ctx = Context(
+        path=str(note),
+        config={
+            "mods": False,
+            "ping": True,
+            "help": False,
+            "config": False,
+            "sys_event": False,
+            "man": [],
+        },
+        arg_lines={"ping": [1]},
+    )
+    system = System(
+        event=FileModifiedEvent(str(note)),
+        global_template=[("--ping", bool, False, "Health-check command: prints pong.")],
+        modules=[],
+    )
+
+    changed = module.modified(ctx, system)
+    content = note.read_text(encoding="utf-8")
+
+    assert changed == {str(note): 1}
+    assert "--- ping ---\n" in content
+    assert "* pong\n" in content

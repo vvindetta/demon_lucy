@@ -18,6 +18,7 @@ class Sys(AbstractModule):
 
     template = [
         ("--mods", bool, False, "Print loaded modules and their priorities."),
+        ("--ping", bool, False, "Health-check command: prints pong."),
         (
             "--config",
             bool,
@@ -57,6 +58,7 @@ class Sys(AbstractModule):
     def _command_help_lines() -> List[str]:
         return [
             "* --mods: print loaded modules and their priorities\n",
+            "* --ping: print pong\n",
             "* --config: print config values that differ from defaults\n",
             "* --man list: print all arguments (no descriptions)\n",
             "* --man full: print all arguments with descriptions\n",
@@ -137,7 +139,7 @@ class Sys(AbstractModule):
         path: str,
         man_requests: List[str],
     ) -> List[str]:
-        ordered = ["mods", "help", "man", "config", "event"]
+        ordered = ["mods", "ping", "help", "man", "config", "event"]
         title_parts = [name for name in ordered if name in selected_opts]
         title = "+".join(title_parts) if title_parts else "sys"
 
@@ -155,6 +157,10 @@ class Sys(AbstractModule):
         if "mods" in selected_opts:
             for module in system.modules:
                 lines.append(f"* {module.name} ({getattr(module, 'priority', None)})\n")
+            lines.append("\n")
+
+        if "ping" in selected_opts:
+            lines.append("* pong\n")
             lines.append("\n")
 
         if "man" in selected_opts:
@@ -210,6 +216,10 @@ class Sys(AbstractModule):
         if ctx.config["mods"]:
             for lineno_1based in ctx.arg_lines.get("mods") or []:
                 add_option(int(lineno_1based), "mods", "--mods")
+
+        if ctx.config.get("ping"):
+            for lineno_1based in ctx.arg_lines.get("ping") or []:
+                add_option(int(lineno_1based), "ping", "--ping")
 
         if ctx.config["config"]:
             for lineno_1based in ctx.arg_lines.get("config") or []:

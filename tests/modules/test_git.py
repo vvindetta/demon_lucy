@@ -292,6 +292,8 @@ def test_parse_remote_endpoint_handles_common_git_remote_shapes(git_module):
         22,
     )
     assert git_ops.parse_remote_endpoint("file:///tmp/repo.git") == (None, None)
+    assert git_ops.parse_remote_endpoint(r"C:\notes\repo.git") == (None, None)
+    assert git_ops.parse_remote_endpoint(r"\\server\share\repo.git") == (None, None)
 
 
 def test_safe_pull_merge_waits_for_network_without_notify_when_upstream(git_module, monkeypatch):
@@ -402,3 +404,319 @@ def test_safe_pull_merge_timeout_while_offline_skips_notify(git_module, monkeypa
 
     assert pulled is False
     assert notifications == []
+
+
+def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(
+    git_module, monkeypatch
+):
+    resolve_call: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        git_ops,
+        "remote_url",
+        lambda *_args, **_kwargs: "https://example.com/owner/repo.git",
+    )
+
+    def _resolve_address_infos(host_name: str, port_number: int, timeout_seconds: float):
+        resolve_call["host_name"] = host_name
+        resolve_call["port_number"] = port_number
+        resolve_call["timeout_seconds"] = timeout_seconds
+        return [], True
+
+    monkeypatch.setattr(git_ops, "_resolve_address_infos", _resolve_address_infos)
+
+    reachable = git_ops.remote_is_reachable(
+        git_module,
+        repo_root="/repo",
+        remote_name="origin",
+        environment={},
+        timeout_seconds=8.0,
+        network_probe_timeout_seconds=1.25,
+    )
+
+    assert reachable is False
+    assert resolve_call == {
+        "host_name": "example.com",
+        "port_number": 443,
+        "timeout_seconds": 1.25,
+    }
+
+
+def test_safe_pull_merge_conflict_abort_timeout_does_not_raise(git_module, monkeypatch):
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops,
+        "upstream_remote_name",
+        lambda *_args, **_kwargs: "origin",
+    )
+    monkeypatch.setattr(
+        git_ops,
+        "remote_is_reachable",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops,
+        "auto_resolve_merge_conflicts",
+        lambda *_args, **_kwargs: False,
+    )
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments and arguments[0] == "pull":
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=1,
+                stdout="",
+                stderr="pull conflict",
+            )
+        if arguments[:2] == ["merge", "--abort"]:
+            raise subprocess.TimeoutExpired(
+                cmd=["git", "merge", "--abort"],
+                timeout=5.0,
+            )
+        return subprocess.CompletedProcess(
+            args=["git"] + arguments,
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+    monkeypatch.setattr(git_ops, "run_git", _run_git)
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode="union",
+        auto_set_upstream=True,
+    )
+
+    assert pulled is False
+    assert any(item["name"] == "pull-conflict:/repo" for item in notifications)
+
+
+def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkeypatch):
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker,
+        "merge_in_progress",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        git_worker,
+        "auto_resolve_merge_conflicts",
+        lambda *_args, **_kwargs: False,
+    )
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments[:2] == ["merge", "--abort"]:
+            raise subprocess.TimeoutExpired(
+                cmd=["git", "merge", "--abort"],
+                timeout=5.0,
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+
+    cleaned = git_worker._ensure_merge_state_clean(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        git_timeout_seconds=5.0,
+        autoresolve_mode="union",
+    )
+
+    assert cleaned is False
+    assert any(item["name"] == "merge-stuck:/repo" for item in notifications)
+
+
+def test_process_due_batches_continues_after_batch_exception(git_module, monkeypatch):
+    notifications: list[dict] = []
+    processed_repos: list[str] = []
+
+    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+
+    def _process_batch(_self, batch):
+        processed_repos.append(batch.repo_root)
+        if batch.repo_root == "/repo1":
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(git_worker, "process_batch", _process_batch)
+
+    def _batch(repo_root: str) -> _RepoBatch:
+        return _RepoBatch(
+            repo_root=repo_root,
+            base_message="Auto",
+            add_timestamp_to_message=False,
+            timestamp_format="%Y",
+            environment={},
+            debounce_seconds=0.5,
+            git_timeout_seconds=5.0,
+            pull_timeout_seconds=6.0,
+            push_timeout_seconds=7.0,
+            backoff_start_seconds=2.0,
+            backoff_max_seconds=8.0,
+            pull_cooldown_min_seconds=1.0,
+            pull_cooldown_max_seconds=4.0,
+            max_batch_seconds=8.0,
+        )
+
+    git_worker._process_due_batches(git_module, [_batch("/repo1"), _batch("/repo2")])
+
+    assert processed_repos == ["/repo1", "/repo2"]
+    assert any(item["name"] == "batch-crash:/repo1" for item in notifications)
+
+
+def test_attempt_push_with_retry_second_push_timeout_notifies_once(
+    git_module, monkeypatch
+):
+    notifications: list[dict] = []
+    register_calls: list[tuple[tuple, dict]] = []
+    push_attempts = {"count": 0}
+
+    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_worker, "safe_pull_merge", lambda *_args, **_kwargs: True)
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments != ["push"]:
+            raise AssertionError(f"Unexpected command: {arguments}")
+
+        push_attempts["count"] += 1
+        if push_attempts["count"] == 1:
+            return subprocess.CompletedProcess(
+                args=["git", "push"],
+                returncode=1,
+                stdout="",
+                stderr="non-fast-forward",
+            )
+        raise subprocess.TimeoutExpired(cmd=["git", "push"], timeout=7.0)
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+    monkeypatch.setattr(
+        git_module,
+        "_register_push_failure",
+        lambda *args, **kwargs: register_calls.append((args, kwargs)),
+    )
+
+    batch = _RepoBatch(
+        repo_root="/repo",
+        base_message="Auto",
+        add_timestamp_to_message=False,
+        timestamp_format="%Y",
+        environment={},
+        debounce_seconds=0.5,
+        git_timeout_seconds=5.0,
+        pull_timeout_seconds=6.0,
+        push_timeout_seconds=7.0,
+        backoff_start_seconds=2.0,
+        backoff_max_seconds=8.0,
+        pull_cooldown_min_seconds=1.0,
+        pull_cooldown_max_seconds=4.0,
+        max_batch_seconds=8.0,
+        auto_merge_on_push=True,
+        auto_set_upstream=True,
+        autoresolve_mode="union",
+        network_probe_timeout_seconds=1.0,
+        pull_offline_error_markers=[],
+    )
+
+    git_worker._attempt_push_with_retry(
+        self=git_module,
+        batch=batch,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=6.0,
+        push_timeout_seconds=7.0,
+        git_timeout_seconds=5.0,
+        backoff_start_seconds=2.0,
+        backoff_max_seconds=8.0,
+    )
+
+    assert len(register_calls) == 1
+    assert [item["name"] for item in notifications] == ["timeout:push:/repo"]
+
+
+def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypatch):
+    notifications: list[dict] = []
+    register_calls: list[tuple[tuple, dict]] = []
+    push_attempts = {"count": 0}
+
+    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_worker, "safe_pull_merge", lambda *_args, **_kwargs: True)
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments != ["push"]:
+            raise AssertionError(f"Unexpected command: {arguments}")
+
+        push_attempts["count"] += 1
+        if push_attempts["count"] == 1:
+            return subprocess.CompletedProcess(
+                args=["git", "push"],
+                returncode=1,
+                stdout="",
+                stderr="non-fast-forward",
+            )
+        return subprocess.CompletedProcess(
+            args=["git", "push"],
+            returncode=1,
+            stdout="",
+            stderr="second push failed",
+        )
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+    monkeypatch.setattr(
+        git_module,
+        "_register_push_failure",
+        lambda *args, **kwargs: register_calls.append((args, kwargs)),
+    )
+
+    batch = _RepoBatch(
+        repo_root="/repo",
+        base_message="Auto",
+        add_timestamp_to_message=False,
+        timestamp_format="%Y",
+        environment={},
+        debounce_seconds=0.5,
+        git_timeout_seconds=5.0,
+        pull_timeout_seconds=6.0,
+        push_timeout_seconds=7.0,
+        backoff_start_seconds=2.0,
+        backoff_max_seconds=8.0,
+        pull_cooldown_min_seconds=1.0,
+        pull_cooldown_max_seconds=4.0,
+        max_batch_seconds=8.0,
+        auto_merge_on_push=True,
+        auto_set_upstream=True,
+        autoresolve_mode="union",
+        network_probe_timeout_seconds=1.0,
+        pull_offline_error_markers=[],
+    )
+
+    git_worker._attempt_push_with_retry(
+        self=git_module,
+        batch=batch,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=6.0,
+        push_timeout_seconds=7.0,
+        git_timeout_seconds=5.0,
+        backoff_start_seconds=2.0,
+        backoff_max_seconds=8.0,
+    )
+
+    assert len(register_calls) == 1
+    push_fail_notifications = [item for item in notifications if item["name"] == "pushfail:/repo"]
+    assert len(push_fail_notifications) == 1
+    assert "second push failed" in push_fail_notifications[0]["message"]
+    assert "non-fast-forward" not in push_fail_notifications[0]["message"]

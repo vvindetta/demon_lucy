@@ -4,14 +4,86 @@ import logging
 import os
 import socket
 import subprocess
+import threading
+from dataclasses import dataclass
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
 from lucy_notes_manager.lib import safe_notify
+from lucy_notes_manager.modules.git.executor import GitExecutor, combined_output
 from lucy_notes_manager.lib.path import abs_expand_path
 from lucy_notes_manager.modules.git.helpers import union_resolve_text
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_address_infos(
+    host_name: str,
+    port_number: int,
+    timeout_seconds: float,
+) -> tuple[list[tuple], bool]:
+    resolver_result: dict[str, object] = {}
+    resolver_done = threading.Event()
+
+    def _resolve() -> None:
+        try:
+            resolver_result["address_infos"] = socket.getaddrinfo(
+                host_name,
+                port_number,
+                family=socket.AF_UNSPEC,
+                type=socket.SOCK_STREAM,
+            )
+        except OSError as exception:
+            resolver_result["error"] = exception
+        finally:
+            resolver_done.set()
+
+    resolver_thread = threading.Thread(target=_resolve, daemon=True)
+    resolver_thread.start()
+    if not resolver_done.wait(timeout_seconds):
+        return [], True
+
+    error_value = resolver_result.get("error")
+    if isinstance(error_value, OSError):
+        raise error_value
+
+    address_infos = resolver_result.get("address_infos")
+    if isinstance(address_infos, list):
+        return address_infos, False
+    return [], False
+
+
+def _abort_merge_safely(
+    self,
+    repo_root: str,
+    environment: Dict[str, str],
+    timeout_seconds: float,
+) -> bool:
+    try:
+        abort_result = run_git(
+            self,
+            repo_root,
+            ["merge", "--abort"],
+            environment,
+            timeout_seconds=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("git merge --abort timed out | repo=%s", repo_root)
+        return False
+    except Exception:
+        logger.exception("git merge --abort crashed | repo=%s", repo_root)
+        return False
+
+    if abort_result.returncode == 0:
+        return True
+
+    abort_error = combined_output(abort_result) or "git merge --abort failed"
+    logger.error(
+        "git merge --abort failed | repo=%s | error=%s",
+        repo_root,
+        abort_error[:1200],
+    )
+    return False
 
 
 def git_environment(self, config: dict) -> Dict[str, str]:
@@ -39,16 +111,8 @@ def run_git(
     environment: Dict[str, str],
     timeout_seconds: float,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git"] + arguments,
-        cwd=repo_root,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
-        timeout=timeout_seconds,
-    )
+    executor = GitExecutor(repo_root=repo_root, environment=environment)
+    return executor.run(arguments=arguments, timeout_seconds=timeout_seconds)
 
 
 def has_upstream(
@@ -152,7 +216,14 @@ def parse_remote_endpoint(remote_url_value: str) -> tuple[Optional[str], Optiona
         return None, None
     if remote_url_text.startswith("../"):
         return None, None
-    if len(remote_url_text) >= 3 and remote_url_text[1:3] == ":/":
+    if remote_url_text.startswith("\\\\") or remote_url_text.startswith("//"):
+        return None, None
+    if (
+        len(remote_url_text) >= 3
+        and remote_url_text[0].isalpha()
+        and remote_url_text[1] == ":"
+        and remote_url_text[2] in {"/", "\\"}
+    ):
         return None, None
 
     if "://" in remote_url_text:
@@ -225,15 +296,22 @@ def remote_is_reachable(
     connect_timeout_seconds = min(timeout_candidates)
 
     try:
-        address_infos = socket.getaddrinfo(
-            host_name,
-            port_number,
-            family=socket.AF_UNSPEC,
-            type=socket.SOCK_STREAM,
+        address_infos, dns_resolution_timed_out = _resolve_address_infos(
+            host_name=host_name,
+            port_number=port_number,
+            timeout_seconds=connect_timeout_seconds,
         )
     except OSError:
         logger.info(
             "remote host resolution failed; waiting for network before pull | repo=%s | remote=%s | host=%s",
+            repo_root,
+            remote_name,
+            host_name,
+        )
+        return False
+    if dns_resolution_timed_out:
+        logger.info(
+            "remote host resolution timed out; waiting for network before pull | repo=%s | remote=%s | host=%s",
             repo_root,
             remote_name,
             host_name,
@@ -482,212 +560,175 @@ def auto_resolve_merge_conflicts(
     return commit_result.returncode == 0
 
 
-def safe_pull_merge(
+@dataclass(frozen=True)
+class _PullPlan:
+    command: list[str]
+    command_for_notification: str
+    remote_name: Optional[str]
+
+
+def _remote_is_reachable_or_wait(
     self,
     repo_root: str,
+    remote_name: str,
     environment: Dict[str, str],
-    pull_timeout_seconds: float,
     operation_timeout_seconds: float,
-    autoresolve_mode: str,
-    auto_set_upstream: bool = True,
-    network_probe_timeout_seconds: float = 0.0,
-    pull_offline_error_markers: list[str] | None = None,
+    network_probe_timeout_seconds: float,
 ) -> bool:
-    if not has_upstream(self, repo_root, environment, operation_timeout_seconds):
-        branch_name = current_branch(self, repo_root, environment, operation_timeout_seconds)
-        remote_name = pick_remote(self, repo_root, environment, operation_timeout_seconds)
-
-        if not branch_name or not remote_name:
-            logger.warning(
-                "no upstream and cannot infer remote/branch; skip auto-pull | repo=%s",
-                repo_root,
-            )
-            safe_notify(
-                name=f"pull-noupstream:{repo_root}",
-                message=(
-                    f"Repository:\n{repo_root}\n\n"
-                    f"No upstream configured and cannot infer remote/branch; skip pull."
-                ),
-            )
-            return False
-
-        if not remote_is_reachable(
-            self=self,
-            repo_root=repo_root,
-            remote_name=remote_name,
-            environment=environment,
-            timeout_seconds=operation_timeout_seconds,
-            network_probe_timeout_seconds=network_probe_timeout_seconds,
-        ):
-            return False
-
-        remote_branch_exists_value = remote_branch_exists(
-            self,
-            repo_root,
-            remote_name,
-            branch_name,
-            environment,
-            timeout_seconds=pull_timeout_seconds,
-        )
-        if not remote_branch_exists_value:
-            logger.warning(
-                "no upstream and remote branch missing; skip pull | repo=%s | remote=%s | branch=%s",
-                repo_root,
-                remote_name,
-                branch_name,
-            )
-            safe_notify(
-                name=f"pull-noremotebranch:{repo_root}",
-                message=(
-                    f"Repository:\n{repo_root}\n\n"
-                    f"No upstream configured and remote branch does not exist:\n"
-                    f"{remote_name}/{branch_name}\n\n"
-                    f"Skip pull."
-                ),
-            )
-            return False
-
-        if auto_set_upstream:
-            try_set_upstream(
-                self,
-                repo_root,
-                remote_name,
-                branch_name,
-                environment,
-                timeout_seconds=operation_timeout_seconds,
-            )
-
-        try:
-            pull_result = run_git(
-                self,
-                repo_root,
-                ["pull", "--no-rebase", "--no-edit", remote_name, branch_name],
-                environment,
-                timeout_seconds=pull_timeout_seconds,
-            )
-        except subprocess.TimeoutExpired:
-            if not remote_is_reachable(
-                self=self,
-                repo_root=repo_root,
-                remote_name=remote_name,
-                environment=environment,
-                timeout_seconds=operation_timeout_seconds,
-                network_probe_timeout_seconds=network_probe_timeout_seconds,
-            ):
-                logger.info(
-                    "git pull timed out while network is offline; waiting for network | repo=%s",
-                    repo_root,
-                )
-                return False
-            logger.error("git pull timed out | repo=%s", repo_root)
-            safe_notify(
-                name=f"timeout:pull:{repo_root}",
-                message=f"git pull timed out:\n{repo_root}",
-            )
-            return False
-
-        if pull_result.returncode == 0:
-            return True
-
-        if merge_in_progress(self, repo_root, environment, operation_timeout_seconds):
-            resolved = auto_resolve_merge_conflicts(
-                self,
-                repo_root,
-                environment,
-                operation_timeout_seconds,
-                autoresolve_mode=autoresolve_mode,
-            )
-            if resolved:
-                return True
-
-            run_git(
-                self,
-                repo_root,
-                ["merge", "--abort"],
-                environment,
-                timeout_seconds=operation_timeout_seconds,
-            )
-            pull_error = (pull_result.stderr or pull_result.stdout or "git pull failed").strip()
-            logger.error(
-                "git pull conflict; auto-resolve failed; merge aborted | repo=%s | error=%s",
-                repo_root,
-                pull_error[:1200],
-            )
-            safe_notify(
-                name=f"pull-conflict:{repo_root}",
-                message=(
-                    f"Repository:\n{repo_root}\n\n"
-                    f"Auto-merge conflict resolution failed.\n"
-                    f"Merge aborted (no rebase / no force).\n\n"
-                    f"Error:\n{pull_error[:1200]}"
-                ),
-            )
-            return False
-
-        pull_error = (pull_result.stderr or pull_result.stdout or "git pull failed").strip()
-        if pull_failure_looks_offline(
-            pull_error,
-            pull_offline_error_markers,
-        ):
-            logger.info(
-                "git pull failed because network is offline; waiting for network | repo=%s",
-                repo_root,
-            )
-            return False
-        logger.error("git pull failed | repo=%s | error=%s", repo_root, pull_error[:1200])
-        safe_notify(
-            name=f"pullfail:{repo_root}",
-            message=(
-                f"Repository:\n{repo_root}\n\n"
-                f"Command:\ngit pull --no-rebase {remote_name} {branch_name}\n\n"
-                f"Error:\n{pull_error[:1200]}"
-            ),
-        )
-        return False
-
-    remote_name = upstream_remote_name(self, repo_root, environment, operation_timeout_seconds)
-    if remote_name and not remote_is_reachable(
+    return remote_is_reachable(
         self=self,
         repo_root=repo_root,
         remote_name=remote_name,
         environment=environment,
         timeout_seconds=operation_timeout_seconds,
         network_probe_timeout_seconds=network_probe_timeout_seconds,
-    ):
-        return False
+    )
 
-    try:
-        pull_result = run_git(
-            self,
-            repo_root,
-            ["pull", "--no-rebase", "--no-edit"],
-            environment,
-            timeout_seconds=pull_timeout_seconds,
+
+def _resolve_pull_plan(
+    self,
+    repo_root: str,
+    environment: Dict[str, str],
+    pull_timeout_seconds: float,
+    operation_timeout_seconds: float,
+    auto_set_upstream: bool,
+    network_probe_timeout_seconds: float,
+) -> Optional[_PullPlan]:
+    if has_upstream(self, repo_root, environment, operation_timeout_seconds):
+        remote_name = upstream_remote_name(
+            self, repo_root, environment, operation_timeout_seconds
         )
-    except subprocess.TimeoutExpired:
-        if remote_name and not remote_is_reachable(
+        if remote_name and not _remote_is_reachable_or_wait(
             self=self,
             repo_root=repo_root,
             remote_name=remote_name,
             environment=environment,
-            timeout_seconds=operation_timeout_seconds,
+            operation_timeout_seconds=operation_timeout_seconds,
             network_probe_timeout_seconds=network_probe_timeout_seconds,
         ):
-            logger.info(
-                "git pull timed out while network is offline; waiting for network | repo=%s",
-                repo_root,
-            )
-            return False
-        logger.error("git pull timed out | repo=%s", repo_root)
+            return None
+        return _PullPlan(
+            command=["pull", "--no-rebase", "--no-edit"],
+            command_for_notification="git pull --no-rebase",
+            remote_name=remote_name,
+        )
+
+    branch_name = current_branch(self, repo_root, environment, operation_timeout_seconds)
+    remote_name = pick_remote(self, repo_root, environment, operation_timeout_seconds)
+    if not branch_name or not remote_name:
+        logger.warning(
+            "no upstream and cannot infer remote/branch; skip auto-pull | repo=%s",
+            repo_root,
+        )
         safe_notify(
-            name=f"timeout:pull:{repo_root}",
-            message=f"git pull timed out:\n{repo_root}",
+            name=f"pull-noupstream:{repo_root}",
+            message=(
+                f"Repository:\n{repo_root}\n\n"
+                f"No upstream configured and cannot infer remote/branch; skip pull."
+            ),
+        )
+        return None
+
+    if not _remote_is_reachable_or_wait(
+        self=self,
+        repo_root=repo_root,
+        remote_name=remote_name,
+        environment=environment,
+        operation_timeout_seconds=operation_timeout_seconds,
+        network_probe_timeout_seconds=network_probe_timeout_seconds,
+    ):
+        return None
+
+    remote_branch_exists_value = remote_branch_exists(
+        self,
+        repo_root,
+        remote_name,
+        branch_name,
+        environment,
+        timeout_seconds=pull_timeout_seconds,
+    )
+    if not remote_branch_exists_value:
+        logger.warning(
+            "no upstream and remote branch missing; skip pull | repo=%s | remote=%s | branch=%s",
+            repo_root,
+            remote_name,
+            branch_name,
+        )
+        safe_notify(
+            name=f"pull-noremotebranch:{repo_root}",
+            message=(
+                f"Repository:\n{repo_root}\n\n"
+                f"No upstream configured and remote branch does not exist:\n"
+                f"{remote_name}/{branch_name}\n\n"
+                f"Skip pull."
+            ),
+        )
+        return None
+
+    if auto_set_upstream:
+        try_set_upstream(
+            self,
+            repo_root,
+            remote_name,
+            branch_name,
+            environment,
+            timeout_seconds=operation_timeout_seconds,
+        )
+
+    return _PullPlan(
+        command=["pull", "--no-rebase", "--no-edit", remote_name, branch_name],
+        command_for_notification=f"git pull --no-rebase {remote_name} {branch_name}",
+        remote_name=remote_name,
+    )
+
+
+def _handle_pull_timeout(
+    self,
+    repo_root: str,
+    environment: Dict[str, str],
+    operation_timeout_seconds: float,
+    network_probe_timeout_seconds: float,
+    remote_name: Optional[str],
+) -> bool:
+    if remote_name and not _remote_is_reachable_or_wait(
+        self=self,
+        repo_root=repo_root,
+        remote_name=remote_name,
+        environment=environment,
+        operation_timeout_seconds=operation_timeout_seconds,
+        network_probe_timeout_seconds=network_probe_timeout_seconds,
+    ):
+        logger.info(
+            "git pull timed out while network is offline; waiting for network | repo=%s",
+            repo_root,
         )
         return False
 
-    if pull_result.returncode == 0:
-        return True
+    logger.error("git pull timed out | repo=%s", repo_root)
+    safe_notify(
+        name=f"timeout:pull:{repo_root}",
+        message=f"git pull timed out:\n{repo_root}",
+    )
+    return False
 
+
+def _pull_error_text(pull_result: subprocess.CompletedProcess[str]) -> str:
+    error_text = combined_output(pull_result).strip()
+    if not error_text:
+        return "git pull failed"
+    return error_text
+
+
+def _handle_pull_failure(
+    self,
+    repo_root: str,
+    environment: Dict[str, str],
+    operation_timeout_seconds: float,
+    autoresolve_mode: str,
+    pull_result: subprocess.CompletedProcess[str],
+    pull_offline_error_markers: list[str] | None,
+    command_for_notification: str,
+) -> bool:
     if merge_in_progress(self, repo_root, environment, operation_timeout_seconds):
         resolved = auto_resolve_merge_conflicts(
             self,
@@ -699,18 +740,24 @@ def safe_pull_merge(
         if resolved:
             return True
 
-        run_git(
-            self,
-            repo_root,
-            ["merge", "--abort"],
-            environment,
+        pull_error = _pull_error_text(pull_result)
+        abort_ok = _abort_merge_safely(
+            self=self,
+            repo_root=repo_root,
+            environment=environment,
             timeout_seconds=operation_timeout_seconds,
         )
-        pull_error = (pull_result.stderr or pull_result.stdout or "git pull failed").strip()
+        abort_suffix = "" if abort_ok else " | merge abort failed"
         logger.error(
-            "git pull conflict; auto-resolve failed; merge aborted | repo=%s | error=%s",
+            "git pull conflict; auto-resolve failed; merge aborted%s | repo=%s | error=%s",
+            abort_suffix,
             repo_root,
             pull_error[:1200],
+        )
+        merge_abort_note = (
+            ""
+            if abort_ok
+            else "\n\nMerge abort failed or timed out; manual cleanup may be required."
         )
         safe_notify(
             name=f"pull-conflict:{repo_root}",
@@ -719,11 +766,12 @@ def safe_pull_merge(
                 f"Auto-merge conflict resolution failed.\n"
                 f"Merge aborted (no rebase / no force).\n\n"
                 f"Error:\n{pull_error[:1200]}"
+                f"{merge_abort_note}"
             ),
         )
         return False
 
-    pull_error = (pull_result.stderr or pull_result.stdout or "git pull failed").strip()
+    pull_error = _pull_error_text(pull_result)
     if pull_failure_looks_offline(
         pull_error,
         pull_offline_error_markers,
@@ -733,13 +781,70 @@ def safe_pull_merge(
             repo_root,
         )
         return False
+
     logger.error("git pull failed | repo=%s | error=%s", repo_root, pull_error[:1200])
     safe_notify(
         name=f"pullfail:{repo_root}",
         message=(
             f"Repository:\n{repo_root}\n\n"
-            f"Command:\ngit pull --no-rebase\n\n"
+            f"Command:\n{command_for_notification}\n\n"
             f"Error:\n{pull_error[:1200]}"
         ),
     )
     return False
+
+
+def safe_pull_merge(
+    self,
+    repo_root: str,
+    environment: Dict[str, str],
+    pull_timeout_seconds: float,
+    operation_timeout_seconds: float,
+    autoresolve_mode: str,
+    auto_set_upstream: bool = True,
+    network_probe_timeout_seconds: float = 0.0,
+    pull_offline_error_markers: list[str] | None = None,
+) -> bool:
+    pull_plan = _resolve_pull_plan(
+        self=self,
+        repo_root=repo_root,
+        environment=environment,
+        pull_timeout_seconds=pull_timeout_seconds,
+        operation_timeout_seconds=operation_timeout_seconds,
+        auto_set_upstream=auto_set_upstream,
+        network_probe_timeout_seconds=network_probe_timeout_seconds,
+    )
+    if pull_plan is None:
+        return False
+
+    try:
+        pull_result = run_git(
+            self,
+            repo_root,
+            pull_plan.command,
+            environment,
+            timeout_seconds=pull_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return _handle_pull_timeout(
+            self=self,
+            repo_root=repo_root,
+            environment=environment,
+            operation_timeout_seconds=operation_timeout_seconds,
+            network_probe_timeout_seconds=network_probe_timeout_seconds,
+            remote_name=pull_plan.remote_name,
+        )
+
+    if pull_result.returncode == 0:
+        return True
+
+    return _handle_pull_failure(
+        self=self,
+        repo_root=repo_root,
+        environment=environment,
+        operation_timeout_seconds=operation_timeout_seconds,
+        autoresolve_mode=autoresolve_mode,
+        pull_result=pull_result,
+        pull_offline_error_markers=pull_offline_error_markers,
+        command_for_notification=pull_plan.command_for_notification,
+    )
