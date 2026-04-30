@@ -6,6 +6,17 @@ import time
 from queue import Empty
 
 from lucy_notes_manager.lib import safe_notify
+from lucy_notes_manager.modules.git.helpers import (
+    parse_porcelain_paths,
+    push_rejected_needs_pull,
+)
+from lucy_notes_manager.modules.git.operations import (
+    auto_resolve_merge_conflicts,
+    git_environment,
+    merge_in_progress,
+    run_git,
+    safe_pull_merge,
+)
 from lucy_notes_manager.modules.git.types import _RepoBatch
 
 logger = logging.getLogger(__name__)
@@ -83,10 +94,11 @@ def worker_loop(self) -> None:
             )
             now_timestamp = time.time()
 
-            environment = self._git_environment(config_snapshot)
+            environment = git_environment(self, config_snapshot)
 
             with self._pending_lock:
-                self._update_periodic_pull_state(
+                update_periodic_pull_state(
+                    self,
                     repo_root=repo_root,
                     config_snapshot=config_snapshot,
                     now_timestamp=now_timestamp,
@@ -109,6 +121,12 @@ def worker_loop(self) -> None:
                         pull_cooldown_min_seconds=config_snapshot["git_pull_cooldown_min_sec"],
                         pull_cooldown_max_seconds=config_snapshot["git_pull_cooldown_max_sec"],
                         max_batch_seconds=config_snapshot["git_max_batch_seconds"],
+                        network_probe_timeout_seconds=config_snapshot[
+                            "git_network_probe_timeout_sec"
+                        ],
+                        pull_offline_error_markers=list(
+                            config_snapshot["git_pull_offline_error_marker"]
+                        ),
                         wants_pull=wants_pull,
                         auto_merge_on_push=config_snapshot["git_auto_merge_on_push"],
                         auto_set_upstream=config_snapshot["git_auto_set_upstream"],
@@ -135,6 +153,12 @@ def worker_loop(self) -> None:
                     "git_pull_cooldown_max_sec"
                 ]
                 existing_batch.max_batch_seconds = config_snapshot["git_max_batch_seconds"]
+                existing_batch.network_probe_timeout_seconds = config_snapshot[
+                    "git_network_probe_timeout_sec"
+                ]
+                existing_batch.pull_offline_error_markers = list(
+                    config_snapshot["git_pull_offline_error_marker"]
+                )
 
                 existing_batch.auto_merge_on_push = config_snapshot[
                     "git_auto_merge_on_push"
@@ -164,10 +188,13 @@ def worker_loop(self) -> None:
                 if quiet_due or forced_due:
                     due_batches.append(batch)
                     del self._pending_batches[repo_root_key]
-            periodic_pull_events = self._collect_due_periodic_pull_events(current_timestamp)
+            periodic_pull_events = collect_due_periodic_pull_events(
+                self,
+                now_timestamp=current_timestamp,
+            )
 
         for batch in due_batches:
-            self._process_batch(batch)
+            process_batch(self, batch)
         for event in periodic_pull_events:
             self._event_queue.put(event)
 
@@ -182,15 +209,17 @@ def process_batch(self, batch: _RepoBatch) -> None:
     backoff_start_seconds = batch.backoff_start_seconds
     backoff_max_seconds = batch.backoff_max_seconds
 
-    if self._merge_in_progress(repo_root, environment, git_timeout_seconds):
-        resolved = self._auto_resolve_merge_conflicts(
+    if merge_in_progress(self, repo_root, environment, git_timeout_seconds):
+        resolved = auto_resolve_merge_conflicts(
+            self,
             repo_root,
             environment,
             git_timeout_seconds,
             autoresolve_mode=batch.autoresolve_mode,
         )
         if not resolved:
-            self._run_git(
+            run_git(
+                self,
                 repo_root,
                 ["merge", "--abort"],
                 environment,
@@ -220,18 +249,22 @@ def process_batch(self, batch: _RepoBatch) -> None:
         ):
             return
 
-        self._safe_pull_merge(
+        safe_pull_merge(
+            self,
             repo_root,
             environment,
             pull_timeout_seconds=pull_timeout_seconds,
             operation_timeout_seconds=git_timeout_seconds,
             autoresolve_mode=batch.autoresolve_mode,
             auto_set_upstream=batch.auto_set_upstream,
+            network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
+            pull_offline_error_markers=batch.pull_offline_error_markers,
         )
         return
 
     try:
-        add_result = self._run_git(
+        add_result = run_git(
+            self,
             repo_root,
             ["add", "-A"],
             environment,
@@ -255,7 +288,8 @@ def process_batch(self, batch: _RepoBatch) -> None:
         return
 
     try:
-        status_result = self._run_git(
+        status_result = run_git(
+            self,
             repo_root,
             ["status", "--porcelain"],
             environment,
@@ -279,12 +313,13 @@ def process_batch(self, batch: _RepoBatch) -> None:
         return
 
     porcelain_text = (status_result.stdout or "").strip()
-    changed_paths = self._parse_porcelain_paths(porcelain_text)
+    changed_paths = parse_porcelain_paths(porcelain_text)
 
     if porcelain_text:
         commit_message = self._build_commit_message(batch, changed_paths)
         try:
-            commit_result = self._run_git(
+            commit_result = run_git(
+                self,
                 repo_root,
                 ["commit", "-m", commit_message],
                 environment,
@@ -323,13 +358,16 @@ def process_batch(self, batch: _RepoBatch) -> None:
             cooldown_min_seconds=batch.pull_cooldown_min_seconds,
             cooldown_max_seconds=batch.pull_cooldown_max_seconds,
         ):
-            self._safe_pull_merge(
+            safe_pull_merge(
+                self,
                 repo_root,
                 environment,
                 pull_timeout_seconds=pull_timeout_seconds,
                 operation_timeout_seconds=git_timeout_seconds,
                 autoresolve_mode=batch.autoresolve_mode,
                 auto_set_upstream=batch.auto_set_upstream,
+                network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
+                pull_offline_error_markers=batch.pull_offline_error_markers,
             )
 
     now_timestamp = time.time()
@@ -339,7 +377,8 @@ def process_batch(self, batch: _RepoBatch) -> None:
 
     def run_push() -> subprocess.CompletedProcess[str] | None:
         try:
-            return self._run_git(
+            return run_git(
+                self,
                 repo_root,
                 ["push"],
                 environment,
@@ -361,14 +400,17 @@ def process_batch(self, batch: _RepoBatch) -> None:
     if push_result.returncode != 0:
         combined_push_output = ((push_result.stderr or "") + "\n" + (push_result.stdout or "")).strip()
 
-        if batch.auto_merge_on_push and self._push_rejected_needs_pull(combined_push_output):
-            pulled = self._safe_pull_merge(
+        if batch.auto_merge_on_push and push_rejected_needs_pull(combined_push_output):
+            pulled = safe_pull_merge(
+                self,
                 repo_root,
                 environment,
                 pull_timeout_seconds=pull_timeout_seconds,
                 operation_timeout_seconds=git_timeout_seconds,
                 autoresolve_mode=batch.autoresolve_mode,
                 auto_set_upstream=batch.auto_set_upstream,
+                network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
+                pull_offline_error_markers=batch.pull_offline_error_markers,
             )
             if pulled:
                 second_push_result = run_push()

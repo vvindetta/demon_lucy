@@ -25,6 +25,8 @@ class _RepoBatch:
     pull_cooldown_min_seconds: float
     pull_cooldown_max_seconds: float
     max_batch_seconds: float
+    network_probe_timeout_seconds: float = 0.0
+    pull_offline_error_markers: list[str] = field(default_factory=list)
 
     wants_pull: bool = False
     auto_merge_on_push: bool = True

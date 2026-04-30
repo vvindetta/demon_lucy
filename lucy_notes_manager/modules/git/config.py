@@ -2,15 +2,11 @@ from __future__ import annotations
 
 from lucy_notes_manager.lib.args import Template
 
-DEFAULT_COMMIT_MESSAGE: str = "Auto-commit"
-DEFAULT_TIMESTAMP_FORMAT: str = "%Y-%m-%d_%H-%M-%S"
-DEFAULT_MAX_BATCH_SECONDS: float = 8.0
-
 GIT_TEMPLATE: Template = [
     (
         "--git-msg",
         str,
-        DEFAULT_COMMIT_MESSAGE,
+        "Auto-commit",
         "Base commit message. Example: --git-msg 'Notes update'.",
     ),
     (
@@ -22,7 +18,7 @@ GIT_TEMPLATE: Template = [
     (
         "--git-tsfmt",
         str,
-        DEFAULT_TIMESTAMP_FORMAT,
+        "%Y-%m-%d_%H-%M-%S",
         "Timestamp format for --git-tsmsg (Python strftime). Example: --git-tsfmt '%Y-%m-%d %H:%M:%S'.",
     ),
     (
@@ -83,7 +79,7 @@ GIT_TEMPLATE: Template = [
     (
         "--git-max-batch-seconds",
         float,
-        DEFAULT_MAX_BATCH_SECONDS,
+        8.0,
         "Maximum time to keep a non-pull batch pending while new events keep arriving. "
         "Set 0 to disable forced flush.",
     ),
@@ -98,6 +94,30 @@ GIT_TEMPLATE: Template = [
         float,
         30.0,
         "Timeout (seconds) for git pull (merge). Increase for slow networks or large repos.",
+    ),
+    (
+        "--git-network-probe-timeout-sec",
+        float,
+        2.0,
+        "Timeout (seconds) for remote host network probe before pull. "
+        "Used to decide whether to wait for network and skip pull/notify when offline.",
+    ),
+    (
+        "--git-pull-offline-error-marker",
+        str,
+        [
+            "could not resolve host",
+            "temporary failure in name resolution",
+            "name or service not known",
+            "network is unreachable",
+            "no route to host",
+            "connection timed out",
+            "operation timed out",
+            "failed to connect",
+            "connection refused",
+        ],
+        "Error markers treated as offline/network failures for git pull. "
+        "Provide one or more markers to customize detection.",
     ),
     ("--git-push-timeout-sec", float, 20.0, "Timeout (seconds) for git push."),
     (

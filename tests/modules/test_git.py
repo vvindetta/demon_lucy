@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import subprocess
 from datetime import datetime
 
 import pytest
 from watchdog.events import FileMovedEvent, FileOpenedEvent
 
 import lucy_notes_manager.modules.git as git_mod
+import lucy_notes_manager.modules.git.helpers as git_helpers
+import lucy_notes_manager.modules.git.operations as git_ops
+import lucy_notes_manager.modules.git.worker as git_worker
 from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.git import Git, _RepoBatch
 from lucy_notes_manager.modules.git.worker import should_force_flush_batch
@@ -32,16 +36,16 @@ def test_git_module_is_marked_experimental(git_module):
 
 def test_parse_porcelain_paths_handles_regular_and_renamed(git_module):
     text = " M a.txt\nR  old.md -> new.md\n?? x.py\n"
-    assert git_module._parse_porcelain_paths(text) == ["a.txt", "new.md", "x.py"]
+    assert git_helpers.parse_porcelain_paths(text) == ["a.txt", "new.md", "x.py"]
 
 
 def test_push_rejected_needs_pull_detects_common_messages(git_module):
-    assert git_module._push_rejected_needs_pull("non-fast-forward update rejected")
-    assert not git_module._push_rejected_needs_pull("everything up-to-date")
+    assert git_helpers.push_rejected_needs_pull("non-fast-forward update rejected")
+    assert not git_helpers.push_rejected_needs_pull("everything up-to-date")
 
 
 def test_union_resolve_text_merges_conflict_content(git_module):
-    merged = git_module._union_resolve_text(
+    merged = git_helpers.union_resolve_text(
         "A\n<<<<<<< ours\none\n=======\ntwo\n>>>>>>> theirs\nB\n"
     )
     assert merged == "A\none\ntwo\nB\n"
@@ -98,7 +102,8 @@ def test_register_push_failure_updates_backoff(git_module, monkeypatch):
 
 
 def test_update_periodic_pull_state_default_disabled(git_module):
-    git_module._update_periodic_pull_state(
+    git_worker.update_periodic_pull_state(
+        git_module,
         repo_root="/repo",
         config_snapshot={"git_auto_pull_every_hours": 0.0},
         now_timestamp=100.0,
@@ -109,7 +114,8 @@ def test_update_periodic_pull_state_default_disabled(git_module):
 
 
 def test_update_periodic_pull_state_enables_and_emits_due_event(git_module):
-    git_module._update_periodic_pull_state(
+    git_worker.update_periodic_pull_state(
+        git_module,
         repo_root="/repo",
         config_snapshot={"git_auto_pull_every_hours": 2.0},
         now_timestamp=100.0,
@@ -118,9 +124,12 @@ def test_update_periodic_pull_state_enables_and_emits_due_event(git_module):
     assert git_module._periodic_pull_intervals_seconds["/repo"] == 7200.0
     assert git_module._periodic_pull_next_at["/repo"] == 7300.0
 
-    assert git_module._collect_due_periodic_pull_events(now_timestamp=7299.0) == []
+    assert (
+        git_worker.collect_due_periodic_pull_events(git_module, now_timestamp=7299.0)
+        == []
+    )
 
-    events = git_module._collect_due_periodic_pull_events(now_timestamp=7300.0)
+    events = git_worker.collect_due_periodic_pull_events(git_module, now_timestamp=7300.0)
     assert events == [
         ("/repo", "scheduled_pull", [], {"git_auto_pull_every_hours": 2.0}, True)
     ]
@@ -128,12 +137,14 @@ def test_update_periodic_pull_state_enables_and_emits_due_event(git_module):
 
 
 def test_update_periodic_pull_state_turns_off_existing_schedule(git_module):
-    git_module._update_periodic_pull_state(
+    git_worker.update_periodic_pull_state(
+        git_module,
         repo_root="/repo",
         config_snapshot={"git_auto_pull_every_hours": 1.0},
         now_timestamp=100.0,
     )
-    git_module._update_periodic_pull_state(
+    git_worker.update_periodic_pull_state(
+        git_module,
         repo_root="/repo",
         config_snapshot={"git_auto_pull_every_hours": 0.0},
         now_timestamp=200.0,
@@ -147,21 +158,28 @@ def test_update_periodic_pull_state_turns_off_existing_schedule(git_module):
 def test_scheduled_pull_batch_only_runs_pull(git_module, monkeypatch):
     pull_calls: list[tuple[str, float, float]] = []
 
-    monkeypatch.setattr(git_module, "_merge_in_progress", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(git_worker, "merge_in_progress", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(
         git_module,
         "_pull_allowed_with_progression",
         lambda **_kwargs: True,
     )
 
-    def _safe_pull_merge(repo_root, _environment, pull_timeout_seconds, operation_timeout_seconds, **_kwargs):
+    def _safe_pull_merge(
+        _self,
+        repo_root,
+        _environment,
+        pull_timeout_seconds,
+        operation_timeout_seconds,
+        **_kwargs,
+    ):
         pull_calls.append((repo_root, pull_timeout_seconds, operation_timeout_seconds))
         return True
 
-    monkeypatch.setattr(git_module, "_safe_pull_merge", _safe_pull_merge)
+    monkeypatch.setattr(git_worker, "safe_pull_merge", _safe_pull_merge)
     monkeypatch.setattr(
-        git_module,
-        "_run_git",
+        git_worker,
+        "run_git",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("scheduled pull-only batches must not run add/commit/push")
         ),
@@ -186,7 +204,7 @@ def test_scheduled_pull_batch_only_runs_pull(git_module, monkeypatch):
         event_types={"scheduled_pull"},
     )
 
-    git_module._process_batch(batch)
+    git_worker.process_batch(git_module, batch)
     assert pull_calls == [("/repo", 6.0, 5.0)]
 
 
@@ -220,9 +238,9 @@ def test_opened_enqueues_when_repo_exists(git_module, monkeypatch):
     recorded = {}
     monkeypatch.setattr(git_mod, "find_parent_with", lambda _p, _m: "/repo")
     monkeypatch.setattr(
-        git_module,
-        "_enqueue",
-        lambda **kwargs: recorded.update(kwargs),
+        git_mod,
+        "enqueue",
+        lambda _self, **kwargs: recorded.update(kwargs),
     )
 
     ctx = Context(path="/repo/note.md", config={"git_auto_pull": True}, arg_lines={})
@@ -242,9 +260,9 @@ def test_handle_moved_uses_src_and_dest_paths_for_hints(git_module, monkeypatch)
     recorded = {}
     monkeypatch.setattr(git_mod, "find_parent_with", lambda _p, _m: "/repo")
     monkeypatch.setattr(
-        git_module,
-        "_enqueue",
-        lambda **kwargs: recorded.update(kwargs),
+        git_mod,
+        "enqueue",
+        lambda _self, **kwargs: recorded.update(kwargs),
     )
 
     event = FileMovedEvent("/repo/old.md", "/repo/new.md")
@@ -254,3 +272,133 @@ def test_handle_moved_uses_src_and_dest_paths_for_hints(git_module, monkeypatch)
     git_module._handle(ctx, system, "moved")
     assert recorded["paths"] == ["/repo/old.md", "/repo/new.md"]
     assert recorded["event_type"] == "moved"
+
+
+def test_parse_remote_endpoint_handles_common_git_remote_shapes(git_module):
+    assert git_ops.parse_remote_endpoint("git@github.com:owner/repo.git") == (
+        "github.com",
+        22,
+    )
+    assert git_ops.parse_remote_endpoint("https://github.com/owner/repo.git") == (
+        "github.com",
+        443,
+    )
+    assert git_ops.parse_remote_endpoint("ssh://git@example.com:2222/repo.git") == (
+        "example.com",
+        2222,
+    )
+    assert git_ops.parse_remote_endpoint("sftp://example.com/repo.git") == (
+        "example.com",
+        22,
+    )
+    assert git_ops.parse_remote_endpoint("file:///tmp/repo.git") == (None, None)
+
+
+def test_safe_pull_merge_waits_for_network_without_notify_when_upstream(git_module, monkeypatch):
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops,
+        "upstream_remote_name",
+        lambda *_args, **_kwargs: "origin",
+    )
+    monkeypatch.setattr(
+        git_ops,
+        "remote_is_reachable",
+        lambda **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        git_ops,
+        "run_git",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("git pull should not run while remote is offline")
+        ),
+    )
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode="union",
+        auto_set_upstream=True,
+    )
+
+    assert pulled is False
+    assert notifications == []
+
+
+def test_safe_pull_merge_skips_remote_branch_lookup_when_offline(git_module, monkeypatch):
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(git_ops, "current_branch", lambda *_args, **_kwargs: "main")
+    monkeypatch.setattr(git_ops, "pick_remote", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(
+        git_ops,
+        "remote_is_reachable",
+        lambda **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        git_ops,
+        "remote_branch_exists",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("remote branch lookup should not run while remote is offline")
+        ),
+    )
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode="union",
+        auto_set_upstream=True,
+    )
+
+    assert pulled is False
+    assert notifications == []
+
+
+def test_safe_pull_merge_timeout_while_offline_skips_notify(git_module, monkeypatch):
+    notifications: list[dict] = []
+    reachability_calls = {"count": 0}
+
+    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops,
+        "upstream_remote_name",
+        lambda *_args, **_kwargs: "origin",
+    )
+
+    def _remote_is_reachable(**_kwargs):
+        reachability_calls["count"] += 1
+        return reachability_calls["count"] == 1
+
+    monkeypatch.setattr(git_ops, "remote_is_reachable", _remote_is_reachable)
+    monkeypatch.setattr(
+        git_ops,
+        "run_git",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired(cmd=["git", "pull"], timeout=10.0)
+        ),
+    )
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode="union",
+        auto_set_upstream=True,
+    )
+
+    assert pulled is False
+    assert notifications == []

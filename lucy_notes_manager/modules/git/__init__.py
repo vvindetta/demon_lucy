@@ -21,37 +21,11 @@ from lucy_notes_manager.modules.abstract_module import (
     System,
 )
 from lucy_notes_manager.modules.git.config import (
-    DEFAULT_COMMIT_MESSAGE,
-    DEFAULT_TIMESTAMP_FORMAT,
     GIT_TEMPLATE,
 )
-from lucy_notes_manager.modules.git.helpers import (
-    parse_porcelain_paths,
-    push_rejected_needs_pull,
-    to_str,
-    union_resolve_text,
-)
-from lucy_notes_manager.modules.git.operations import (
-    auto_resolve_merge_conflicts,
-    conflicted_files,
-    current_branch,
-    git_environment,
-    has_upstream,
-    merge_in_progress,
-    pick_remote,
-    remote_branch_exists,
-    run_git,
-    safe_pull_merge,
-    try_set_upstream,
-)
+from lucy_notes_manager.modules.git.helpers import to_str
 from lucy_notes_manager.modules.git.types import _RepoBatch
-from lucy_notes_manager.modules.git.worker import (
-    collect_due_periodic_pull_events,
-    enqueue,
-    process_batch,
-    update_periodic_pull_state,
-    worker_loop,
-)
+from lucy_notes_manager.modules.git.worker import enqueue, worker_loop
 
 logger = logging.getLogger(__name__)
 
@@ -61,32 +35,7 @@ class Git(AbstractModule):
     priority: int = 50
     experimental: bool = True
 
-    default_commit_message: str = DEFAULT_COMMIT_MESSAGE
-    default_timestamp_format: str = DEFAULT_TIMESTAMP_FORMAT
     template: Template = GIT_TEMPLATE
-
-    _to_str = staticmethod(to_str)
-    _parse_porcelain_paths = staticmethod(parse_porcelain_paths)
-    _push_rejected_needs_pull = staticmethod(push_rejected_needs_pull)
-    _union_resolve_text = staticmethod(union_resolve_text)
-
-    _git_environment = git_environment
-    _run_git = run_git
-    _has_upstream = has_upstream
-    _current_branch = current_branch
-    _pick_remote = pick_remote
-    _remote_branch_exists = remote_branch_exists
-    _try_set_upstream = try_set_upstream
-    _merge_in_progress = merge_in_progress
-    _conflicted_files = conflicted_files
-    _auto_resolve_merge_conflicts = auto_resolve_merge_conflicts
-    _safe_pull_merge = safe_pull_merge
-
-    _enqueue = enqueue
-    _worker_loop = worker_loop
-    _process_batch = process_batch
-    _update_periodic_pull_state = update_periodic_pull_state
-    _collect_due_periodic_pull_events = collect_due_periodic_pull_events
 
     def __init__(self) -> None:
         super().__init__()
@@ -106,7 +55,10 @@ class Git(AbstractModule):
         self._periodic_pull_intervals_seconds: dict[str, float] = {}
         self._periodic_pull_configs: dict[str, dict] = {}
 
-        self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker_thread = threading.Thread(
+            target=lambda: worker_loop(self),
+            daemon=True,
+        )
         self._worker_thread.start()
 
     def _build_commit_message(self, batch: _RepoBatch, changed_paths: list[str]) -> str:
@@ -161,23 +113,22 @@ class Git(AbstractModule):
         self._push_next_allowed_at[repo_root] = time.time() + new_backoff
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        ctx_path = (
-            abs_expand_path(self._to_str(ctx.path)) if getattr(ctx, "path", None) else ""
-        )
+        ctx_path = abs_expand_path(to_str(ctx.path)) if getattr(ctx, "path", None) else ""
         if ctx_path and path_has_component(ctx_path, ".git"):
             return None
 
-        repo_root = find_parent_with(self._to_str(ctx.path), ".git")
+        repo_root = find_parent_with(to_str(ctx.path), ".git")
         if not repo_root:
             return None
 
         if not ctx.config["git_auto_pull"]:
             return None
 
-        self._enqueue(
+        enqueue(
+            self,
             repo_root=repo_root,
             event_type="opened",
-            paths=[self._to_str(ctx.path)],
+            paths=[to_str(ctx.path)],
             config_snapshot=ctx.config,
             wants_pull=True,
         )
@@ -200,10 +151,10 @@ class Git(AbstractModule):
     ) -> Optional[IgnoreMap]:
         event = system.event
 
-        source_path_raw = self._to_str(getattr(event, "src_path", "") or "")
+        source_path_raw = to_str(getattr(event, "src_path", "") or "")
         destination_path_raw = getattr(event, "dest_path", None)
         destination_path_value = (
-            self._to_str(destination_path_raw)
+            to_str(destination_path_raw)
             if destination_path_raw is not None
             else ""
         )
@@ -218,7 +169,7 @@ class Git(AbstractModule):
         ):
             return None
 
-        repo_root = find_parent_with(self._to_str(ctx.path), ".git") or find_parent_with(
+        repo_root = find_parent_with(to_str(ctx.path), ".git") or find_parent_with(
             destination_path or source_path, ".git"
         )
         if not repo_root:
@@ -226,14 +177,15 @@ class Git(AbstractModule):
 
         paths_to_hint: list[str] = []
         if event_type != "moved":
-            paths_to_hint = [self._to_str(ctx.path)]
+            paths_to_hint = [to_str(ctx.path)]
         else:
             if source_path:
                 paths_to_hint.append(source_path)
             if destination_path:
                 paths_to_hint.append(destination_path)
 
-        self._enqueue(
+        enqueue(
+            self,
             repo_root=repo_root,
             event_type=event_type,
             paths=paths_to_hint,
