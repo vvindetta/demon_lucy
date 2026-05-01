@@ -15,6 +15,11 @@ def _reset_plasma_globals(monkeypatch):
     monkeypatch.setattr(plasma_mod, "_LAST_DOC_HASH", None)
     monkeypatch.setattr(plasma_mod, "_LAST_BOLD_ITEMS_HASH", None)
     monkeypatch.setattr(plasma_mod, "_LAST_CSS_STYLE", None)
+    monkeypatch.setattr(
+        plasma_mod,
+        "_STATE",
+        plasma_mod.SyncState(doc_hash=None, bold_items_hash=None, css_style=None),
+    )
 
 
 def _canonicalize_md(md_text: str) -> str:
@@ -258,3 +263,237 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
     assert md_path.read_text(encoding="utf-8") == final_md == last_expected_md
     assert widget_path.read_text(encoding="utf-8") == final_widget
     assert mirror_path.read_text(encoding="utf-8") == final_mirror
+
+
+def test_css_toggle_rewrites_widget_structure_on_same_doc(tmp_path: Path):
+    md_path = tmp_path / "todo.md"
+    widget_path = tmp_path / "widget.html"
+    mirror_path = tmp_path / "mirror.html"
+    module = PlasmaSync()
+
+    md_path.write_text("- [ ] **Task**\n", encoding="utf-8")
+
+    module._from_markdown(
+        markdown_path=str(md_path),
+        widget_path=str(widget_path),
+        bold_widget_path=str(mirror_path),
+        css_style=False,
+    )
+    plain_html = widget_path.read_text(encoding="utf-8")
+    assert "<ul>" not in plain_html
+    assert "- [ ] " in plain_html
+
+    ignore = module._from_markdown(
+        markdown_path=str(md_path),
+        widget_path=str(widget_path),
+        bold_widget_path=str(mirror_path),
+        css_style=True,
+    )
+    css_html = widget_path.read_text(encoding="utf-8")
+
+    assert ignore is not None
+    assert str(widget_path.resolve()) in ignore
+    assert "li.unchecked::marker" not in plain_html
+    assert "li.unchecked::marker" in css_html
+
+
+def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
+    md_path = tmp_path / "todo.md"
+    widget_path = tmp_path / "widget.html"
+    mirror_path = tmp_path / "mirror.html"
+    module = PlasmaSync()
+
+    # bootstrap files
+    md_path.write_text("**seed**\n", encoding="utf-8")
+    module._from_markdown(
+        markdown_path=str(md_path),
+        widget_path=str(widget_path),
+        bold_widget_path=str(mirror_path),
+        css_style=False,
+    )
+
+    # Main edit wins when main event is processed last.
+    widget_path.write_text(
+        plasma_mod._doc_to_plasma_html(
+            [DocLine(kind="p", state=None, segs=[("from main", True)])],
+            css_style=False,
+        ),
+        encoding="utf-8",
+    )
+    module._from_main_plasma(
+        widget_path=str(widget_path),
+        markdown_path=str(md_path),
+        bold_widget_path=str(mirror_path),
+        css_style=False,
+        html_path=str(widget_path),
+    )
+    assert md_path.read_text(encoding="utf-8") == "**from main**"
+
+    # Mirror edit wins when mirror event is processed last.
+    mirror_path.write_text(
+        plasma_mod._bold_items_to_plasma_html(["from mirror"]),
+        encoding="utf-8",
+    )
+    module._from_bold_mirror(
+        widget_path=str(widget_path),
+        markdown_path=str(md_path),
+        bold_widget_path=str(mirror_path),
+        css_style=False,
+    )
+    assert md_path.read_text(encoding="utf-8") == "**from mirror**"
+
+    # Main edit wins again if processed last.
+    widget_path.write_text(
+        plasma_mod._doc_to_plasma_html(
+            [DocLine(kind="p", state=None, segs=[("from main again", True)])],
+            css_style=False,
+        ),
+        encoding="utf-8",
+    )
+    module._from_main_plasma(
+        widget_path=str(widget_path),
+        markdown_path=str(md_path),
+        bold_widget_path=str(mirror_path),
+        css_style=False,
+        html_path=str(widget_path),
+    )
+    assert md_path.read_text(encoding="utf-8") == "**from main again**"
+
+
+def test_engine_state_is_isolated_per_sync_context():
+    state_a = plasma_mod.bootstrap_state("**A**", "")
+    state_b = plasma_mod.bootstrap_state("**B**", "")
+
+    plan_a = plasma_mod.plan_from_markdown(
+        state=state_a,
+        markdown_text="**A1**",
+        markdown_exists=True,
+        widget_html_current="",
+        mirror_html_current=None,
+        css_style=False,
+    )
+    plan_b = plasma_mod.plan_from_markdown(
+        state=state_b,
+        markdown_text="**B1**",
+        markdown_exists=True,
+        widget_html_current="",
+        mirror_html_current=None,
+        css_style=False,
+    )
+
+    assert plan_a.next_state.doc_hash != state_b.doc_hash
+    assert plan_b.next_state.doc_hash != state_a.doc_hash
+
+
+def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
+    md_path = tmp_path / "todo.md"
+    widget_path = tmp_path / "widget.html"
+    md_path.write_text("**new**\n", encoding="utf-8")
+    widget_path.write_text("old-widget", encoding="utf-8")
+
+    initial_state = plasma_mod.SyncState(
+        doc_hash="doc-before",
+        bold_items_hash="bold-before",
+        css_style=False,
+    )
+    monkeypatch.setattr(plasma_mod, "_STATE", initial_state)
+
+    real_write = plasma_mod._write_text_atomic
+
+    def fail_widget_write(path: str, content: str, *, notify_errors: bool = True) -> bool:
+        if plasma_mod.canonical_path(path) == str(widget_path.resolve()) and notify_errors:
+            return False
+        return real_write(path, content, notify_errors=notify_errors)
+
+    monkeypatch.setattr(plasma_mod, "_write_text_atomic", fail_widget_write)
+
+    ignore = PlasmaSync()._from_markdown(
+        markdown_path=str(md_path),
+        widget_path=str(widget_path),
+        bold_widget_path=None,
+        css_style=False,
+    )
+
+    assert ignore is None
+    assert plasma_mod._STATE == initial_state
+    assert widget_path.read_text(encoding="utf-8") == "old-widget"
+
+
+def test_read_error_is_not_treated_as_empty_input(tmp_path: Path, monkeypatch):
+    md_path = tmp_path / "todo.md"
+    widget_path = tmp_path / "widget.html"
+    md_path.write_text("**seed**\n", encoding="utf-8")
+    widget_path.write_text("old-widget", encoding="utf-8")
+
+    initial_state = plasma_mod.SyncState(
+        doc_hash="doc-before",
+        bold_items_hash="bold-before",
+        css_style=False,
+    )
+    monkeypatch.setattr(plasma_mod, "_STATE", initial_state)
+
+    real_open = open
+
+    def fail_markdown_read(path, mode="r", *args, **kwargs):
+        if (
+            "r" in mode
+            and plasma_mod.canonical_path(str(path)) == str(md_path.resolve())
+        ):
+            raise PermissionError("denied")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(plasma_mod, "open", fail_markdown_read, raising=False)
+
+    ignore = PlasmaSync()._from_markdown(
+        markdown_path=str(md_path),
+        widget_path=str(widget_path),
+        bold_widget_path=None,
+        css_style=False,
+    )
+
+    assert ignore is None
+    assert plasma_mod._STATE == initial_state
+    assert widget_path.read_text(encoding="utf-8") == "old-widget"
+
+
+def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monkeypatch):
+    md_path = tmp_path / "todo.md"
+    widget_path = tmp_path / "widget.html"
+    mirror_path = tmp_path / "mirror.html"
+
+    md_path.write_text("**new-main**\n", encoding="utf-8")
+    widget_path.write_text("old-widget", encoding="utf-8")
+    mirror_path.write_text("old-mirror", encoding="utf-8")
+
+    initial_state = plasma_mod.SyncState(
+        doc_hash="doc-before",
+        bold_items_hash="bold-before",
+        css_style=False,
+    )
+    monkeypatch.setattr(plasma_mod, "_STATE", initial_state)
+
+    mirror_old = mirror_path.read_text(encoding="utf-8")
+    real_write = plasma_mod._write_text_atomic
+
+    def fail_mirror_write(path: str, content: str, *, notify_errors: bool = True) -> bool:
+        if (
+            plasma_mod.canonical_path(path) == str(mirror_path.resolve())
+            and content != mirror_old
+            and notify_errors
+        ):
+            return False
+        return real_write(path, content, notify_errors=notify_errors)
+
+    monkeypatch.setattr(plasma_mod, "_write_text_atomic", fail_mirror_write)
+
+    ignore = PlasmaSync()._from_markdown(
+        markdown_path=str(md_path),
+        widget_path=str(widget_path),
+        bold_widget_path=str(mirror_path),
+        css_style=False,
+    )
+
+    assert ignore is None
+    assert plasma_mod._STATE == initial_state
+    assert widget_path.read_text(encoding="utf-8") == "old-widget"
+    assert mirror_path.read_text(encoding="utf-8") == "old-mirror"
