@@ -1,0 +1,11 @@
+when:
+  - event: [push, pull_request]
+
+steps:
+  test:
+    image: python:3.12
+    commands:
+      - python -m pip install --upgrade pip
+      - pip install -r requirements.txt
+      - pip install pytest
+      - pytest -q tests
