@@ -2,10 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from watchdog.events import FileModifiedEvent
 
 from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.sys import Sys
+
+
+def _base_config() -> dict[str, object]:
+    return {
+        "mods": False,
+        "ping": False,
+        "help": False,
+        "config": False,
+        "sys_event": False,
+        "man": [],
+    }
 
 
 def test_man_lines_list_and_specific_name():
@@ -26,25 +38,47 @@ def test_man_lines_list_and_specific_name():
     assert any("--todo:" in line for line in one_lines)
 
 
-def test_apply_inserts_block_for_first_line_flags(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("first_line", "config_patch", "arg_lines", "global_template", "expected_lines"),
+    [
+        (
+            "--mods --help\nbody\n",
+            {"mods": True, "help": True},
+            {"mods": [1], "help": [1]},
+            [("--mods", bool, False, ""), ("--help", bool, False, "")],
+            ["--- mods+help ---\n", "* --mods: print loaded modules and their priorities\n"],
+        ),
+        (
+            "--ping\n",
+            {"ping": True},
+            {"ping": [1]},
+            [("--ping", bool, False, "Health-check command: prints pong.")],
+            ["--- ping ---\n", "* pong\n"],
+        ),
+    ],
+)
+def test_apply_inserts_block_for_first_line_flags(
+    tmp_path: Path,
+    first_line: str,
+    config_patch: dict[str, object],
+    arg_lines: dict[str, list[int]],
+    global_template: list[tuple[str, type, object, str]],
+    expected_lines: list[str],
+):
     note = tmp_path / "note.md"
-    note.write_text("--mods --help\nbody\n", encoding="utf-8")
+    note.write_text(first_line, encoding="utf-8")
 
     module = Sys()
+    config = _base_config()
+    config.update(config_patch)
     ctx = Context(
         path=str(note),
-        config={
-            "mods": True,
-            "help": True,
-            "config": False,
-            "sys_event": False,
-            "man": [],
-        },
-        arg_lines={"mods": [1], "help": [1]},
+        config=config,
+        arg_lines=arg_lines,
     )
     system = System(
         event=FileModifiedEvent(str(note)),
-        global_template=[("--mods", bool, False, ""), ("--help", bool, False, "")],
+        global_template=global_template,
         modules=[module],
     )
 
@@ -52,8 +86,8 @@ def test_apply_inserts_block_for_first_line_flags(tmp_path: Path):
     content = note.read_text(encoding="utf-8")
 
     assert changed == {str(note): 1}
-    assert "--- mods+help ---\n" in content
-    assert "* --mods: print loaded modules and their priorities\n" in content
+    for line in expected_lines:
+        assert line in content
 
 
 def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
@@ -61,15 +95,11 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
     note.write_text("head\n--man list\n", encoding="utf-8")
 
     module = Sys()
+    config = _base_config()
+    config["man"] = ["list"]
     ctx = Context(
         path=str(note),
-        config={
-            "mods": False,
-            "help": False,
-            "config": False,
-            "sys_event": False,
-            "man": ["list"],
-        },
+        config=config,
         arg_lines={"man": [2]},
     )
     system = System(
@@ -84,34 +114,3 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
     assert changed == {str(note): 1}
     assert "--- man ---\n" in content
     assert "* --man type=str default=None\n" in content
-
-
-def test_apply_ping_outputs_pong(tmp_path: Path):
-    note = tmp_path / "note.md"
-    note.write_text("--ping\n", encoding="utf-8")
-
-    module = Sys()
-    ctx = Context(
-        path=str(note),
-        config={
-            "mods": False,
-            "ping": True,
-            "help": False,
-            "config": False,
-            "sys_event": False,
-            "man": [],
-        },
-        arg_lines={"ping": [1]},
-    )
-    system = System(
-        event=FileModifiedEvent(str(note)),
-        global_template=[("--ping", bool, False, "Health-check command: prints pong.")],
-        modules=[],
-    )
-
-    changed = module.modified(ctx, system)
-    content = note.read_text(encoding="utf-8")
-
-    assert changed == {str(note): 1}
-    assert "--- ping ---\n" in content
-    assert "* pong\n" in content

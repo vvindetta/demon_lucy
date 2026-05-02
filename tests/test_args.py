@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from lucy_notes_manager.lib.args import (
     delete_args_from_string,
     get_args_from_file,
@@ -57,10 +59,17 @@ def test_merge_known_args_overwrites_only_when_value_is_meaningful():
     assert merged == {"a": 1, "b": "x", "c": ["new"], "d": 5}
 
 
-def test_delete_args_from_string_removes_flag_segments():
-    line = '--banner "Hello world" body --todo --x=1 tail\n'
-    cleaned = delete_args_from_string(line, ["--banner", "--todo", "--x"])
-    assert cleaned == "body tail\n"
+@pytest.mark.parametrize(
+    ("line", "args", "expected"),
+    [
+        ('--banner "Hello world" body --todo --x=1 tail\n', ["--banner", "--todo", "--x"], "body tail\n"),
+        ("prefix --todo one --todo two\n", ["--todo"], "prefix\n"),
+    ],
+)
+def test_delete_args_from_string_removes_flag_segments(
+    line: str, args: list[str], expected: str
+):
+    assert delete_args_from_string(line, args) == expected
 
 
 def test_get_args_from_file_skips_non_utf8_files(tmp_path: Path):

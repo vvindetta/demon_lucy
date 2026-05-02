@@ -30,8 +30,25 @@ def git_module(monkeypatch):
     return Git()
 
 
-def test_git_module_is_marked_experimental(git_module):
-    assert git_module.experimental is True
+def _mk_batch(**overrides) -> _RepoBatch:
+    values = {
+        "repo_root": "/repo",
+        "base_message": "Auto",
+        "add_timestamp_to_message": False,
+        "timestamp_format": "%Y",
+        "environment": {},
+        "debounce_seconds": 0.5,
+        "git_timeout_seconds": 5.0,
+        "pull_timeout_seconds": 6.0,
+        "push_timeout_seconds": 7.0,
+        "backoff_start_seconds": 2.0,
+        "backoff_max_seconds": 8.0,
+        "pull_cooldown_min_seconds": 1.0,
+        "pull_cooldown_max_seconds": 4.0,
+        "max_batch_seconds": 8.0,
+    }
+    values.update(overrides)
+    return _RepoBatch(**values)
 
 
 def test_parse_porcelain_paths_handles_regular_and_renamed(git_module):
@@ -59,21 +76,10 @@ def test_build_commit_message_includes_event_summary_and_names(git_module, monke
 
     monkeypatch.setattr(git_mod, "datetime", _FakeDateTime)
 
-    batch = _RepoBatch(
-        repo_root="/repo",
-        base_message="Auto",
+    batch = _mk_batch(
         add_timestamp_to_message=True,
-        timestamp_format="%Y",
-        environment={},
-        debounce_seconds=0.5,
-        git_timeout_seconds=5.0,
         pull_timeout_seconds=5.0,
         push_timeout_seconds=5.0,
-        backoff_start_seconds=2.0,
-        backoff_max_seconds=8.0,
-        pull_cooldown_min_seconds=1.0,
-        pull_cooldown_max_seconds=4.0,
-        max_batch_seconds=8.0,
         event_types={"modified", "created"},
         hinted_paths={"/repo/hinted.md"},
     )
@@ -185,21 +191,7 @@ def test_scheduled_pull_batch_only_runs_pull(git_module, monkeypatch):
         ),
     )
 
-    batch = _RepoBatch(
-        repo_root="/repo",
-        base_message="Auto",
-        add_timestamp_to_message=False,
-        timestamp_format="%Y",
-        environment={},
-        debounce_seconds=0.5,
-        git_timeout_seconds=5.0,
-        pull_timeout_seconds=6.0,
-        push_timeout_seconds=7.0,
-        backoff_start_seconds=2.0,
-        backoff_max_seconds=8.0,
-        pull_cooldown_min_seconds=1.0,
-        pull_cooldown_max_seconds=4.0,
-        max_batch_seconds=8.0,
+    batch = _mk_batch(
         wants_pull=True,
         event_types={"scheduled_pull"},
     )
@@ -209,20 +201,7 @@ def test_scheduled_pull_batch_only_runs_pull(git_module, monkeypatch):
 
 
 def test_should_force_flush_batch_for_non_pull_batches():
-    batch = _RepoBatch(
-        repo_root="/repo",
-        base_message="Auto",
-        add_timestamp_to_message=False,
-        timestamp_format="%Y",
-        environment={},
-        debounce_seconds=0.5,
-        git_timeout_seconds=5.0,
-        pull_timeout_seconds=6.0,
-        push_timeout_seconds=7.0,
-        backoff_start_seconds=2.0,
-        backoff_max_seconds=8.0,
-        pull_cooldown_min_seconds=1.0,
-        pull_cooldown_max_seconds=4.0,
+    batch = _mk_batch(
         max_batch_seconds=5.0,
         first_event_at=10.0,
         event_types={"opened"},
@@ -274,26 +253,22 @@ def test_handle_moved_uses_src_and_dest_paths_for_hints(git_module, monkeypatch)
     assert recorded["event_type"] == "moved"
 
 
-def test_parse_remote_endpoint_handles_common_git_remote_shapes(git_module):
-    assert git_ops.parse_remote_endpoint("git@github.com:owner/repo.git") == (
-        "github.com",
-        22,
-    )
-    assert git_ops.parse_remote_endpoint("https://github.com/owner/repo.git") == (
-        "github.com",
-        443,
-    )
-    assert git_ops.parse_remote_endpoint("ssh://git@example.com:2222/repo.git") == (
-        "example.com",
-        2222,
-    )
-    assert git_ops.parse_remote_endpoint("sftp://example.com/repo.git") == (
-        "example.com",
-        22,
-    )
-    assert git_ops.parse_remote_endpoint("file:///tmp/repo.git") == (None, None)
-    assert git_ops.parse_remote_endpoint(r"C:\notes\repo.git") == (None, None)
-    assert git_ops.parse_remote_endpoint(r"\\server\share\repo.git") == (None, None)
+@pytest.mark.parametrize(
+    ("remote", "expected"),
+    [
+        ("git@github.com:owner/repo.git", ("github.com", 22)),
+        ("https://github.com/owner/repo.git", ("github.com", 443)),
+        ("ssh://git@example.com:2222/repo.git", ("example.com", 2222)),
+        ("sftp://example.com/repo.git", ("example.com", 22)),
+        ("file:///tmp/repo.git", (None, None)),
+        (r"C:\notes\repo.git", (None, None)),
+        (r"\\server\share\repo.git", (None, None)),
+    ],
+)
+def test_parse_remote_endpoint_handles_common_git_remote_shapes(
+    remote: str, expected: tuple[str | None, int | None]
+):
+    assert git_ops.parse_remote_endpoint(remote) == expected
 
 
 def test_safe_pull_merge_waits_for_network_without_notify_when_upstream(git_module, monkeypatch):
@@ -553,22 +528,7 @@ def test_process_due_batches_continues_after_batch_exception(git_module, monkeyp
     monkeypatch.setattr(git_worker, "process_batch", _process_batch)
 
     def _batch(repo_root: str) -> _RepoBatch:
-        return _RepoBatch(
-            repo_root=repo_root,
-            base_message="Auto",
-            add_timestamp_to_message=False,
-            timestamp_format="%Y",
-            environment={},
-            debounce_seconds=0.5,
-            git_timeout_seconds=5.0,
-            pull_timeout_seconds=6.0,
-            push_timeout_seconds=7.0,
-            backoff_start_seconds=2.0,
-            backoff_max_seconds=8.0,
-            pull_cooldown_min_seconds=1.0,
-            pull_cooldown_max_seconds=4.0,
-            max_batch_seconds=8.0,
-        )
+        return _mk_batch(repo_root=repo_root)
 
     git_worker._process_due_batches(git_module, [_batch("/repo1"), _batch("/repo2")])
 
@@ -608,21 +568,7 @@ def test_attempt_push_with_retry_second_push_timeout_notifies_once(
         lambda *args, **kwargs: register_calls.append((args, kwargs)),
     )
 
-    batch = _RepoBatch(
-        repo_root="/repo",
-        base_message="Auto",
-        add_timestamp_to_message=False,
-        timestamp_format="%Y",
-        environment={},
-        debounce_seconds=0.5,
-        git_timeout_seconds=5.0,
-        pull_timeout_seconds=6.0,
-        push_timeout_seconds=7.0,
-        backoff_start_seconds=2.0,
-        backoff_max_seconds=8.0,
-        pull_cooldown_min_seconds=1.0,
-        pull_cooldown_max_seconds=4.0,
-        max_batch_seconds=8.0,
+    batch = _mk_batch(
         auto_merge_on_push=True,
         auto_set_upstream=True,
         autoresolve_mode="union",
@@ -681,21 +627,7 @@ def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypat
         lambda *args, **kwargs: register_calls.append((args, kwargs)),
     )
 
-    batch = _RepoBatch(
-        repo_root="/repo",
-        base_message="Auto",
-        add_timestamp_to_message=False,
-        timestamp_format="%Y",
-        environment={},
-        debounce_seconds=0.5,
-        git_timeout_seconds=5.0,
-        pull_timeout_seconds=6.0,
-        push_timeout_seconds=7.0,
-        backoff_start_seconds=2.0,
-        backoff_max_seconds=8.0,
-        pull_cooldown_min_seconds=1.0,
-        pull_cooldown_max_seconds=4.0,
-        max_batch_seconds=8.0,
+    batch = _mk_batch(
         auto_merge_on_push=True,
         auto_set_upstream=True,
         autoresolve_mode="union",

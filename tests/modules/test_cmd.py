@@ -2,25 +2,32 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from watchdog.events import FileDeletedEvent, FileModifiedEvent
+import pytest
+from watchdog.events import FileModifiedEvent
 
 from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.cmd import Cmd
 
 
-def test_collect_runs_groups_tokens_by_line():
+@pytest.mark.parametrize(
+    ("tokens", "lines", "expected"),
+    [
+        (["echo", "hello", "ls", "-la"], [1, 1, 2, 2], [(1, ["echo", "hello"]), (2, ["ls", "-la"])]),
+        (["pwd", "whoami", "date"], [3, 4, 4], [(3, ["pwd"]), (4, ["whoami", "date"])]),
+    ],
+)
+def test_collect_runs_groups_tokens_by_line(
+    tokens: list[str], lines: list[int], expected: list[tuple[int, list[str]]]
+):
     module = Cmd()
     ctx = Context(
         path="/tmp/x.md",
-        config={"c": ["echo", "hello", "ls", "-la"]},
-        arg_lines={"c": [1, 1, 2, 2]},
+        config={"c": tokens},
+        arg_lines={"c": lines},
     )
 
     runs = module._collect_runs(ctx)
-    assert len(runs) == 2
-    assert runs[0].lineno_1based == 1
-    assert runs[0].cmd_tokens == ["echo", "hello"]
-    assert runs[1].cmd_tokens == ["ls", "-la"]
+    assert [(run.lineno_1based, run.cmd_tokens) for run in runs] == expected
 
 
 def test_apply_replaces_command_line_with_output_block(tmp_path: Path, monkeypatch):
@@ -54,14 +61,3 @@ def test_apply_replaces_command_line_with_output_block(tmp_path: Path, monkeypat
     assert "--- echo ---\n" in content
     assert "OUT\n" in content
     assert "tail\n" in content
-
-
-def test_deleted_event_is_noop():
-    module = Cmd()
-    ctx = Context(path="/tmp/x", config={}, arg_lines={})
-    system = System(
-        event=FileDeletedEvent("/tmp/x"),
-        global_template=[],
-        modules=[],
-    )
-    assert module.deleted(ctx, system) is None

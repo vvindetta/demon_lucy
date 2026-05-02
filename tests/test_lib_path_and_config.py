@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from lucy_notes_manager.lib.path import (
     abs_expand_path,
     canonical_path,
@@ -20,13 +22,20 @@ def test_abs_expand_path_and_canonical_path(tmp_path: Path) -> None:
     assert canonical_path(odd) == str(target.resolve())
 
 
-def test_path_has_component_detects_git_dir(tmp_path: Path) -> None:
-    git_cfg = tmp_path / ".git" / "config"
-    git_cfg.parent.mkdir(parents=True)
-    git_cfg.write_text("x\n", encoding="utf-8")
-
-    assert path_has_component(str(git_cfg), ".git") is True
-    assert path_has_component(str(tmp_path / "notes.md"), ".git") is False
+@pytest.mark.parametrize(
+    ("relative_path", "expected"),
+    [
+        (".git/config", True),
+        ("notes.md", False),
+    ],
+)
+def test_path_has_component_detects_git_dir(
+    tmp_path: Path, relative_path: str, expected: bool
+) -> None:
+    path = tmp_path / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("x\n", encoding="utf-8")
+    assert path_has_component(str(path), ".git") is expected
 
 
 def test_find_parent_with_git_marker(tmp_path: Path) -> None:

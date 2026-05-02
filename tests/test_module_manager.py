@@ -40,10 +40,14 @@ class _ModC(AbstractModule):
         return {ctx.path: 2}
 
 
-def test_parse_priority_list_rejects_bad_items():
+@pytest.mark.parametrize(
+    "value",
+    ["broken-item", "a=not-int", "=5"],
+)
+def test_parse_priority_list_rejects_bad_items(value: str):
     manager = ModuleManager(modules=[_ModA()], args=[])
     with pytest.raises(ValueError):
-        manager._parse_priority_list(["broken-item"])
+        manager._parse_priority_list([value])
 
 
 def test_init_sorts_modules_by_priority_override():

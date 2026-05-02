@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from watchdog.events import FileModifiedEvent
 
 from lucy_notes_manager.lib.args import Template
@@ -10,17 +11,21 @@ class DemoModule(AbstractModule):
     name: str = "demo"
 
 
-def test_default_module_hooks_are_noops():
+def test_default_module_experimental_flag_is_false():
+    assert DemoModule().experimental is False
+
+
+@pytest.mark.parametrize(
+    "hook_name",
+    ["created", "modified", "moved", "deleted", "opened"],
+)
+def test_default_module_hooks_are_noops(hook_name: str):
     module = DemoModule()
     ctx = Context(path="/tmp/x", config={}, arg_lines={})
     system = System(event=FileModifiedEvent("/tmp/x"), global_template=[], modules=[module])
 
-    assert module.experimental is False
-    assert module.created(ctx, system) is None
-    assert module.modified(ctx, system) is None
-    assert module.moved(ctx, system) is None
-    assert module.deleted(ctx, system) is None
-    assert module.opened(ctx, system) is None
+    hook = getattr(module, hook_name)
+    assert hook(ctx, system) is None
 
 
 def test_context_and_system_dataclasses_keep_values():

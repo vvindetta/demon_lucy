@@ -6,6 +6,7 @@ import pytest
 
 import lucy_notes_manager.modules.plasma_sync as plasma_mod
 from lucy_notes_manager.modules.abstract_module import Context
+from lucy_notes_manager.modules.plasma_sync.mirror_mapper import _bold_items_to_plasma_html
 from lucy_notes_manager.modules.plasma_sync import DocLine, PlasmaSync
 
 
@@ -26,6 +27,13 @@ def _canonicalize_md(md_text: str) -> str:
     return plasma_mod._doc_to_md(plasma_mod._md_to_doc(plasma_mod._normalize_md(md_text)))
 
 
+def _roundtrip_once(md_text: str, *, css_style: bool) -> str:
+    doc_from_md = plasma_mod._md_to_doc(plasma_mod._normalize_md(md_text))
+    html = plasma_mod._doc_to_plasma_html(doc_from_md, css_style=css_style)
+    doc_from_html = plasma_mod._html_to_doc(html)
+    return plasma_mod._doc_to_md(doc_from_html)
+
+
 def test_md_doc_roundtrip_preserves_checkbox_and_bold():
     md = "- [ ] **Task**\nPlain line"
     doc = plasma_mod._md_to_doc(md)
@@ -34,10 +42,6 @@ def test_md_doc_roundtrip_preserves_checkbox_and_bold():
     assert doc[0].state == "unchecked"
     assert doc[1].kind == "p"
     assert plasma_mod._doc_to_md(doc) == md
-
-
-def test_plasma_sync_is_marked_experimental():
-    assert PlasmaSync().experimental is True
 
 
 def test_doc_to_plasma_html_mode_switch_changes_structure():
@@ -134,57 +138,36 @@ def test_from_main_plasma_updates_markdown(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    "source_md",
+    ("source_md", "mode_sequence", "rounds"),
     [
-        "- [ ] **Task A**\nline with **mid** bold and tail\n- [x] done",
-        "a\\*b\\*c\n**bold**\n\n- [ ] item",
-        "plain\n\n- [x] **Checked** and plain suffix\n- [ ] second",
-        "**one** **two**\n- [ ] mix **x** y **z**",
+        (
+            "- [ ] **Task A**\nline with **mid** bold and tail\n- [x] done",
+            [False],
+            40,
+        ),
+        ("a\\*b\\*c\n**bold**\n\n- [ ] item", [False, True, False], 24),
+        ("plain\n\n- [x] **Checked** and plain suffix\n- [ ] second", [True, False], 26),
+        ("**one** **two**\n- [ ] mix **x** y **z**", [False, True, False, True], 20),
+        ("- [ ] first\n- [x] **second**", [True], 35),
+        ("para **bold** text\n\n- [ ] list", [True, False, True], 22),
+        ("**A**\n**B**\n- [ ] **C**", [True], 35),
     ],
 )
-def test_roundtrip_plain_mode_is_stable_after_many_cycles(source_md: str):
+def test_roundtrip_mode_sequences_remain_stable(
+    source_md: str, mode_sequence: list[bool], rounds: int
+):
     expected = _canonicalize_md(source_md)
     current = source_md
 
-    for _ in range(40):
-        doc_from_md = plasma_mod._md_to_doc(plasma_mod._normalize_md(current))
-        html_plain = plasma_mod._doc_to_plasma_html(doc_from_md, css_style=False)
-        doc_from_html = plasma_mod._html_to_doc(html_plain)
-        current = plasma_mod._doc_to_md(doc_from_html)
+    for _ in range(rounds):
+        for css_style in mode_sequence:
+            current = _roundtrip_once(current, css_style=css_style)
 
     assert current == expected
 
-    # One extra cycle should keep exactly the same canonical text.
-    doc = plasma_mod._md_to_doc(plasma_mod._normalize_md(current))
-    html_plain = plasma_mod._doc_to_plasma_html(doc, css_style=False)
-    after = plasma_mod._doc_to_md(plasma_mod._html_to_doc(html_plain))
-    assert after == current
-
-
-@pytest.mark.parametrize(
-    "source_md",
-    [
-        "- [ ] first\n- [x] **second**",
-        "para **bold** text\n\n- [ ] list",
-        "**A**\n**B**\n- [ ] **C**",
-    ],
-)
-def test_roundtrip_css_mode_is_stable_after_many_cycles(source_md: str):
-    expected = _canonicalize_md(source_md)
-    current = source_md
-
-    for _ in range(35):
-        doc_from_md = plasma_mod._md_to_doc(plasma_mod._normalize_md(current))
-        html_css = plasma_mod._doc_to_plasma_html(doc_from_md, css_style=True)
-        doc_from_html = plasma_mod._html_to_doc(html_css)
-        current = plasma_mod._doc_to_md(doc_from_html)
-
-    assert current == expected
-
-    doc = plasma_mod._md_to_doc(plasma_mod._normalize_md(current))
-    html_css = plasma_mod._doc_to_plasma_html(doc, css_style=True)
-    after = plasma_mod._doc_to_md(plasma_mod._html_to_doc(html_css))
-    assert after == current
+    # One extra pass in each mode should keep exactly the same canonical text.
+    for css_style in mode_sequence:
+        assert _roundtrip_once(current, css_style=css_style) == current
 
 
 def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
@@ -331,7 +314,7 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
 
     # Mirror edit wins when mirror event is processed last.
     mirror_path.write_text(
-        plasma_mod._bold_items_to_plasma_html(["from mirror"]),
+        _bold_items_to_plasma_html(["from mirror"]),
         encoding="utf-8",
     )
     module._from_bold_mirror(

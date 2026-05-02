@@ -5,19 +5,20 @@ from pathlib import Path
 import lucy_notes_manager.lib as lib_mod
 
 
-def test_safe_notify_throttles_by_name(monkeypatch):
+def test_safe_notify_throttles_per_key(monkeypatch):
     calls: list[str] = []
-    times = iter([0.0, 1.0, 15.0])
+    times = iter([0.0, 1.0, 2.0, 15.0])
 
     monkeypatch.setattr(lib_mod, "notify", lambda message, title="Lucy Note Manager": calls.append(message))
     monkeypatch.setattr(lib_mod.time, "time", lambda: next(times))
     lib_mod._NOTIFY_LAST.clear()
 
     lib_mod.safe_notify("k1", "first")
-    lib_mod.safe_notify("k1", "second")
+    lib_mod.safe_notify("k2", "second")
     lib_mod.safe_notify("k1", "third")
+    lib_mod.safe_notify("k1", "fourth")
 
-    assert calls == ["first", "third"]
+    assert calls == ["first", "second", "fourth"]
 
 
 def test_notify_uses_global_notifypy_object(monkeypatch):
