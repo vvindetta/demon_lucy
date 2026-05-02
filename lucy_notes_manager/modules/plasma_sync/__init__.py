@@ -8,21 +8,6 @@ from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.lib.path import canonical_path
 from lucy_notes_manager.modules.abstract_module import AbstractModule, Context, System
 from lucy_notes_manager.modules.plasma_sync.config import PLASMA_SYNC_TEMPLATE
-from lucy_notes_manager.modules.plasma_sync.core import (
-    DocLine,
-    _apply_mirror_items_to_doc,
-    _bold_items_to_plasma_html,
-    _doc_hash,
-    _doc_to_md,
-    _doc_to_plasma_html,
-    _extract_bold_items_from_doc,
-    _hash_text,
-    _html_to_doc,
-    _items_hash,
-    _md_to_doc,
-    _mirror_html_to_items,
-    _normalize_md,
-)
 from lucy_notes_manager.modules.plasma_sync.engine import (
     SyncPlan,
     SyncState,
@@ -31,6 +16,44 @@ from lucy_notes_manager.modules.plasma_sync.engine import (
     plan_from_main_plasma,
     plan_from_markdown,
 )
+from lucy_notes_manager.modules.plasma_sync.markdown_codec import (
+    _doc_hash,
+    _doc_to_md,
+    _md_to_doc,
+)
+from lucy_notes_manager.modules.plasma_sync.mirror_mapper import (
+    _apply_mirror_items_to_doc,
+    _extract_bold_items_from_doc,
+    _items_hash,
+    _mirror_html_to_items,
+)
+from lucy_notes_manager.modules.plasma_sync.model import DocLine, _hash_text, _normalize_md
+from lucy_notes_manager.modules.plasma_sync.plasma_html_codec import (
+    _doc_to_plasma_html,
+    _html_to_doc,
+)
+
+__all__ = [
+    "DocLine",
+    "PlasmaSync",
+    "SyncPlan",
+    "SyncState",
+    "bootstrap_state",
+    "plan_from_bold_mirror",
+    "plan_from_main_plasma",
+    "plan_from_markdown",
+    "_apply_mirror_items_to_doc",
+    "_doc_hash",
+    "_doc_to_md",
+    "_doc_to_plasma_html",
+    "_extract_bold_items_from_doc",
+    "_hash_text",
+    "_html_to_doc",
+    "_items_hash",
+    "_md_to_doc",
+    "_mirror_html_to_items",
+    "_normalize_md",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +158,6 @@ def _read_file_checked(path: str) -> ReadResult:
             exists=False,
             ok=False,
         )
-
-
-def _read_file(path: str) -> str:
-    return _read_file_checked(path).content
 
 
 def _write_text_atomic(
