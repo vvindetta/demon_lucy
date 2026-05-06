@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from collections import OrderedDict
 from typing import Dict
 
 from watchdog.events import FileSystemEventHandler
@@ -22,12 +23,9 @@ class FileHandler(FileSystemEventHandler):
 
         # on_opened throttle (per file)
         self._open_cooldown_seconds = float(open_cooldown_seconds)
-        self._last_open_ts: Dict[str, float] = {}
-
-        # cleanup: every 200 opened events, remove 100 oldest entries
-        self._cleanup_every_open_events = 200
-        self._cleanup_remove_count = 100
-        self._opened_events_seen = 0
+        self._last_open_ts: OrderedDict[str, float] = OrderedDict()
+        self._last_open_dir_ts: OrderedDict[str, float] = OrderedDict()
+        self._open_cache_max_entries = 4096
 
     def _process_file(self, event):
         if event.is_directory or os.path.basename(event.src_path).startswith("."):
@@ -85,37 +83,30 @@ class FileHandler(FileSystemEventHandler):
         self._ignore_paths[abs_path] = new
         return new
 
-    def _cleanup_open_cache_oldest_n(self) -> None:
-        if not self._last_open_ts:
-            return
-
-        n = min(self._cleanup_remove_count, len(self._last_open_ts))
-        oldest = sorted(self._last_open_ts.items(), key=lambda kv: kv[1])[:n]
-        for path, _ts in oldest:
-            del self._last_open_ts[path]
-
-        logger.info(
-            "OPEN CACHE CLEANUP: removed=%d remaining=%d",
-            n,
-            len(self._last_open_ts),
-        )
+    def _touch_open_cache(self, cache: OrderedDict[str, float], key: str, now: float) -> None:
+        cache[key] = now
+        cache.move_to_end(key)
+        if len(cache) > self._open_cache_max_entries:
+            cache.popitem(last=False)
 
     def _should_process_open(self, file_path: str) -> bool:
         if self._open_cooldown_seconds <= 0:
             return True
 
         abs_path = canonical_path(file_path)
+        dir_path = os.path.dirname(abs_path)
         now = time.monotonic()
 
-        self._opened_events_seen += 1
-        if self._opened_events_seen % self._cleanup_every_open_events == 0:
-            self._cleanup_open_cache_oldest_n()
+        last_dir = self._last_open_dir_ts.get(dir_path)
+        if last_dir is not None and (now - last_dir) < self._open_cooldown_seconds:
+            return False
 
         last = self._last_open_ts.get(abs_path)
         if last is not None and (now - last) < self._open_cooldown_seconds:
             return False
 
-        self._last_open_ts[abs_path] = now
+        self._touch_open_cache(self._last_open_ts, abs_path, now)
+        self._touch_open_cache(self._last_open_dir_ts, dir_path, now)
         return True
 
     def on_modified(self, event):
@@ -131,6 +122,10 @@ class FileHandler(FileSystemEventHandler):
         self._process_file(event=event)
 
     def on_opened(self, event):
+        if event.is_directory or os.path.basename(event.src_path).startswith("."):
+            return
+        if path_has_component(canonical_path(str(event.src_path)), ".git"):
+            return
         if not self._should_process_open(file_path=str(event.src_path)):
             return
         self._process_file(event=event)

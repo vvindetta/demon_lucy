@@ -102,6 +102,58 @@ def test_opened_event_respects_cooldown(tmp_path: Path, monkeypatch) -> None:
     assert modules.calls == 2
 
 
+def test_opened_event_respects_cooldown_for_same_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    file_a = tmp_path / "a.md"
+    file_b = tmp_path / "b.md"
+    file_a.write_text("x\n", encoding="utf-8")
+    file_b.write_text("x\n", encoding="utf-8")
+
+    times = iter([0.0, 1.0, 11.0])
+    monkeypatch.setattr(
+        "lucy_notes_manager.file_handler.time.monotonic",
+        lambda: next(times),
+    )
+
+    modules = _FakeModules()
+    handler = _mk_handler(modules, cooldown=10)
+
+    handler.on_opened(_opened_event(str(file_a)))
+    handler.on_opened(_opened_event(str(file_b)))
+    handler.on_opened(_opened_event(str(file_b)))
+
+    assert modules.calls == 2
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        ".hidden",
+        ".git/config",
+    ],
+)
+def test_opened_event_skips_hidden_and_git_paths(
+    tmp_path: Path, relative_path: str, monkeypatch
+) -> None:
+    path = tmp_path / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("x\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "lucy_notes_manager.file_handler.time.monotonic",
+        lambda: 0.0,
+    )
+
+    modules = _FakeModules()
+    handler = _mk_handler(modules, cooldown=10)
+    handler.on_opened(_opened_event(str(path)))
+
+    assert modules.calls == 0
+    assert handler._last_open_ts == {}
+    assert handler._last_open_dir_ts == {}
+
+
 def test_moved_event_uses_destination_path(tmp_path: Path) -> None:
     src = tmp_path / "old.md"
     dst = tmp_path / "new.md"
