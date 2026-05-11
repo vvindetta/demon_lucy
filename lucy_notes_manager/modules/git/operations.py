@@ -23,13 +23,8 @@ def _index_lock_path(repo_root: str) -> str:
     return os.path.join(repo_root, ".git", "index.lock")
 
 
-def pull_failure_is_index_lock(error_text: str) -> bool:
-    error_lower = (error_text or "").lower()
-    return (
-        "unable to create" in error_lower
-        and "index.lock" in error_lower
-        and "file exists" in error_lower
-    )
+def failure_is_index_lock(error_text: str) -> bool:
+    return "index.lock" in (error_text or "").lower()
 
 
 def clear_stale_index_lock(repo_root: str) -> bool:
@@ -140,6 +135,9 @@ def _abort_merge_safely(
 def git_environment(self, config: dict) -> Dict[str, str]:
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
+    environment["LC_ALL"] = "C"
+    environment["LANG"] = "C"
+    environment["LANGUAGE"] = "C"
 
     key_path_raw = config["git_key"].strip()
     if not key_path_raw:
@@ -163,6 +161,21 @@ def run_git(
     timeout_seconds: float,
 ) -> subprocess.CompletedProcess[str]:
     executor = GitExecutor(repo_root=repo_root, environment=environment)
+    result = executor.run(arguments=arguments, timeout_seconds=timeout_seconds)
+    if result.returncode == 0:
+        return result
+
+    if not failure_is_index_lock(combined_output(result)):
+        return result
+
+    if not clear_stale_index_lock(repo_root):
+        return result
+
+    logger.warning(
+        "retrying git command after stale index.lock cleanup | repo=%s | args=%s",
+        repo_root,
+        " ".join(arguments[:4]),
+    )
     return executor.run(arguments=arguments, timeout_seconds=timeout_seconds)
 
 
@@ -888,29 +901,6 @@ def safe_pull_merge(
 
     if pull_result.returncode == 0:
         return True
-
-    pull_error = _pull_error_text(pull_result)
-    if pull_failure_is_index_lock(pull_error) and clear_stale_index_lock(repo_root):
-        try:
-            retry_result = run_git(
-                self,
-                repo_root,
-                pull_plan.command,
-                environment,
-                timeout_seconds=pull_timeout_seconds,
-            )
-        except subprocess.TimeoutExpired:
-            return _handle_pull_timeout(
-                self=self,
-                repo_root=repo_root,
-                environment=environment,
-                operation_timeout_seconds=operation_timeout_seconds,
-                network_probe_timeout_seconds=network_probe_timeout_seconds,
-                remote_name=pull_plan.remote_name,
-            )
-        if retry_result.returncode == 0:
-            return True
-        pull_result = retry_result
 
     return _handle_pull_failure(
         self=self,

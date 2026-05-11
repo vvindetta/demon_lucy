@@ -70,6 +70,19 @@ def test_union_resolve_text_merges_conflict_content(git_module):
     assert merged == "A\none\ntwo\nB\n"
 
 
+def test_git_environment_forces_c_locale_and_disables_prompt(git_module, monkeypatch):
+    monkeypatch.setenv("LANG", "ru_RU.UTF-8")
+    monkeypatch.setenv("LC_ALL", "ru_RU.UTF-8")
+    monkeypatch.setenv("LANGUAGE", "ru_RU:en_US")
+
+    environment = git_ops.git_environment(git_module, {"git_key": ""})
+
+    assert environment["GIT_TERMINAL_PROMPT"] == "0"
+    assert environment["LC_ALL"] == "C"
+    assert environment["LANG"] == "C"
+    assert environment["LANGUAGE"] == "C"
+
+
 def test_build_commit_message_includes_event_summary_and_names(git_module, monkeypatch):
     class _FakeDateTime:
         @classmethod
@@ -383,9 +396,7 @@ def test_safe_pull_merge_timeout_while_offline_skips_notify(git_module, monkeypa
     assert notifications == []
 
 
-def test_safe_pull_merge_retries_after_stale_index_lock(
-    git_module, monkeypatch, tmp_path
-):
+def test_run_git_retries_after_stale_index_lock(git_module, monkeypatch, tmp_path):
     repo_root = tmp_path / "repo"
     git_dir = repo_root / ".git"
     git_dir.mkdir(parents=True)
@@ -395,27 +406,27 @@ def test_safe_pull_merge_retries_after_stale_index_lock(
     stale_timestamp = time.time() - 3600.0
     os.utime(lock_path, (stale_timestamp, stale_timestamp))
 
-    pull_attempts = {"count": 0}
+    attempts = {"count": 0}
 
-    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(
-        git_ops,
-        "upstream_remote_name",
-        lambda *_args, **_kwargs: "origin",
-    )
-    monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
+    class _FakeExecutor:
+        def __init__(self, repo_root: str, environment: dict[str, str]):
+            self.repo_root = repo_root
+            self.environment = environment
 
-    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
-        _ = timeout_seconds
-        if arguments and arguments[0] == "pull":
-            pull_attempts["count"] += 1
-            if pull_attempts["count"] == 1:
+        def run(
+            self,
+            arguments: list[str],
+            timeout_seconds: float,
+        ) -> subprocess.CompletedProcess[str]:
+            _ = timeout_seconds
+            attempts["count"] += 1
+            if attempts["count"] == 1:
                 return subprocess.CompletedProcess(
                     args=["git"] + arguments,
                     returncode=1,
                     stdout="",
                     stderr=(
-                        "error: Unable to create '/repo/.git/index.lock': File exists.\n"
+                        "fatal: Unable to create '/repo/.git/index.lock': File exists.\n"
                         "Another git process seems to be running."
                     ),
                 )
@@ -425,78 +436,66 @@ def test_safe_pull_merge_retries_after_stale_index_lock(
                 stdout="Already up to date.",
                 stderr="",
             )
-        raise AssertionError(f"Unexpected command: {arguments}")
 
-    monkeypatch.setattr(git_ops, "run_git", _run_git)
+    monkeypatch.setattr(git_ops, "GitExecutor", _FakeExecutor)
 
-    pulled = git_ops.safe_pull_merge(
+    result = git_ops.run_git(
         git_module,
         repo_root=str(repo_root),
+        arguments=["pull", "--no-rebase"],
         environment={},
-        pull_timeout_seconds=10.0,
-        operation_timeout_seconds=5.0,
-        autoresolve_mode="union",
-        auto_set_upstream=True,
+        timeout_seconds=10.0,
     )
 
-    assert pulled is True
-    assert pull_attempts["count"] == 2
+    assert result.returncode == 0
+    assert attempts["count"] == 2
     assert not lock_path.exists()
 
 
-def test_safe_pull_merge_does_not_remove_recent_index_lock(
-    git_module, monkeypatch, tmp_path
-):
+def test_run_git_does_not_remove_recent_index_lock(git_module, monkeypatch, tmp_path):
     repo_root = tmp_path / "repo"
     git_dir = repo_root / ".git"
     git_dir.mkdir(parents=True)
     lock_path = git_dir / "index.lock"
     lock_path.write_text("", encoding="utf-8")
 
-    pull_attempts = {"count": 0}
-    notifications: list[dict] = []
+    attempts = {"count": 0}
 
-    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(
-        git_ops,
-        "upstream_remote_name",
-        lambda *_args, **_kwargs: "origin",
-    )
-    monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
-    monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    class _FakeExecutor:
+        def __init__(self, repo_root: str, environment: dict[str, str]):
+            self.repo_root = repo_root
+            self.environment = environment
 
-    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
-        _ = timeout_seconds
-        if arguments and arguments[0] == "pull":
-            pull_attempts["count"] += 1
+        def run(
+            self,
+            arguments: list[str],
+            timeout_seconds: float,
+        ) -> subprocess.CompletedProcess[str]:
+            _ = timeout_seconds
+            attempts["count"] += 1
             return subprocess.CompletedProcess(
                 args=["git"] + arguments,
                 returncode=1,
                 stdout="",
                 stderr=(
-                    "error: Unable to create '/repo/.git/index.lock': File exists.\n"
+                    "fatal: Unable to create '/repo/.git/index.lock': File exists.\n"
                     "Another git process seems to be running."
                 ),
             )
-        raise AssertionError(f"Unexpected command: {arguments}")
 
-    monkeypatch.setattr(git_ops, "run_git", _run_git)
+    monkeypatch.setattr(git_ops, "GitExecutor", _FakeExecutor)
 
-    pulled = git_ops.safe_pull_merge(
+    result = git_ops.run_git(
         git_module,
         repo_root=str(repo_root),
+        arguments=["pull", "--no-rebase"],
         environment={},
-        pull_timeout_seconds=10.0,
-        operation_timeout_seconds=5.0,
-        autoresolve_mode="union",
-        auto_set_upstream=True,
+        timeout_seconds=10.0,
     )
 
-    assert pulled is False
-    assert pull_attempts["count"] == 1
+    assert result.returncode != 0
+    assert attempts["count"] == 1
     assert lock_path.exists()
-    assert any(item["name"] == f"pullfail:{repo_root}" for item in notifications)
 
 
 def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(
