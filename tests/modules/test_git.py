@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import time
 from datetime import datetime
 
 import pytest
@@ -379,6 +381,122 @@ def test_safe_pull_merge_timeout_while_offline_skips_notify(git_module, monkeypa
 
     assert pulled is False
     assert notifications == []
+
+
+def test_safe_pull_merge_retries_after_stale_index_lock(
+    git_module, monkeypatch, tmp_path
+):
+    repo_root = tmp_path / "repo"
+    git_dir = repo_root / ".git"
+    git_dir.mkdir(parents=True)
+    lock_path = git_dir / "index.lock"
+    lock_path.write_text("", encoding="utf-8")
+
+    stale_timestamp = time.time() - 3600.0
+    os.utime(lock_path, (stale_timestamp, stale_timestamp))
+
+    pull_attempts = {"count": 0}
+
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops,
+        "upstream_remote_name",
+        lambda *_args, **_kwargs: "origin",
+    )
+    monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments and arguments[0] == "pull":
+            pull_attempts["count"] += 1
+            if pull_attempts["count"] == 1:
+                return subprocess.CompletedProcess(
+                    args=["git"] + arguments,
+                    returncode=1,
+                    stdout="",
+                    stderr=(
+                        "error: Unable to create '/repo/.git/index.lock': File exists.\n"
+                        "Another git process seems to be running."
+                    ),
+                )
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="Already up to date.",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_ops, "run_git", _run_git)
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root=str(repo_root),
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode="union",
+        auto_set_upstream=True,
+    )
+
+    assert pulled is True
+    assert pull_attempts["count"] == 2
+    assert not lock_path.exists()
+
+
+def test_safe_pull_merge_does_not_remove_recent_index_lock(
+    git_module, monkeypatch, tmp_path
+):
+    repo_root = tmp_path / "repo"
+    git_dir = repo_root / ".git"
+    git_dir.mkdir(parents=True)
+    lock_path = git_dir / "index.lock"
+    lock_path.write_text("", encoding="utf-8")
+
+    pull_attempts = {"count": 0}
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops,
+        "upstream_remote_name",
+        lambda *_args, **_kwargs: "origin",
+    )
+    monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
+    monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments and arguments[0] == "pull":
+            pull_attempts["count"] += 1
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=1,
+                stdout="",
+                stderr=(
+                    "error: Unable to create '/repo/.git/index.lock': File exists.\n"
+                    "Another git process seems to be running."
+                ),
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_ops, "run_git", _run_git)
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root=str(repo_root),
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode="union",
+        auto_set_upstream=True,
+    )
+
+    assert pulled is False
+    assert pull_attempts["count"] == 1
+    assert lock_path.exists()
+    assert any(item["name"] == f"pullfail:{repo_root}" for item in notifications)
 
 
 def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(

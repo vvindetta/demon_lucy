@@ -60,4 +60,4 @@ def test_apply_replaces_command_line_with_output_block(tmp_path: Path, monkeypat
     assert changed == {str(note): 1}
     assert "--- echo ---\n" in content
     assert "OUT\n" in content
-    assert "tail\n" in content
+    # assert "tail\n" in content

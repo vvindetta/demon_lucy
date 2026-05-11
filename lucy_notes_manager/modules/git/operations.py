@@ -5,6 +5,7 @@ import os
 import socket
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from typing import Dict, Optional
 from urllib.parse import urlparse
@@ -15,6 +16,56 @@ from lucy_notes_manager.lib.path import abs_expand_path
 from lucy_notes_manager.modules.git.helpers import union_resolve_text
 
 logger = logging.getLogger(__name__)
+_MIN_STALE_INDEX_LOCK_AGE_SECONDS = 60.0
+
+
+def _index_lock_path(repo_root: str) -> str:
+    return os.path.join(repo_root, ".git", "index.lock")
+
+
+def pull_failure_is_index_lock(error_text: str) -> bool:
+    error_lower = (error_text or "").lower()
+    return (
+        "unable to create" in error_lower
+        and "index.lock" in error_lower
+        and "file exists" in error_lower
+    )
+
+
+def clear_stale_index_lock(repo_root: str) -> bool:
+    lock_path = _index_lock_path(repo_root)
+
+    try:
+        lock_mtime_seconds = os.path.getmtime(lock_path)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        logger.exception("failed to inspect git index.lock | repo=%s", repo_root)
+        return False
+
+    lock_age_seconds = time.time() - lock_mtime_seconds
+    if lock_age_seconds < _MIN_STALE_INDEX_LOCK_AGE_SECONDS:
+        logger.warning(
+            "git index.lock is recent; skip auto-remove | repo=%s | age_seconds=%.1f",
+            repo_root,
+            lock_age_seconds,
+        )
+        return False
+
+    try:
+        os.remove(lock_path)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        logger.exception("failed to remove stale git index.lock | repo=%s", repo_root)
+        return False
+
+    logger.warning(
+        "removed stale git index.lock before retrying pull | repo=%s | age_seconds=%.1f",
+        repo_root,
+        lock_age_seconds,
+    )
+    return True
 
 
 def _resolve_address_infos(
@@ -837,6 +888,29 @@ def safe_pull_merge(
 
     if pull_result.returncode == 0:
         return True
+
+    pull_error = _pull_error_text(pull_result)
+    if pull_failure_is_index_lock(pull_error) and clear_stale_index_lock(repo_root):
+        try:
+            retry_result = run_git(
+                self,
+                repo_root,
+                pull_plan.command,
+                environment,
+                timeout_seconds=pull_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            return _handle_pull_timeout(
+                self=self,
+                repo_root=repo_root,
+                environment=environment,
+                operation_timeout_seconds=operation_timeout_seconds,
+                network_probe_timeout_seconds=network_probe_timeout_seconds,
+                remote_name=pull_plan.remote_name,
+            )
+        if retry_result.returncode == 0:
+            return True
+        pull_result = retry_result
 
     return _handle_pull_failure(
         self=self,
