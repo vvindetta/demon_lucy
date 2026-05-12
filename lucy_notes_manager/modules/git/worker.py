@@ -466,6 +466,10 @@ def _handle_push_timeout(
     )
 
 
+def _push_error_text(push_result: subprocess.CompletedProcess[str]) -> str:
+    return (push_result.stderr or push_result.stdout or "git push failed").strip()
+
+
 def _attempt_push_with_retry(
     self,
     batch: _RepoBatch,
@@ -477,8 +481,63 @@ def _attempt_push_with_retry(
     backoff_start_seconds: float,
     backoff_max_seconds: float,
 ) -> None:
+    def _reset_push_backoff() -> None:
+        self._push_backoff_seconds[repo_root] = backoff_start_seconds
+        self._push_next_allowed_at[repo_root] = 0.0
+
     try:
         first_push_result = _run_push_once(
+            self=self,
+            repo_root=repo_root,
+            environment=environment,
+            push_timeout_seconds=push_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("git push timed out | repo=%s | attempt=1/2", repo_root)
+        first_push_result = None
+
+    if first_push_result is not None and first_push_result.returncode == 0:
+        _reset_push_backoff()
+        return
+
+    if first_push_result is not None:
+        first_push_error = _push_error_text(first_push_result)
+        logger.error(
+            "git push failed | repo=%s | attempt=1/2 | error=%s",
+            repo_root,
+            first_push_error[:1200],
+        )
+
+    should_pull_before_retry = False
+    if first_push_result is not None:
+        combined_push_output = (
+            ((first_push_result.stderr or "") + "\n" + (first_push_result.stdout or ""))
+            .strip()
+        )
+        should_pull_before_retry = (
+            batch.auto_merge_on_push and push_rejected_needs_pull(combined_push_output)
+        )
+
+    if should_pull_before_retry:
+        pulled = safe_pull_merge(
+            self,
+            repo_root,
+            environment,
+            pull_timeout_seconds=pull_timeout_seconds,
+            operation_timeout_seconds=git_timeout_seconds,
+            autoresolve_mode=batch.autoresolve_mode,
+            auto_set_upstream=batch.auto_set_upstream,
+            network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
+            pull_offline_error_markers=batch.pull_offline_error_markers,
+        )
+        if not pulled:
+            logger.warning(
+                "git pull before push retry was skipped/failed | repo=%s",
+                repo_root,
+            )
+
+    try:
+        second_push_result = _run_push_once(
             self=self,
             repo_root=repo_root,
             environment=environment,
@@ -493,53 +552,17 @@ def _attempt_push_with_retry(
         )
         return
 
-    if first_push_result.returncode == 0:
-        self._push_backoff_seconds[repo_root] = backoff_start_seconds
-        self._push_next_allowed_at[repo_root] = 0.0
+    if second_push_result.returncode == 0:
+        _reset_push_backoff()
         return
 
-    failure_result = first_push_result
-    combined_push_output = (
-        ((first_push_result.stderr or "") + "\n" + (first_push_result.stdout or ""))
-        .strip()
-    )
-    if batch.auto_merge_on_push and push_rejected_needs_pull(combined_push_output):
-        pulled = safe_pull_merge(
-            self,
-            repo_root,
-            environment,
-            pull_timeout_seconds=pull_timeout_seconds,
-            operation_timeout_seconds=git_timeout_seconds,
-            autoresolve_mode=batch.autoresolve_mode,
-            auto_set_upstream=batch.auto_set_upstream,
-            network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
-            pull_offline_error_markers=batch.pull_offline_error_markers,
-        )
-        if pulled:
-            try:
-                second_push_result = _run_push_once(
-                    self=self,
-                    repo_root=repo_root,
-                    environment=environment,
-                    push_timeout_seconds=push_timeout_seconds,
-                )
-            except subprocess.TimeoutExpired:
-                _handle_push_timeout(
-                    self=self,
-                    repo_root=repo_root,
-                    backoff_start_seconds=backoff_start_seconds,
-                    backoff_max_seconds=backoff_max_seconds,
-                )
-                return
-            if second_push_result.returncode == 0:
-                self._push_backoff_seconds[repo_root] = backoff_start_seconds
-                self._push_next_allowed_at[repo_root] = 0.0
-                return
-            failure_result = second_push_result
-
     self._register_push_failure(repo_root, backoff_start_seconds, backoff_max_seconds)
-    push_error = (failure_result.stderr or failure_result.stdout or "git push failed").strip()
-    logger.error("git push failed | repo=%s | error=%s", repo_root, push_error[:1200])
+    push_error = _push_error_text(second_push_result)
+    logger.error(
+        "git push failed | repo=%s | attempt=2/2 | error=%s",
+        repo_root,
+        push_error[:1200],
+    )
     safe_notify(
         name=f"pushfail:{repo_root}",
         message=(

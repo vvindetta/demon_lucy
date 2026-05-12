@@ -769,3 +769,132 @@ def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypat
     assert len(push_fail_notifications) == 1
     assert "second push failed" in push_fail_notifications[0]["message"]
     assert "non-fast-forward" not in push_fail_notifications[0]["message"]
+
+
+def test_attempt_push_with_retry_retries_plain_push_error_before_notify(
+    git_module, monkeypatch
+):
+    notifications: list[dict] = []
+    register_calls: list[tuple[tuple, dict]] = []
+    push_attempts = {"count": 0}
+
+    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker,
+        "safe_pull_merge",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("safe_pull_merge must not run when auto_merge_on_push is disabled")
+        ),
+    )
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments != ["push"]:
+            raise AssertionError(f"Unexpected command: {arguments}")
+
+        push_attempts["count"] += 1
+        if push_attempts["count"] == 1:
+            return subprocess.CompletedProcess(
+                args=["git", "push"],
+                returncode=1,
+                stdout="",
+                stderr="Connection closed by 217.197.84.140 port 22",
+            )
+        return subprocess.CompletedProcess(
+            args=["git", "push"],
+            returncode=0,
+            stdout="Everything up-to-date",
+            stderr="",
+        )
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+    monkeypatch.setattr(
+        git_module,
+        "_register_push_failure",
+        lambda *args, **kwargs: register_calls.append((args, kwargs)),
+    )
+
+    batch = _mk_batch(
+        auto_merge_on_push=False,
+        auto_set_upstream=True,
+        autoresolve_mode="union",
+        network_probe_timeout_seconds=1.0,
+        pull_offline_error_markers=[],
+    )
+
+    git_worker._attempt_push_with_retry(
+        self=git_module,
+        batch=batch,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=6.0,
+        push_timeout_seconds=7.0,
+        git_timeout_seconds=5.0,
+        backoff_start_seconds=2.0,
+        backoff_max_seconds=8.0,
+    )
+
+    assert push_attempts["count"] == 2
+    assert notifications == []
+    assert register_calls == []
+
+
+def test_attempt_push_with_retry_retries_timeout_before_notify(git_module, monkeypatch):
+    notifications: list[dict] = []
+    register_calls: list[tuple[tuple, dict]] = []
+    push_attempts = {"count": 0}
+
+    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker,
+        "safe_pull_merge",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("safe_pull_merge must not run for timeout-first retry path")
+        ),
+    )
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments != ["push"]:
+            raise AssertionError(f"Unexpected command: {arguments}")
+
+        push_attempts["count"] += 1
+        if push_attempts["count"] == 1:
+            raise subprocess.TimeoutExpired(cmd=["git", "push"], timeout=7.0)
+        return subprocess.CompletedProcess(
+            args=["git", "push"],
+            returncode=0,
+            stdout="done",
+            stderr="",
+        )
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+    monkeypatch.setattr(
+        git_module,
+        "_register_push_failure",
+        lambda *args, **kwargs: register_calls.append((args, kwargs)),
+    )
+
+    batch = _mk_batch(
+        auto_merge_on_push=False,
+        auto_set_upstream=True,
+        autoresolve_mode="union",
+        network_probe_timeout_seconds=1.0,
+        pull_offline_error_markers=[],
+    )
+
+    git_worker._attempt_push_with_retry(
+        self=git_module,
+        batch=batch,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=6.0,
+        push_timeout_seconds=7.0,
+        git_timeout_seconds=5.0,
+        backoff_start_seconds=2.0,
+        backoff_max_seconds=8.0,
+    )
+
+    assert push_attempts["count"] == 2
+    assert notifications == []
+    assert register_calls == []
