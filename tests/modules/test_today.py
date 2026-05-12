@@ -119,6 +119,52 @@ def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -
     assert now_path.read_text(encoding="utf-8") == ""
 
 
+def test_normalizes_blank_lines_before_archiving(tmp_path: Path, monkeypatch) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("\n\nalpha\n\n\n\n\nbeta\n\n\n", encoding="utf-8")
+    _make_stale(now_path, 14.0)
+
+    module = Today()
+    ctx = _ctx_for(now_path)
+    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert past_path.read_text(encoding="utf-8") == "-- 01.05\nalpha\n\n\n\nbeta\n"
+
+
+def test_keeps_first_line_with_lucy_flags_when_archiving(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text(
+        "--formatter-blank up --formatter-todo\nalpha\nbeta\n",
+        encoding="utf-8",
+    )
+    _make_stale(now_path, 14.0)
+
+    module = Today()
+    ctx = _ctx_for(now_path)
+    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert (
+        past_path.read_text(encoding="utf-8")
+        == "-- 01.05\n--formatter-blank up --formatter-todo\nalpha\nbeta\n"
+    )
+
+
 def test_uses_git_timestamp_when_repo_file_is_clean(
     tmp_path: Path, monkeypatch
 ) -> None:

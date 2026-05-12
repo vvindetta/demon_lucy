@@ -29,7 +29,7 @@ class Sys(AbstractModule):
             "--man",
             str,
             [],
-            "Argument manual. Use: --man list OR --man full OR --man <name> (example: --man todo).",
+            "Argument manual. Use: --man list OR --man full OR --man <name> (example: --man mods).",
         ),
         (
             "--help",
@@ -62,7 +62,7 @@ class Sys(AbstractModule):
             "* --config: print config values that differ from defaults\n",
             "* --man list: print all arguments (no descriptions)\n",
             "* --man full: print all arguments with descriptions\n",
-            "* --man <name>: print one argument with description (example: --man todo)\n",
+            "* --man <name>: print one argument with description (example: --man mods)\n",
         ]
 
     @staticmethod
@@ -238,7 +238,9 @@ class Sys(AbstractModule):
             lineno_int = int(lineno_1based)
             add_option(lineno_int, "man", "--man")
             if man_value.strip():
-                line_to_man_requests.setdefault(lineno_int, []).append(man_value.strip())
+                line_to_man_requests.setdefault(lineno_int, []).append(
+                    man_value.strip()
+                )
 
         if not line_to_opts:
             return None

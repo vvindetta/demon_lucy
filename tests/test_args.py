@@ -17,17 +17,30 @@ from lucy_notes_manager.lib.args import (
 
 def test_parse_args_handles_bool_and_nargs():
     template = [
-        ("--todo", bool, False, ""),
+        ("--formatter-todo", bool, False, ""),
+        ("--formatter-blank", str, [], ""),
         ("--name", str, None, ""),
         ("--tags", str, [], ""),
     ]
 
     known, unknown = parse_args(
-        args=["--todo", "--name", "alice", "--tags", "x", "y", "--unknown"],
+        args=[
+            "--formatter-todo",
+            "--formatter-blank",
+            "up",
+            "down",
+            "--name",
+            "alice",
+            "--tags",
+            "x",
+            "y",
+            "--unknown",
+        ],
         template=template,
     )
 
-    assert known["todo"] is True
+    assert known["formatter_todo"] is True
+    assert known["formatter_blank"] == ["up", "down"]
     assert known["name"] == "alice"
     assert known["tags"] == ["x", "y"]
     assert unknown == ["--unknown"]
@@ -62,8 +75,12 @@ def test_merge_known_args_overwrites_only_when_value_is_meaningful():
 @pytest.mark.parametrize(
     ("line", "args", "expected"),
     [
-        # ('--banner "Hello world" body --todo --x=1 tail\n', ["--banner", "--todo", "--x"], "body tail\n"),
-        ("prefix --todo one --todo two\n", ["--todo"], "prefix\n"),
+        # ('--banner "Hello world" body --formatter-todo --x=1 tail\n', ["--banner", "--formatter-todo", "--x"], "body tail\n"),
+        (
+            "prefix --formatter-todo one --formatter-todo two\n",
+            ["--formatter-todo"],
+            "prefix\n",
+        ),
     ],
 )
 def test_delete_args_from_string_removes_flag_segments(

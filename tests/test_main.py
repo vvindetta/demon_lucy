@@ -80,10 +80,10 @@ def _run_main_with_flag(
 @pytest.mark.parametrize(
     ("enable_experimental", "expected_modules"),
     [
-        (False, ["banner", "renamer", "todo_formatter", "today", "sys"]),
+        (False, ["banner", "renamer", "formatter", "today", "sys"]),
         (
             True,
-            ["banner", "renamer", "todo_formatter", "today", "sys", "git", "plasma_sync"],
+            ["banner", "renamer", "formatter", "today", "sys", "git", "plasma_sync"],
         ),
     ],
 )

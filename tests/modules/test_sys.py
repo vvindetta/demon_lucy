@@ -26,16 +26,16 @@ def test_man_lines_list_and_specific_name():
         event=FileModifiedEvent("/tmp/x"),
         global_template=[
             ("--mods", bool, False, "mods help"),
-            ("--todo", bool, False, "todo help"),
+            ("--formatter-todo", bool, False, "formatter todo help"),
         ],
         modules=[],
     )
 
     list_lines = module._man_lines(system, ["list"])
-    one_lines = module._man_lines(system, ["todo"])
+    one_lines = module._man_lines(system, ["formatter_todo"])
 
     assert any("--mods" in line for line in list_lines)
-    assert any("--todo:" in line for line in one_lines)
+    assert any("--formatter-todo:" in line for line in one_lines)
 
 
 @pytest.mark.parametrize(

@@ -47,6 +47,39 @@ class Today(AbstractModule):
         ),
     ]
 
+    @staticmethod
+    def _normalize_archive_body(text: str, max_blank_lines: int = 3) -> str:
+        lines = text.splitlines()
+        if not lines:
+            return ""
+
+        start = 0
+        while start < len(lines) and not lines[start].strip():
+            start += 1
+
+        end = len(lines) - 1
+        while end >= start and not lines[end].strip():
+            end -= 1
+
+        if start > end:
+            return ""
+
+        core = lines[start : end + 1]
+        result: list[str] = []
+        blank_run = 0
+
+        for line in core:
+            if line.strip():
+                blank_run = 0
+                result.append(line)
+                continue
+
+            blank_run += 1
+            if blank_run <= max_blank_lines:
+                result.append("")
+
+        return "\n".join(result)
+
     def _resolve_paths(self, ctx: Context) -> tuple[str, str] | None:
         if (
             not ctx.config["today_now_name"].strip()
@@ -174,7 +207,7 @@ class Today(AbstractModule):
         except OSError:
             return None
 
-        body = now_text.strip()
+        body = self._normalize_archive_body(now_text, max_blank_lines=3)
         if not body:
             return None
 

@@ -53,7 +53,7 @@ You can provide flags in three places:
 * --config: print config values that differ from defaults
 * --man list: print all arguments (no descriptions)
 * --man full: print all arguments with descriptions
-* --man <name>: print one argument with description (example: --man todo)
+* --man <name>: print one argument with description (example: --man mods)
 ```
 
 
@@ -74,7 +74,7 @@ You can provide flags in three places:
 ```--man man``` :
 
 ```
-* --man: Argument manual. Use: --man list OR --man full OR --man <name> (example: --man todo). (type=str, default=None)
+* --man: Argument manual. Use: --man list OR --man full OR --man <name> (example: --man mods). (type=str, default=None)
 ```
 
 ## Install
@@ -109,8 +109,8 @@ Hot reload and install/uninstall commands are in the roadmap. Sorry.
 
 **Basic:**
 - `sys`: runtime information, man(ual) messages
-- `todo_formatter`: format points to Markdown-style checkboxes  
-  `- point` → `- [ ] point`
+- `formatter`: formatting module for
+  `--formatter-todo`: `- point` → `- [ ] point`
 - `banner`: prints an ASCII banner with the current date or custom text
 - `renamer`: renames a file using `--r name`
 - `today`: archives stale `now.md` into `past.md`
