@@ -87,11 +87,38 @@ def test_apply_todo_flag_controls_checkbox_formatting(
             30,
             30,
         ),
+        (
+            {
+                "formatter_todo": False,
+                "formatter_blank": ["up", "20"],
+            },
+            "\n\ntitle\nbody\n\n",
+            20,
+            1,
+        ),
+        (
+            {
+                "formatter_todo": False,
+                "formatter_blank": ["down", "7"],
+            },
+            "title\nbody\n\n",
+            0,
+            7,
+        ),
+        (
+            {
+                "formatter_todo": False,
+                "formatter_blank": ["both", "12"],
+            },
+            "\n\ntitle\nbody\n\n",
+            12,
+            12,
+        ),
     ],
 )
 def test_apply_adds_blank_lines_by_flags(
     tmp_path: Path,
-    config: dict[str, bool | list[str]],
+    config: dict[str, object],
     initial_text: str,
     expected_leading: int,
     expected_trailing: int,

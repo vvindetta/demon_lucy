@@ -30,7 +30,7 @@ class Formatter(AbstractModule):
             "--formatter-blank",
             str,
             [],
-            "Add 30 blank lines at file top and/or bottom. Values: up, down. Example: --formatter-blank up down",
+            "Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
         ),
     ]
 
@@ -71,15 +71,48 @@ class Formatter(AbstractModule):
         return self._arg_lines_has_first_line_flag(fallback_arg_lines)
 
     @staticmethod
-    def _normalize_blank_modes(raw_modes: object) -> set[str]:
+    def _normalize_blank_modes_and_count(
+        raw_modes: object,
+        default_count: int,
+    ) -> tuple[set[str], int]:
         if not isinstance(raw_modes, list):
-            return set()
+            return set(), default_count
+
         modes: set[str] = set()
+        count = default_count
+
         for item in raw_modes:
             text = str(item).strip().lower()
+            if text in {"both", "up/down", "down/up"}:
+                modes.update({"up", "down"})
+                continue
+
             if text in {"up", "down"}:
                 modes.add(text)
-        return modes
+                continue
+
+            if text.isdigit():
+                parsed = int(text)
+                if parsed >= 0:
+                    count = parsed
+
+        return modes, count
+
+    @staticmethod
+    def _collect_blank_tokens(config: dict) -> list[str]:
+        tokens: list[str] = []
+
+        blank_values = config.get("formatter_blank")
+        if isinstance(blank_values, list):
+            tokens.extend(str(item) for item in blank_values)
+
+        return tokens
+
+    def _blank_config(self, config: dict) -> tuple[set[str], int]:
+        return self._normalize_blank_modes_and_count(
+            self._collect_blank_tokens(config),
+            default_count=self.blank_lines_count,
+        )
 
     def _format_todo_lines(self, lines: list[str]) -> tuple[list[str], bool]:
         changed = False
@@ -121,7 +154,7 @@ class Formatter(AbstractModule):
         global_template: Template | None = None,
     ) -> Optional[IgnoreMap]:
         use_formatter_todo = bool(config.get("formatter_todo"))
-        blank_modes = self._normalize_blank_modes(config.get("formatter_blank"))
+        blank_modes, blank_lines_count = self._blank_config(config)
         use_down = "down" in blank_modes
         use_up = "up" in blank_modes
         if not use_formatter_todo and not use_down and not use_up:
@@ -182,7 +215,7 @@ class Formatter(AbstractModule):
                 else:
                     tail = tail[first_non_empty_tail:]
 
-                new_lines = [head] + ([newline] * self.blank_lines_count) + tail
+                new_lines = [head] + ([newline] * blank_lines_count) + tail
             else:
                 first_non_empty = next(
                     (idx for idx, line in enumerate(new_lines) if self._has_text(line)),
@@ -190,7 +223,7 @@ class Formatter(AbstractModule):
                 )
                 if first_non_empty is None:
                     return None
-                new_lines = ([newline] * self.blank_lines_count) + new_lines[first_non_empty:]
+                new_lines = ([newline] * blank_lines_count) + new_lines[first_non_empty:]
             changed = changed or (new_lines != lines)
 
         if use_down:
@@ -199,7 +232,7 @@ class Formatter(AbstractModule):
             head = new_lines[: last_non_empty + 1]
             if not head[-1].endswith(("\n", "\r")):
                 head[-1] = head[-1] + newline
-            new_lines = head + ([newline] * self.blank_lines_count)
+            new_lines = head + ([newline] * blank_lines_count)
             changed = changed or (new_lines != lines)
 
         if not changed:

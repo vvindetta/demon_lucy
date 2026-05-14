@@ -53,7 +53,7 @@ def test_man_lines_list_and_specific_name():
             {"ping": True},
             {"ping": [1]},
             [("--ping", bool, False, "Health-check command: prints pong.")],
-            ["--- ping ---\n", "* pong\n"],
+            ["++pong!\n"],
         ),
     ],
 )

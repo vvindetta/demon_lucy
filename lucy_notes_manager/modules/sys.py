@@ -58,12 +58,23 @@ class Sys(AbstractModule):
     def _command_help_lines() -> List[str]:
         return [
             "* --mods: print loaded modules and their priorities\n",
-            "* --ping: print pong\n",
+            "* --ping: rewrite command line to ++pong!\n",
             "* --config: print config values that differ from defaults\n",
             "* --man list: print all arguments (no descriptions)\n",
             "* --man full: print all arguments with descriptions\n",
             "* --man <name>: print one argument with description (example: --man mods)\n",
         ]
+
+    @staticmethod
+    def _apply_ping_rewrite(
+        file_lines: List[str],
+        index: int,
+        remove_flags: List[str],
+    ) -> None:
+        cleaned_line = delete_args_from_string(file_lines[index], remove_flags)
+        file_lines[index : index + 1] = ["++pong!\n"]
+        if cleaned_line.strip():
+            file_lines[index + 1 : index + 1] = [cleaned_line]
 
     @staticmethod
     def _normalize_arg_name(raw: str) -> str:
@@ -259,6 +270,14 @@ class Sys(AbstractModule):
             selected_opts = line_to_opts[lineno_1based]
             remove_flags = line_to_remove_flags[lineno_1based]
             man_requests = line_to_man_requests.get(lineno_1based, [])
+
+            if selected_opts == {"ping"}:
+                self._apply_ping_rewrite(
+                    file_lines=file_lines,
+                    index=index,
+                    remove_flags=remove_flags,
+                )
+                continue
 
             block = self._build_block(
                 system=system,
