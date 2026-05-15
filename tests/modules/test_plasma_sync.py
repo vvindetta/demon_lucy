@@ -9,13 +9,15 @@ from lucy_notes_manager.modules.abstract_module import Context
 from lucy_notes_manager.modules.plasma_sync.mirror_mapper import _bold_items_to_plasma_html
 from lucy_notes_manager.modules.plasma_sync import DocLine, PlasmaSync
 
+_NOTIFY_CFG = {
+    "sys_notify_provider": "termuxapi",
+    "sys_notify_min_interval_sec": 10.0,
+}
+
 
 @pytest.fixture(autouse=True)
 def _reset_plasma_globals(monkeypatch):
     monkeypatch.setattr(plasma_mod, "_INIT_DONE", False)
-    monkeypatch.setattr(plasma_mod, "_LAST_DOC_HASH", None)
-    monkeypatch.setattr(plasma_mod, "_LAST_BOLD_ITEMS_HASH", None)
-    monkeypatch.setattr(plasma_mod, "_LAST_CSS_STYLE", None)
     monkeypatch.setattr(
         plasma_mod,
         "_STATE",
@@ -108,6 +110,7 @@ def test_from_markdown_writes_widget_and_mirror(tmp_path: Path):
         widget_path=str(widget),
         bold_widget_path=str(mirror),
         css_style=False,
+        config=_NOTIFY_CFG,
     )
 
     assert ignore is not None
@@ -130,6 +133,7 @@ def test_from_main_plasma_updates_markdown(tmp_path: Path):
         bold_widget_path=None,
         css_style=False,
         html_path=str(widget),
+        config=_NOTIFY_CFG,
     )
 
     assert ignore is not None
@@ -193,6 +197,7 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
                 widget_path=str(widget_path),
                 bold_widget_path=str(mirror_path),
                 css_style=False,
+                config=_NOTIFY_CFG,
             )
             module._from_main_plasma(
                 widget_path=str(widget_path),
@@ -200,12 +205,14 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
                 bold_widget_path=str(mirror_path),
                 css_style=False,
                 html_path=str(widget_path),
+                config=_NOTIFY_CFG,
             )
             module._from_bold_mirror(
                 widget_path=str(widget_path),
                 markdown_path=str(md_path),
                 bold_widget_path=str(mirror_path),
                 css_style=False,
+                config=_NOTIFY_CFG,
             )
 
             current_md = md_path.read_text(encoding="utf-8")
@@ -228,6 +235,7 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
+        config=_NOTIFY_CFG,
     )
     module._from_main_plasma(
         widget_path=str(widget_path),
@@ -235,12 +243,14 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
         bold_widget_path=str(mirror_path),
         css_style=False,
         html_path=str(widget_path),
+        config=_NOTIFY_CFG,
     )
     module._from_bold_mirror(
         widget_path=str(widget_path),
         markdown_path=str(md_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
+        config=_NOTIFY_CFG,
     )
 
     assert md_path.read_text(encoding="utf-8") == final_md == last_expected_md
@@ -261,6 +271,7 @@ def test_css_toggle_rewrites_widget_structure_on_same_doc(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
+        config=_NOTIFY_CFG,
     )
     plain_html = widget_path.read_text(encoding="utf-8")
     assert "<ul>" not in plain_html
@@ -271,6 +282,7 @@ def test_css_toggle_rewrites_widget_structure_on_same_doc(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=True,
+        config=_NOTIFY_CFG,
     )
     css_html = widget_path.read_text(encoding="utf-8")
 
@@ -293,6 +305,7 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
+        config=_NOTIFY_CFG,
     )
 
     # Main edit wins when main event is processed last.
@@ -309,6 +322,7 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
         bold_widget_path=str(mirror_path),
         css_style=False,
         html_path=str(widget_path),
+        config=_NOTIFY_CFG,
     )
     assert md_path.read_text(encoding="utf-8") == "**from main**"
 
@@ -322,6 +336,7 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
         markdown_path=str(md_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
+        config=_NOTIFY_CFG,
     )
     assert md_path.read_text(encoding="utf-8") == "**from mirror**"
 
@@ -339,6 +354,7 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
         bold_widget_path=str(mirror_path),
         css_style=False,
         html_path=str(widget_path),
+        config=_NOTIFY_CFG,
     )
     assert md_path.read_text(encoding="utf-8") == "**from main again**"
 
@@ -383,10 +399,19 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
 
     real_write = plasma_mod._write_text_atomic
 
-    def fail_widget_write(path: str, content: str, *, notify_errors: bool = True) -> bool:
+    def fail_widget_write(
+        path: str,
+        content: str,
+        *,
+        notify_errors: bool = True,
+    ) -> bool:
         if plasma_mod.canonical_path(path) == str(widget_path.resolve()) and notify_errors:
             return False
-        return real_write(path, content, notify_errors=notify_errors)
+        return real_write(
+            path,
+            content,
+            notify_errors=notify_errors,
+        )
 
     monkeypatch.setattr(plasma_mod, "_write_text_atomic", fail_widget_write)
 
@@ -395,6 +420,7 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
         widget_path=str(widget_path),
         bold_widget_path=None,
         css_style=False,
+        config=_NOTIFY_CFG,
     )
 
     assert ignore is None
@@ -432,6 +458,7 @@ def test_read_error_is_not_treated_as_empty_input(tmp_path: Path, monkeypatch):
         widget_path=str(widget_path),
         bold_widget_path=None,
         css_style=False,
+        config=_NOTIFY_CFG,
     )
 
     assert ignore is None
@@ -458,14 +485,23 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
     mirror_old = mirror_path.read_text(encoding="utf-8")
     real_write = plasma_mod._write_text_atomic
 
-    def fail_mirror_write(path: str, content: str, *, notify_errors: bool = True) -> bool:
+    def fail_mirror_write(
+        path: str,
+        content: str,
+        *,
+        notify_errors: bool = True,
+    ) -> bool:
         if (
             plasma_mod.canonical_path(path) == str(mirror_path.resolve())
             and content != mirror_old
             and notify_errors
         ):
             return False
-        return real_write(path, content, notify_errors=notify_errors)
+        return real_write(
+            path,
+            content,
+            notify_errors=notify_errors,
+        )
 
     monkeypatch.setattr(plasma_mod, "_write_text_atomic", fail_mirror_write)
 
@@ -474,6 +510,7 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
+        config=_NOTIFY_CFG,
     )
 
     assert ignore is None

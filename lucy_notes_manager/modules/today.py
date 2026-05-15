@@ -22,16 +22,16 @@ class Today(AbstractModule):
 
     template: Template = [
         (
-            "--today-now-name",
+            "--today-now-path",
             str,
             "now.md",
-            "Name of active note file to archive when stale. Default: now.md",
+            "Path of active note file to archive when stale. Default: now.md",
         ),
         (
-            "--today-past-name",
+            "--today-past-path",
             str,
             "past.md",
-            "Name of archive file (same directory as now file). Default: past.md",
+            "Path of archive file. Default: past.md",
         ),
         (
             "--today-idle-hours",
@@ -81,23 +81,17 @@ class Today(AbstractModule):
         return "\n".join(result)
 
     def _resolve_paths(self, ctx: Context) -> tuple[str, str] | None:
-        if (
-            not ctx.config["today_now_name"].strip()
-            or not ctx.config["today_past_name"].strip()
-        ):
-            return None
-
-        if ctx.config["today_now_name"].strip() == ctx.config["today_past_name"].strip():
+        now_selector = str(ctx.config["today_now_path"]).strip()
+        past_selector = str(ctx.config["today_past_path"]).strip()
+        if not now_selector or not past_selector:
             return None
 
         event_path = os.path.abspath(ctx.path)
         parent_dir = os.path.dirname(event_path)
-        now_path = os.path.abspath(
-            os.path.join(parent_dir, ctx.config["today_now_name"].strip())
-        )
-        past_path = os.path.abspath(
-            os.path.join(parent_dir, ctx.config["today_past_name"].strip())
-        )
+        now_path = os.path.abspath(os.path.join(parent_dir, now_selector))
+        past_path = os.path.abspath(os.path.join(parent_dir, past_selector))
+        if now_path == past_path:
+            return None
         return now_path, past_path
 
     def _git_last_activity_timestamp(self, now_path: str) -> Optional[float]:

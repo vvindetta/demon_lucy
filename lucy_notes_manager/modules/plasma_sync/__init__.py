@@ -2,7 +2,7 @@ import logging
 import os
 import tempfile
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.lib.path import canonical_path
@@ -66,23 +66,11 @@ _IGNORE_BURST = 1
 
 _INIT_DONE: bool = False
 
-# Legacy globals are kept for compatibility with existing tests/hooks.
-_LAST_DOC_HASH: Optional[str] = None
-_LAST_BOLD_ITEMS_HASH: Optional[str] = None
-_LAST_CSS_STYLE: Optional[bool] = None
-
 _STATE: SyncState = SyncState(
     doc_hash=None,
     bold_items_hash=None,
     css_style=None,
 )
-
-
-def _sync_legacy_globals_from_state() -> None:
-    global _LAST_DOC_HASH, _LAST_BOLD_ITEMS_HASH, _LAST_CSS_STYLE
-    _LAST_DOC_HASH = _STATE.doc_hash
-    _LAST_BOLD_ITEMS_HASH = _STATE.bold_items_hash
-    _LAST_CSS_STYLE = _STATE.css_style
 
 
 # ---------------- IO ---------------- #
@@ -103,37 +91,9 @@ class PendingWrite:
     next_content: str
 
 
-def _notify_read_error(path: str, error: Exception) -> None:
-    if isinstance(error, PermissionError):
-        logger.error("Permission error reading %s: %s", path, error)
-        safe_notify(
-            "read_perm:" + path,
-            f"Permission denied reading:\n{path}\n\n{error}",
-        )
-        return
-    logger.error("OS error reading %s: %s", path, error)
-    safe_notify(
-        "read_os:" + path,
-        f"Failed to read file:\n{path}\n\n{error}",
-    )
-
-
-def _notify_write_error(path: str, error: Exception) -> None:
-    if isinstance(error, PermissionError):
-        logger.error("Permission error writing %s: %s", path, error)
-        safe_notify(
-            "write_perm:" + path,
-            f"Permission denied writing:\n{path}\n\n{error}",
-        )
-        return
-    logger.error("OS error writing %s: %s", path, error)
-    safe_notify(
-        "write_os:" + path,
-        f"Failed to write file:\n{path}\n\n{error}",
-    )
-
-
-def _read_file_checked(path: str) -> ReadResult:
+def _read_file_checked(
+    path: str,
+) -> ReadResult:
     absolute_path = canonical_path(path)
     try:
         with open(absolute_path, "r", encoding="utf-8") as file_handle:
@@ -150,8 +110,7 @@ def _read_file_checked(path: str) -> ReadResult:
             exists=False,
             ok=True,
         )
-    except (PermissionError, OSError) as error:
-        _notify_read_error(absolute_path, error)
+    except (PermissionError, OSError):
         return ReadResult(
             path=absolute_path,
             content="",
@@ -181,9 +140,7 @@ def _write_text_atomic(
         os.replace(temp_path, absolute_path)
         temp_path = None
         return True
-    except (PermissionError, OSError) as error:
-        if notify_errors:
-            _notify_write_error(absolute_path, error)
+    except (PermissionError, OSError):
         return False
     finally:
         if temp_path:
@@ -224,7 +181,11 @@ def _collect_pending_writes(
     return pending
 
 
-def _restore_previous_writes(applied: list[PendingWrite]) -> None:
+def _restore_previous_writes(
+    applied: list[PendingWrite],
+    *,
+    config: Mapping[str, Any],
+) -> None:
     for write in reversed(applied):
         restored = _write_text_atomic(
             write.path,
@@ -236,6 +197,7 @@ def _restore_previous_writes(applied: list[PendingWrite]) -> None:
             safe_notify(
                 "write_rollback:" + write.path,
                 f"Rollback failed for file:\n{write.path}",
+                config=config,
             )
 
 
@@ -243,11 +205,16 @@ def _apply_pending_writes(
     *,
     pending: list[PendingWrite],
     ignore: IgnoreMap,
+    config: Mapping[str, Any],
 ) -> bool:
     applied: list[PendingWrite] = []
     for write in pending:
-        if not _write_text_atomic(write.path, write.next_content):
-            _restore_previous_writes(applied)
+        if not _write_text_atomic(
+            write.path,
+            write.next_content,
+            notify_errors=True,
+        ):
+            _restore_previous_writes(applied, config=config)
             return False
         _inc_ignore(ignore, write.path, _IGNORE_BURST)
         applied.append(write)
@@ -279,7 +246,6 @@ def _init_from_disk_once(
         return
 
     _STATE = bootstrap_state(markdown_read.content, widget_read.content)
-    _sync_legacy_globals_from_state()
     _INIT_DONE = True
 
 
@@ -289,6 +255,7 @@ def _apply_sync_plan(
     widget_path: str,
     markdown_path: str,
     bold_widget_path: Optional[str],
+    config: Mapping[str, Any],
 ) -> Optional[IgnoreMap]:
     global _STATE
 
@@ -301,11 +268,14 @@ def _apply_sync_plan(
     )
     if pending is None:
         return None
-    if not _apply_pending_writes(pending=pending, ignore=ignore):
+    if not _apply_pending_writes(
+        pending=pending,
+        ignore=ignore,
+        config=config,
+    ):
         return None
 
     _STATE = plan.next_state
-    _sync_legacy_globals_from_state()
 
     return ignore or None
 
@@ -361,7 +331,11 @@ class PlasmaSync(AbstractModule):
     def _handle(self, ctx: Context) -> Optional[IgnoreMap]:
         widget_path, markdown_path, bold_widget_path, css_style = self._cfg(ctx)
 
-        _init_from_disk_once(widget_path, markdown_path, bold_widget_path)
+        _init_from_disk_once(
+            widget_path,
+            markdown_path,
+            bold_widget_path,
+        )
 
         path = canonical_path(ctx.path)
         widget_abs = canonical_path(widget_path)
@@ -374,6 +348,7 @@ class PlasmaSync(AbstractModule):
                 widget_path,
                 bold_widget_path,
                 css_style,
+                ctx.config,
             )
 
         if bold_abs and path == bold_abs:
@@ -382,6 +357,7 @@ class PlasmaSync(AbstractModule):
                 markdown_path,
                 bold_widget_path,
                 css_style,
+                ctx.config,
             )
 
         if path == widget_abs:
@@ -391,6 +367,7 @@ class PlasmaSync(AbstractModule):
                 bold_widget_path,
                 css_style,
                 html_path=path,
+                config=ctx.config,
             )
 
         return None
@@ -401,10 +378,15 @@ class PlasmaSync(AbstractModule):
         widget_path: str,
         bold_widget_path: Optional[str],
         css_style: bool,
+        config: Mapping[str, Any],
     ) -> Optional[IgnoreMap]:
         markdown_read = _read_file_checked(markdown_path)
         widget_read = _read_file_checked(widget_path)
-        mirror_read = _read_file_checked(bold_widget_path) if bold_widget_path else None
+        mirror_read = (
+            _read_file_checked(bold_widget_path)
+            if bold_widget_path
+            else None
+        )
 
         if not markdown_read.ok or not widget_read.ok:
             return None
@@ -424,6 +406,7 @@ class PlasmaSync(AbstractModule):
             safe_notify(
                 "md_missing:" + markdown_path,
                 f"Markdown note file not found:\n{markdown_path}",
+                config=config,
             )
             return None
 
@@ -432,6 +415,7 @@ class PlasmaSync(AbstractModule):
             widget_path=widget_path,
             markdown_path=markdown_path,
             bold_widget_path=bold_widget_path,
+            config=config,
         )
 
         if ignore:
@@ -448,13 +432,18 @@ class PlasmaSync(AbstractModule):
         bold_widget_path: Optional[str],
         css_style: bool,
         html_path: str,
+        config: Mapping[str, Any],
     ) -> Optional[IgnoreMap]:
         if not os.path.exists(html_path):
             return None
 
         widget_read = _read_file_checked(html_path)
         markdown_read = _read_file_checked(markdown_path)
-        mirror_read = _read_file_checked(bold_widget_path) if bold_widget_path else None
+        mirror_read = (
+            _read_file_checked(bold_widget_path)
+            if bold_widget_path
+            else None
+        )
 
         if not widget_read.ok or not markdown_read.ok:
             return None
@@ -475,6 +464,7 @@ class PlasmaSync(AbstractModule):
             widget_path=widget_path,
             markdown_path=markdown_path,
             bold_widget_path=bold_widget_path,
+            config=config,
         )
 
         if ignore:
@@ -490,6 +480,7 @@ class PlasmaSync(AbstractModule):
         markdown_path: str,
         bold_widget_path: Optional[str],
         css_style: bool,
+        config: Mapping[str, Any],
     ) -> Optional[IgnoreMap]:
         """
         Optional: editing mirror updates MAIN bold lines.
@@ -518,6 +509,7 @@ class PlasmaSync(AbstractModule):
             widget_path=widget_path,
             markdown_path=markdown_path,
             bold_widget_path=bold_widget_path,
+            config=config,
         )
 
         if ignore:

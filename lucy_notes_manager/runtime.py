@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+import logging
+from collections.abc import Iterable
+from typing import List
+
+from lucy_notes_manager.lib.args import Template
+from lucy_notes_manager.modules.abstract_module import AbstractModule
+from lucy_notes_manager.modules.banner import Banner
+from lucy_notes_manager.modules.formatter import Formatter
+from lucy_notes_manager.modules.git import Git
+from lucy_notes_manager.modules.linker import Linker
+from lucy_notes_manager.modules.plasma_sync import PlasmaSync
+from lucy_notes_manager.modules.renamer import Renamer
+from lucy_notes_manager.modules.sys import Sys
+from lucy_notes_manager.modules.today import Today
+
+LUCY_STARTUP_TEMPLATE: Template = [
+    (
+        "--sys-config-path",
+        str,
+        "config.txt",
+        "Path to the config file. Default: config.txt",
+    ),
+    (
+        "--sys-logging-lvl",
+        str,
+        "info",
+        "Logging level: debug, info, warning, error, critical. Default: info.",
+    ),
+    (
+        "--sys-logging-format",
+        str,
+        "%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d: %(message)s",
+        "Python logging format string. Default includes time, level, file, line, message.",
+    ),
+    (
+        "--sys-notes-dirs",
+        str,
+        [],
+        "One or more directories to watch recursively. Example: --sys-notes_dirs ~/notes ~/work/notes",
+    ),
+    (
+        "--sys-on-open-cooldown",
+        int,
+        30,
+        "Cooldown for 'opened' events per file, in seconds. Prevents editor spam. Default: 30 seconds).",
+    ),
+    (
+        "--sys-enable-experimental-modules",
+        bool,
+        False,
+        "Enable modules marked as experimental.",
+    ),
+    (
+        "--sys-notify-provider",
+        str,
+        "termuxapi",
+        "Notification provider. Supported: termuxapi, desktop, disable. Default: termuxapi.",
+    ),
+    (
+        "--sys-notify-min-interval-sec",
+        float,
+        10.0,
+        "Minimum seconds between repeated notifications with the same key. Default: 10.0.",
+    ),
+]
+
+
+def build_lucy_modules(include_experimental: bool) -> List[AbstractModule]:
+    modules: List[AbstractModule] = [
+        Banner(),
+        Renamer(),
+        Linker(),
+        Formatter(),
+        Today(),
+        Sys(),
+        Git(),
+        PlasmaSync(),
+    ]
+
+    if not include_experimental:
+        modules = [module for module in modules if not module.experimental]
+
+    return modules
+
+
+def resolve_logging_level(raw_level: str) -> int:
+    normalized = str(raw_level).strip().lower()
+    by_name = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warning": logging.WARNING,
+        "warn": logging.WARNING,
+        "error": logging.ERROR,
+        "critical": logging.CRITICAL,
+    }
+    if normalized not in by_name:
+        allowed = ", ".join(["debug", "info", "warning", "error", "critical"])
+        raise ValueError(
+            f"Unsupported --sys-logging-lvl '{raw_level}'. Use: {allowed}."
+        )
+    return by_name[normalized]
+
+
+def configure_logging(config: dict) -> None:
+    log_level = resolve_logging_level(config["sys_logging_lvl"])
+    logging.basicConfig(
+        level=log_level,
+        format=config["sys_logging_format"],
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True,
+    )
+
+
+def normalize_name_list(values: Iterable[str]) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for part in str(value).replace(",", " ").split():
+            normalized = part.strip()
+            if not normalized or normalized in seen:
+                continue
+            names.append(normalized)
+            seen.add(normalized)
+    return names
+
+
+def select_lucy_modules(
+    include_experimental: bool,
+    include_names: Iterable[str] | None = None,
+) -> List[AbstractModule]:
+    modules = build_lucy_modules(include_experimental=include_experimental)
+    include_set = set(normalize_name_list(include_names or []))
+    available_names = {module.name for module in modules}
+
+    unknown_include = include_set - available_names
+    if unknown_include:
+        available_sorted = ", ".join(sorted(available_names))
+        requested_sorted = ", ".join(sorted(unknown_include))
+        raise ValueError(
+            "Unknown modules in include list: "
+            f"{requested_sorted}. Available: {available_sorted}"
+        )
+
+    if include_set:
+        modules = [module for module in modules if module.name in include_set]
+
+    if not modules:
+        raise ValueError("No modules selected after include filter.")
+
+    return modules

@@ -4,11 +4,17 @@ import logging
 import subprocess
 import time
 from queue import Empty
+from typing import Any
 
 from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.modules.git.helpers import (
     parse_porcelain_paths,
     push_rejected_needs_pull,
+)
+from lucy_notes_manager.modules.git.batch_factory import (
+    add_event_to_batch,
+    make_repo_batch,
+    refresh_repo_batch_from_snapshot,
 )
 from lucy_notes_manager.modules.git.operations import (
     auto_resolve_merge_conflicts,
@@ -28,6 +34,40 @@ logger = logging.getLogger(__name__)
 _PULL_ONLY_EVENT_TYPES = {"opened", "scheduled_pull"}
 
 
+def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
+    return {
+        "sys_notify_provider": batch.notify_provider,
+        "sys_notify_min_interval_sec": batch.notify_min_interval_sec,
+    }
+
+
+def _enqueue_oneshot(
+    self,
+    repo_root: str,
+    event_type: str,
+    paths: list[str],
+    config_snapshot: dict,
+    wants_pull: bool,
+) -> None:
+    environment = git_environment(self, config_snapshot)
+    batch = make_repo_batch(
+        repo_root=repo_root,
+        config_snapshot=config_snapshot,
+        environment=environment,
+        wants_pull=bool(wants_pull),
+        debounce_seconds_override=0.0,
+        pull_cooldown_min_seconds_override=0.0,
+        max_batch_seconds_override=0.0,
+    )
+    add_event_to_batch(
+        batch=batch,
+        event_type=event_type,
+        paths=paths,
+        wants_pull=bool(wants_pull),
+    )
+    process_batch(self, batch)
+
+
 def enqueue(
     self,
     repo_root: str,
@@ -36,6 +76,16 @@ def enqueue(
     config_snapshot: dict,
     wants_pull: bool,
 ) -> None:
+    if getattr(self, "_oneshot_mode", False):
+        _enqueue_oneshot(
+            self=self,
+            repo_root=repo_root,
+            event_type=event_type,
+            paths=paths,
+            config_snapshot=config_snapshot,
+            wants_pull=wants_pull,
+        )
+        return
     self._event_queue.put((repo_root, event_type, paths, dict(config_snapshot), wants_pull))
 
 
@@ -50,27 +100,11 @@ def _create_or_get_batch(
     if existing_batch:
         return existing_batch
 
-    existing_batch = _RepoBatch(
+    existing_batch = make_repo_batch(
         repo_root=repo_root,
-        base_message=config_snapshot["git_msg"],
-        add_timestamp_to_message=config_snapshot["git_tsmsg"],
-        timestamp_format=config_snapshot["git_tsfmt"],
+        config_snapshot=config_snapshot,
         environment=environment,
-        debounce_seconds=config_snapshot["git_debounce_seconds"],
-        git_timeout_seconds=config_snapshot["git_timeout_sec"],
-        pull_timeout_seconds=config_snapshot["git_pull_timeout_sec"],
-        push_timeout_seconds=config_snapshot["git_push_timeout_sec"],
-        backoff_start_seconds=config_snapshot["git_push_backoff_start_sec"],
-        backoff_max_seconds=config_snapshot["git_push_backoff_max_sec"],
-        pull_cooldown_min_seconds=config_snapshot["git_pull_cooldown_min_sec"],
-        pull_cooldown_max_seconds=config_snapshot["git_pull_cooldown_max_sec"],
-        max_batch_seconds=config_snapshot["git_max_batch_seconds"],
-        network_probe_timeout_seconds=config_snapshot["git_network_probe_timeout_sec"],
-        pull_offline_error_markers=list(config_snapshot["git_pull_offline_error_marker"]),
         wants_pull=wants_pull,
-        auto_merge_on_push=config_snapshot["git_auto_merge_on_push"],
-        auto_set_upstream=config_snapshot["git_auto_set_upstream"],
-        autoresolve_mode=config_snapshot["git_autoresolve"],
     )
     self._pending_batches[repo_root] = existing_batch
     return existing_batch
@@ -85,34 +119,18 @@ def _apply_config_snapshot_to_batch(
     paths: list[str],
     now_timestamp: float,
 ) -> None:
-    batch.base_message = config_snapshot["git_msg"]
-    batch.add_timestamp_to_message = config_snapshot["git_tsmsg"]
-    batch.timestamp_format = config_snapshot["git_tsfmt"]
-    batch.environment = environment
-
-    batch.debounce_seconds = config_snapshot["git_debounce_seconds"]
-    batch.git_timeout_seconds = config_snapshot["git_timeout_sec"]
-    batch.pull_timeout_seconds = config_snapshot["git_pull_timeout_sec"]
-    batch.push_timeout_seconds = config_snapshot["git_push_timeout_sec"]
-    batch.backoff_start_seconds = config_snapshot["git_push_backoff_start_sec"]
-    batch.backoff_max_seconds = config_snapshot["git_push_backoff_max_sec"]
-
-    batch.pull_cooldown_min_seconds = config_snapshot["git_pull_cooldown_min_sec"]
-    batch.pull_cooldown_max_seconds = config_snapshot["git_pull_cooldown_max_sec"]
-    batch.max_batch_seconds = config_snapshot["git_max_batch_seconds"]
-    batch.network_probe_timeout_seconds = config_snapshot["git_network_probe_timeout_sec"]
-    batch.pull_offline_error_markers = list(config_snapshot["git_pull_offline_error_marker"])
-
-    batch.auto_merge_on_push = config_snapshot["git_auto_merge_on_push"]
-    batch.auto_set_upstream = config_snapshot["git_auto_set_upstream"]
-    batch.autoresolve_mode = config_snapshot["git_autoresolve"]
-
-    batch.wants_pull = batch.wants_pull or wants_pull
-    batch.last_event_at = now_timestamp
-    batch.event_types.add(event_type)
-    for path_item in paths:
-        if path_item:
-            batch.hinted_paths.add(path_item)
+    refresh_repo_batch_from_snapshot(
+        batch=batch,
+        config_snapshot=config_snapshot,
+        environment=environment,
+    )
+    add_event_to_batch(
+        batch=batch,
+        event_type=event_type,
+        paths=paths,
+        wants_pull=wants_pull,
+        now_timestamp=now_timestamp,
+    )
 
 
 def worker_loop(self) -> None:
@@ -185,6 +203,7 @@ def _process_due_batches(self, due_batches: list[_RepoBatch]) -> None:
                     f"Repository:\n{batch.repo_root}\n\n"
                     "Git batch processing crashed. Worker loop is still running."
                 ),
+                config=_notify_config_from_batch(batch),
             )
 
 
@@ -227,6 +246,7 @@ def _ensure_merge_state_clean(
     environment: dict[str, str],
     git_timeout_seconds: float,
     autoresolve_mode: str,
+    notify_config: dict[str, Any],
 ) -> bool:
     if not merge_in_progress(self, repo_root, environment, git_timeout_seconds):
         return True
@@ -259,6 +279,7 @@ def _ensure_merge_state_clean(
             f"Repository:\n{repo_root}\n\n"
             f"Found unfinished merge; auto-resolve failed; merge aborted.{abort_note}"
         ),
+        config=notify_config,
     )
     return False
 
@@ -291,6 +312,7 @@ def _handle_pull_only_batch(
         pull_timeout_seconds=pull_timeout_seconds,
         operation_timeout_seconds=git_timeout_seconds,
         autoresolve_mode=batch.autoresolve_mode,
+        notify_config=_notify_config_from_batch(batch),
         auto_set_upstream=batch.auto_set_upstream,
         network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
         pull_offline_error_markers=batch.pull_offline_error_markers,
@@ -303,6 +325,7 @@ def _stage_and_collect_changes(
     repo_root: str,
     environment: dict[str, str],
     git_timeout_seconds: float,
+    notify_config: dict[str, Any],
 ) -> tuple[bool, str, list[str]]:
     try:
         add_result = run_git(
@@ -317,6 +340,7 @@ def _stage_and_collect_changes(
         safe_notify(
             name=f"timeout:add:{repo_root}",
             message=f"git add timed out:\n{repo_root}",
+            config=notify_config,
         )
         return False, "", []
 
@@ -326,6 +350,7 @@ def _stage_and_collect_changes(
         safe_notify(
             name=f"addfail:{repo_root}",
             message=f"Repository:\n{repo_root}\n\nError:\n{add_error[:1200]}",
+            config=notify_config,
         )
         return False, "", []
 
@@ -342,6 +367,7 @@ def _stage_and_collect_changes(
         safe_notify(
             name=f"timeout:status:{repo_root}",
             message=f"git status timed out:\n{repo_root}",
+            config=notify_config,
         )
         return False, "", []
 
@@ -351,6 +377,7 @@ def _stage_and_collect_changes(
         safe_notify(
             name=f"statusfail:{repo_root}",
             message=f"Repository:\n{repo_root}\n\nError:\n{status_error[:1200]}",
+            config=notify_config,
         )
         return False, "", []
 
@@ -366,6 +393,7 @@ def _commit_if_needed(
     git_timeout_seconds: float,
     porcelain_text: str,
     changed_paths: list[str],
+    notify_config: dict[str, Any],
 ) -> bool:
     if not porcelain_text:
         return True
@@ -384,6 +412,7 @@ def _commit_if_needed(
         safe_notify(
             name=f"timeout:commit:{repo_root}",
             message=f"git commit timed out:\n{repo_root}",
+            config=notify_config,
         )
         return False
 
@@ -403,6 +432,7 @@ def _commit_if_needed(
     safe_notify(
         name=f"commitfail:{repo_root}",
         message=f"Repository:\n{repo_root}\n\nError:\n{commit_error[:1200]}",
+        config=notify_config,
     )
     return False
 
@@ -431,6 +461,7 @@ def _maybe_pull_before_push(
         pull_timeout_seconds=pull_timeout_seconds,
         operation_timeout_seconds=git_timeout_seconds,
         autoresolve_mode=batch.autoresolve_mode,
+        notify_config=_notify_config_from_batch(batch),
         auto_set_upstream=batch.auto_set_upstream,
         network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
         pull_offline_error_markers=batch.pull_offline_error_markers,
@@ -457,12 +488,14 @@ def _handle_push_timeout(
     repo_root: str,
     backoff_start_seconds: float,
     backoff_max_seconds: float,
+    notify_config: dict[str, Any],
 ) -> None:
     self._register_push_failure(repo_root, backoff_start_seconds, backoff_max_seconds)
     logger.error("git push timed out | repo=%s", repo_root)
     safe_notify(
         name=f"timeout:push:{repo_root}",
         message=f"git push timed out:\n{repo_root}",
+        config=notify_config,
     )
 
 
@@ -480,6 +513,7 @@ def _attempt_push_with_retry(
     git_timeout_seconds: float,
     backoff_start_seconds: float,
     backoff_max_seconds: float,
+    notify_config: dict[str, Any],
 ) -> None:
     def _reset_push_backoff() -> None:
         self._push_backoff_seconds[repo_root] = backoff_start_seconds
@@ -526,6 +560,7 @@ def _attempt_push_with_retry(
             pull_timeout_seconds=pull_timeout_seconds,
             operation_timeout_seconds=git_timeout_seconds,
             autoresolve_mode=batch.autoresolve_mode,
+            notify_config=notify_config,
             auto_set_upstream=batch.auto_set_upstream,
             network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
             pull_offline_error_markers=batch.pull_offline_error_markers,
@@ -549,6 +584,7 @@ def _attempt_push_with_retry(
             repo_root=repo_root,
             backoff_start_seconds=backoff_start_seconds,
             backoff_max_seconds=backoff_max_seconds,
+            notify_config=notify_config,
         )
         return
 
@@ -570,6 +606,7 @@ def _attempt_push_with_retry(
             f"Command:\ngit push\n\n"
             f"Error:\n{push_error[:1200]}"
         ),
+        config=notify_config,
     )
 
 
@@ -581,6 +618,7 @@ def process_batch(self, batch: _RepoBatch) -> None:
     push_timeout_seconds = batch.push_timeout_seconds
     backoff_start_seconds = batch.backoff_start_seconds
     backoff_max_seconds = batch.backoff_max_seconds
+    notify_config = _notify_config_from_batch(batch)
 
     if not _ensure_merge_state_clean(
         self=self,
@@ -588,6 +626,7 @@ def process_batch(self, batch: _RepoBatch) -> None:
         environment=environment,
         git_timeout_seconds=git_timeout_seconds,
         autoresolve_mode=batch.autoresolve_mode,
+        notify_config=notify_config,
     ):
         return
 
@@ -606,6 +645,7 @@ def process_batch(self, batch: _RepoBatch) -> None:
         repo_root=repo_root,
         environment=environment,
         git_timeout_seconds=git_timeout_seconds,
+        notify_config=notify_config,
     )
     if not staged_ok:
         return
@@ -618,6 +658,7 @@ def process_batch(self, batch: _RepoBatch) -> None:
         git_timeout_seconds=git_timeout_seconds,
         porcelain_text=porcelain_text,
         changed_paths=changed_paths,
+        notify_config=notify_config,
     ):
         return
 
@@ -645,4 +686,5 @@ def process_batch(self, batch: _RepoBatch) -> None:
         git_timeout_seconds=git_timeout_seconds,
         backoff_start_seconds=backoff_start_seconds,
         backoff_max_seconds=backoff_max_seconds,
+        notify_config=notify_config,
     )

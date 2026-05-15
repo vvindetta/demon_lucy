@@ -108,14 +108,14 @@ def test_setup_config_and_cli_args_keeps_config_values_when_cli_uses_defaults(
 ):
     cfg = tmp_path / "daemon.cfg"
     cfg.write_text(
-        '--sys-notes-dirs "/notes/a" "/notes/b"\n--sys-debug\n',
+        '--sys-notes-dirs "/notes/a" "/notes/b"\n--sys-logging-lvl debug\n',
         encoding="utf-8",
     )
 
     template = [
         ("--sys-config-path", str, "config.txt", ""),
         ("--sys-notes-dirs", str, [], ""),
-        ("--sys-debug", bool, False, ""),
+        ("--sys-logging-lvl", str, "info", ""),
     ]
 
     monkeypatch.setattr(
@@ -128,4 +128,4 @@ def test_setup_config_and_cli_args_keeps_config_values_when_cli_uses_defaults(
 
     assert unknown == []
     assert known["sys_notes_dirs"] == ["/notes/a", "/notes/b"]
-    assert known["sys_debug"] is True
+    assert known["sys_logging_lvl"] == "debug"

@@ -7,15 +7,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import watchdog.observers as observers_mod
 
 import lucy_notes_manager.file_handler as file_handler_mod
 import lucy_notes_manager.lib.args as args_mod
 import lucy_notes_manager.module_manager as module_manager_mod
-import watchdog.observers as observers_mod
 
 
 def _main_path() -> str:
-    return str((Path(__file__).resolve().parents[1] / "main.py"))
+    return str((Path(__file__).resolve().parents[1] / "main_daemon.py"))
 
 
 @dataclass
@@ -62,16 +62,20 @@ def _run_main_with_flag(
         "setup_config_and_cli_args",
         lambda template: (
             {
-                "sys_debug": False,
+                "sys_logging_lvl": "info",
                 "sys_logging_format": "%(message)s",
                 "sys_notes_dirs": [str(tmp_path)],
                 "sys_on_open_cooldown": 20,
                 "sys_enable_experimental_modules": enable_experimental,
+                "sys_notify_provider": "auto",
+                "sys_notify_min_interval_sec": 10.0,
             },
             [],
         ),
     )
-    monkeypatch.setattr(time, "sleep", lambda _sec: (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr(
+        time, "sleep", lambda _sec: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
 
     runpy.run_path(_main_path(), run_name="__main__")
     return state
@@ -80,10 +84,19 @@ def _run_main_with_flag(
 @pytest.mark.parametrize(
     ("enable_experimental", "expected_modules"),
     [
-        (False, ["banner", "renamer", "formatter", "today", "sys"]),
+        (False, ["banner", "renamer", "linker", "formatter", "today", "sys"]),
         (
             True,
-            ["banner", "renamer", "formatter", "today", "sys", "git", "plasma_sync"],
+            [
+                "banner",
+                "renamer",
+                "linker",
+                "formatter",
+                "today",
+                "sys",
+                "git",
+                "plasma_sync",
+            ],
         ),
     ],
 )
@@ -116,11 +129,13 @@ def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
         "setup_config_and_cli_args",
         lambda template: (
             {
-                "sys_debug": False,
+                "sys_logging_lvl": "info",
                 "sys_logging_format": "%(message)s",
                 "sys_notes_dirs": None,
                 "sys_on_open_cooldown": 20,
                 "sys_enable_experimental_modules": False,
+                "sys_notify_provider": "auto",
+                "sys_notify_min_interval_sec": 10.0,
             },
             [],
         ),

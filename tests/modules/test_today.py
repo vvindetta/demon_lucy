@@ -14,10 +14,16 @@ from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.today import Today
 
 
-def _ctx_for(path: Path, *, force_fs: bool = False) -> Context:
+def _ctx_for(
+    path: Path,
+    *,
+    force_fs: bool = False,
+    now_path: str = "now.md",
+    past_path: str = "past.md",
+) -> Context:
     config: dict[str, object] = {
-        "today_now_name": "now.md",
-        "today_past_name": "past.md",
+        "today_now_path": now_path,
+        "today_past_path": past_path,
         "today_idle_hours": 12.0,
         "today_force_fs": False,
     }
@@ -29,6 +35,27 @@ def _ctx_for(path: Path, *, force_fs: bool = False) -> Context:
         config=config,
         arg_lines={},
     )
+
+
+def test_supports_custom_today_now_file(tmp_path: Path, monkeypatch) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    now_path = tmp_path / "active.md"
+    now_path.write_text("custom active\n", encoding="utf-8")
+    _make_stale(now_path, 13.0)
+
+    trigger_path = tmp_path / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Today()
+    ctx = _ctx_for(trigger_path, now_path="active.md")
+    system = System(event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module])
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert past_path.read_text(encoding="utf-8") == "-- 02.05\ncustom active\n"
 
 
 def _make_stale(path: Path, hours: float) -> None:

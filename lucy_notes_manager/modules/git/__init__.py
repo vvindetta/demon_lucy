@@ -28,6 +28,12 @@ from lucy_notes_manager.modules.git.types import _RepoBatch
 from lucy_notes_manager.modules.git.worker import enqueue, worker_loop
 
 logger = logging.getLogger(__name__)
+_ONESHOT_MODE = False
+
+
+def set_oneshot_mode(enabled: bool) -> None:
+    global _ONESHOT_MODE
+    _ONESHOT_MODE = bool(enabled)
 
 
 class Git(AbstractModule):
@@ -39,6 +45,7 @@ class Git(AbstractModule):
 
     def __init__(self) -> None:
         super().__init__()
+        self._oneshot_mode = _ONESHOT_MODE
         self._event_queue: Queue[tuple[str, str, list[str], dict, bool]] = Queue()
         self._pending_batches: dict[str, _RepoBatch] = {}
         self._pending_lock = threading.Lock()
@@ -55,11 +62,13 @@ class Git(AbstractModule):
         self._periodic_pull_intervals_seconds: dict[str, float] = {}
         self._periodic_pull_configs: dict[str, dict] = {}
 
-        self._worker_thread = threading.Thread(
-            target=lambda: worker_loop(self),
-            daemon=True,
-        )
-        self._worker_thread.start()
+        self._worker_thread: threading.Thread | None = None
+        if not self._oneshot_mode:
+            self._worker_thread = threading.Thread(
+                target=lambda: worker_loop(self),
+                daemon=True,
+            )
+            self._worker_thread.start()
 
     def _build_commit_message(self, batch: _RepoBatch, changed_paths: list[str]) -> str:
         event_summary = "+".join(sorted(batch.event_types)) if batch.event_types else "change"

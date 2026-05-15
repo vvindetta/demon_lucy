@@ -7,7 +7,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 from urllib.parse import urlparse
 
 from lucy_notes_manager.lib import safe_notify
@@ -657,6 +657,7 @@ def _resolve_pull_plan(
     operation_timeout_seconds: float,
     auto_set_upstream: bool,
     network_probe_timeout_seconds: float,
+    notify_config: Mapping[str, Any],
 ) -> Optional[_PullPlan]:
     if has_upstream(self, repo_root, environment, operation_timeout_seconds):
         remote_name = upstream_remote_name(
@@ -690,6 +691,7 @@ def _resolve_pull_plan(
                 f"Repository:\n{repo_root}\n\n"
                 f"No upstream configured and cannot infer remote/branch; skip pull."
             ),
+            config=notify_config,
         )
         return None
 
@@ -726,6 +728,7 @@ def _resolve_pull_plan(
                 f"{remote_name}/{branch_name}\n\n"
                 f"Skip pull."
             ),
+            config=notify_config,
         )
         return None
 
@@ -753,6 +756,7 @@ def _handle_pull_timeout(
     operation_timeout_seconds: float,
     network_probe_timeout_seconds: float,
     remote_name: Optional[str],
+    notify_config: Mapping[str, Any],
 ) -> bool:
     if remote_name and not _remote_is_reachable_or_wait(
         self=self,
@@ -772,6 +776,7 @@ def _handle_pull_timeout(
     safe_notify(
         name=f"timeout:pull:{repo_root}",
         message=f"git pull timed out:\n{repo_root}",
+        config=notify_config,
     )
     return False
 
@@ -792,6 +797,7 @@ def _handle_pull_failure(
     pull_result: subprocess.CompletedProcess[str],
     pull_offline_error_markers: list[str] | None,
     command_for_notification: str,
+    notify_config: Mapping[str, Any],
 ) -> bool:
     if merge_in_progress(self, repo_root, environment, operation_timeout_seconds):
         resolved = auto_resolve_merge_conflicts(
@@ -832,6 +838,7 @@ def _handle_pull_failure(
                 f"Error:\n{pull_error[:1200]}"
                 f"{merge_abort_note}"
             ),
+            config=notify_config,
         )
         return False
 
@@ -854,6 +861,7 @@ def _handle_pull_failure(
             f"Command:\n{command_for_notification}\n\n"
             f"Error:\n{pull_error[:1200]}"
         ),
+        config=notify_config,
     )
     return False
 
@@ -865,6 +873,7 @@ def safe_pull_merge(
     pull_timeout_seconds: float,
     operation_timeout_seconds: float,
     autoresolve_mode: str,
+    notify_config: Mapping[str, Any],
     auto_set_upstream: bool = True,
     network_probe_timeout_seconds: float = 0.0,
     pull_offline_error_markers: list[str] | None = None,
@@ -877,6 +886,7 @@ def safe_pull_merge(
         operation_timeout_seconds=operation_timeout_seconds,
         auto_set_upstream=auto_set_upstream,
         network_probe_timeout_seconds=network_probe_timeout_seconds,
+        notify_config=notify_config,
     )
     if pull_plan is None:
         return False
@@ -897,6 +907,7 @@ def safe_pull_merge(
             operation_timeout_seconds=operation_timeout_seconds,
             network_probe_timeout_seconds=network_probe_timeout_seconds,
             remote_name=pull_plan.remote_name,
+            notify_config=notify_config,
         )
 
     if pull_result.returncode == 0:
@@ -911,4 +922,5 @@ def safe_pull_merge(
         pull_result=pull_result,
         pull_offline_error_markers=pull_offline_error_markers,
         command_for_notification=pull_plan.command_for_notification,
+        notify_config=notify_config,
     )

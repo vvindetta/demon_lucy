@@ -1,39 +1,103 @@
 import os
+import shutil
+import subprocess
 import time
-from typing import Dict, List
-
-from notifypy import Notify
+from typing import Any, Dict, List, Mapping
 
 _NOTIFY_LAST: Dict[str, float] = {}
-_NOTIFY_MIN_INTERVAL_SEC = 10.0
 
-notifypy = Notify()
+try:
+    from notifypy import Notify as _Notify  # pyright: ignore[reportAssignmentType]
+except Exception:
+
+    class _Notify:
+        def __init__(self, *args, **kwargs):
+            self.title = ""
+            self.message = ""
+
+        def send(self):
+            return None
 
 
-def safe_notify(name: str, message: str) -> None:
+notifypy = _Notify()
+
+
+def _notify_termux(message: str, title: str) -> bool:
+    executable = shutil.which("termux-notification")
+    if not executable:
+        return False
+
+    try:
+        result = subprocess.run(
+            [
+                executable,
+                "--title",
+                title,
+                "--content",
+                message,
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+    return result.returncode == 0
+
+
+def _notify_desktop(message: str, title: str) -> bool:
+    try:
+        notifypy.title = title
+        notifypy.message = message
+        notifypy.send()
+    except Exception:
+        return False
+    return True
+
+
+def safe_notify(
+    name: str,
+    message: str,
+    *,
+    config: Mapping[str, Any],
+    title: str = "Lucy Note Manager",
+) -> None:
     """
     Throttle notifications by `key`.
 
-    - If called again within _NOTIFY_MIN_INTERVAL_SEC, it does nothing.
+    - If called again within configured min interval, it does nothing.
     - Otherwise calls lucy_notes_manager.lib.notify(message=...).
     """
+    min_interval_seconds = config["sys_notify_min_interval_sec"]
     now = time.time()
     last = _NOTIFY_LAST.get(name)
-    if last is not None and (now - last) < _NOTIFY_MIN_INTERVAL_SEC:
+    if last is not None and (now - last) < min_interval_seconds:
         return
     _NOTIFY_LAST[name] = now
-    notify(message=message)
+    notify(message=message, title=title, config=config)
 
 
-def notify(message: str, title: str = "Lucy Note Manager") -> None:
+def notify(
+    message: str,
+    title: str = "Lucy Note Manager",
+    *,
+    config: Mapping[str, Any],
+) -> None:
     """
-    Send a desktop notification via notify-py.
+    Send a notification via configured provider.
     Fails silently if notify-py (or its backend) is unavailable.
     """
+    provider = config["sys_notify_provider"]
 
-    notifypy.title = title
-    notifypy.message = message
-    notifypy.send()
+    try:
+        if provider == "desktop":
+            _notify_desktop(message=message, title=title)
+        elif provider == "termuxapi":
+            _notify_termux(message=message, title=title)
+    except Exception:
+        return None
 
 
 def slow_write_lines_from(

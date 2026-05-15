@@ -43,7 +43,7 @@ You can provide flags in three places:
 
 1. Inside the note file (for per-note behavior)
 2. In config.txt (global defaults)
-3. At startup: ```python3 main.py --some-flag```
+3. At startup: ```python3 main_daemon.py --some-flag```
 
 ### System module
 
@@ -93,17 +93,28 @@ pip install -r requirements.txt
 
 3. Setup ```--sys-notes-dirs``` in ```config.txt```
 
-4. Run the program:
+
+### Daemon mode
 ```
-python3 main.py
+python3 main_daemon.py
+```
+
+### One-shot mode (single run)
+`main_oneshot.py` is an alternative runner: it triggers selected modules once for a specific event/path. Useful for scripts, shortcuts, and Termux tasks.
+
+```
+python3 main_oneshot.py \
+  --oneshot-event modified \
+  --oneshot-path ~/Notes \
+  --oneshot-include-modules git
 ```
 
 **Turn on file auto-update in your text editor!**
 
 ## Modules
 
-To add new modules, you need to edit the list in `main.py`.
-Hot reload and install/uninstall commands are in the roadmap. Sorry.
+To add new modules, edit `lucy_notes_manager/runtime.py` (`build_lucy_modules`).
+Hot reload and install/uninstall commands are in the roadmap.
 
 ### List of available modules
 

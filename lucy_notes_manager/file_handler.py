@@ -28,26 +28,31 @@ class FileHandler(FileSystemEventHandler):
         self._open_cache_max_entries = 4096
 
     def _process_file(self, event):
-        if event.is_directory or os.path.basename(event.src_path).startswith("."):
+        src_path = os.fsdecode(event.src_path)
+        dest_path = os.fsdecode(getattr(event, "dest_path", ""))
+
+        if event.is_directory or os.path.basename(src_path).startswith("."):
             return
 
-        file_path = event.dest_path if event.event_type == "moved" else event.src_path
+        file_path = dest_path if event.event_type == "moved" else src_path
         file_path = canonical_path(file_path)
 
         if path_has_component(file_path, ".git"):
             return
 
         if event.event_type == "moved":
-            if self._check_and_delete_ignore(canonical_path(event.src_path)) or self._check_and_delete_ignore(
-                canonical_path(event.dest_path)
-            ):
+            src_ignored = self._check_and_delete_ignore(canonical_path(src_path))
+            dest_ignored = bool(dest_path) and self._check_and_delete_ignore(
+                canonical_path(dest_path)
+            )
+            if src_ignored or dest_ignored:
                 return
-            logger.info(f"EVENT: Moved: {event.src_path} → {event.dest_path}")
+            logger.info(f"EVENT: Moved: {src_path} → {dest_path}")
         else:
             if self._check_and_delete_ignore(file_path):
                 return
             logger.info(
-                f"EVENT: {str(event.event_type).capitalize()}: {event.src_path}"
+                f"EVENT: {str(event.event_type).capitalize()}: {src_path}"
             )
 
         ignore_paths = self.modules.run(path=file_path, event=event)
@@ -122,10 +127,12 @@ class FileHandler(FileSystemEventHandler):
         self._process_file(event=event)
 
     def on_opened(self, event):
-        if event.is_directory or os.path.basename(event.src_path).startswith("."):
+        src_path = os.fsdecode(event.src_path)
+
+        if event.is_directory or os.path.basename(src_path).startswith("."):
             return
-        if path_has_component(canonical_path(str(event.src_path)), ".git"):
+        if path_has_component(canonical_path(src_path), ".git"):
             return
-        if not self._should_process_open(file_path=str(event.src_path)):
+        if not self._should_process_open(file_path=src_path):
             return
         self._process_file(event=event)

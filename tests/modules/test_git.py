@@ -16,6 +16,11 @@ from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.git import Git, _RepoBatch
 from lucy_notes_manager.modules.git.worker import should_force_flush_batch
 
+_NOTIFY_CFG = {
+    "sys_notify_provider": "termuxapi",
+    "sys_notify_min_interval_sec": 10.0,
+}
+
 
 @pytest.fixture
 def git_module(monkeypatch):
@@ -48,6 +53,8 @@ def _mk_batch(**overrides) -> _RepoBatch:
         "pull_cooldown_min_seconds": 1.0,
         "pull_cooldown_max_seconds": 4.0,
         "max_batch_seconds": 8.0,
+        "notify_provider": "termuxapi",
+        "notify_min_interval_sec": 10.0,
     }
     values.update(overrides)
     return _RepoBatch(**values)
@@ -316,6 +323,7 @@ def test_safe_pull_merge_waits_for_network_without_notify_when_upstream(git_modu
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
+        notify_config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -350,6 +358,7 @@ def test_safe_pull_merge_skips_remote_branch_lookup_when_offline(git_module, mon
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
+        notify_config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -389,6 +398,7 @@ def test_safe_pull_merge_timeout_while_offline_skips_notify(git_module, monkeypa
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
+        notify_config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -586,6 +596,7 @@ def test_safe_pull_merge_conflict_abort_timeout_does_not_raise(git_module, monke
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
+        notify_config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -625,6 +636,7 @@ def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkey
         environment={},
         git_timeout_seconds=5.0,
         autoresolve_mode="union",
+        notify_config=_NOTIFY_CFG,
     )
 
     assert cleaned is False
@@ -703,6 +715,7 @@ def test_attempt_push_with_retry_second_push_timeout_notifies_once(
         git_timeout_seconds=5.0,
         backoff_start_seconds=2.0,
         backoff_max_seconds=8.0,
+        notify_config=_NOTIFY_CFG,
     )
 
     assert len(register_calls) == 1
@@ -762,6 +775,7 @@ def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypat
         git_timeout_seconds=5.0,
         backoff_start_seconds=2.0,
         backoff_max_seconds=8.0,
+        notify_config=_NOTIFY_CFG,
     )
 
     assert len(register_calls) == 1
@@ -832,6 +846,7 @@ def test_attempt_push_with_retry_retries_plain_push_error_before_notify(
         git_timeout_seconds=5.0,
         backoff_start_seconds=2.0,
         backoff_max_seconds=8.0,
+        notify_config=_NOTIFY_CFG,
     )
 
     assert push_attempts["count"] == 2
@@ -893,6 +908,7 @@ def test_attempt_push_with_retry_retries_timeout_before_notify(git_module, monke
         git_timeout_seconds=5.0,
         backoff_start_seconds=2.0,
         backoff_max_seconds=8.0,
+        notify_config=_NOTIFY_CFG,
     )
 
     assert push_attempts["count"] == 2
