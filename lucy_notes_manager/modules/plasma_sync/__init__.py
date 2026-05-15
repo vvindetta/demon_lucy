@@ -286,7 +286,6 @@ def _apply_sync_plan(
 class PlasmaSync(AbstractModule):
     name: str = "plasma_sync"
     priority: int = 30
-    experimental: bool = True
 
     template = PLASMA_SYNC_TEMPLATE
 
@@ -303,22 +302,6 @@ class PlasmaSync(AbstractModule):
         return None
 
     def _cfg(self, ctx: Context) -> tuple[str, str, Optional[str], bool]:
-        if not ctx.config["plasma_widget_path"] or not ctx.config[
-            "plasma_widget_path"
-        ].strip():
-            raise ValueError("PlasmaSync: invalid value for --plasma-widget-path")
-        if not ctx.config["plasma_markdown_note_path"] or not ctx.config[
-            "plasma_markdown_note_path"
-        ].strip():
-            raise ValueError(
-                "PlasmaSync: invalid value for --plasma-markdown-note-path"
-            )
-
-        if ctx.config["plasma_bold_widget_path"] is not None and not ctx.config[
-            "plasma_bold_widget_path"
-        ].strip():
-            raise ValueError("PlasmaSync: invalid value for --plasma-bold-widget-path")
-
         return (
             canonical_path(ctx.config["plasma_widget_path"]),
             canonical_path(ctx.config["plasma_markdown_note_path"]),

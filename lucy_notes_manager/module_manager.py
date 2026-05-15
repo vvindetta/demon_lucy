@@ -3,10 +3,13 @@ from typing import Dict, List
 
 from watchdog.events import FileSystemEvent
 
+from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.lib.args import (
     Template,
+    flag_to_dest,
     get_args_from_file,
     merge_known_args,
+    parse_template_item,
     parse_args,
 )
 from lucy_notes_manager.modules.abstract_module import AbstractModule, Context, System
@@ -15,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class ModuleManager:
-    def __init__(self, modules: List[AbstractModule], args):
+    def __init__(self, modules: List[AbstractModule], args, system_config: dict):
         self.modules = modules
         self.template: Template = [
             (
@@ -24,6 +27,7 @@ class ModuleManager:
                 [],
                 "Force-enable modules by name even if they are excluded. "
                 "Example: --force git todo",
+                False,
             ),
             (
                 "--exclude",
@@ -31,6 +35,7 @@ class ModuleManager:
                 [],
                 "Disable modules by name. Can be overridden per module via --force. "
                 "Example: --exclude git todo",
+                False,
             ),
             (
                 "--sys-priority",
@@ -38,12 +43,28 @@ class ModuleManager:
                 [],
                 "Override module execution order (lower runs first). "
                 "Format: name=int. Example: --sys-priority banner=5 renamer=20 todo=30",
+                False,
             ),
             (
                 "--sys-use_only_first_line",
                 bool,
                 False,
                 "If true, parse module arguments only from the first line of the file (faster, but ignores flags below).",
+                False,
+            ),
+            (
+                "--sys-notify-provider",
+                str,
+                system_config["sys_notify_provider"],
+                "Notification provider for modules: termuxapi, desktop, disable.",
+                False,
+            ),
+            (
+                "--sys-notify-min-interval-sec",
+                float,
+                system_config["sys_notify_min_interval_sec"],
+                "Minimum interval between repeated notifications (seconds).",
+                False,
             ),
         ]
 
@@ -54,6 +75,28 @@ class ModuleManager:
 
         priority_dict = self._parse_priority_list(self.config["sys_priority"])
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))
+
+    def _module_missing_required_flags(
+        self,
+        module: AbstractModule,
+        config: dict,
+    ) -> list[str]:
+        missing_flags: list[str] = []
+        for item in module.template:
+            flag, _typ, _default, _desc, required = parse_template_item(item)
+            if not required:
+                continue
+            dest = flag_to_dest(flag)
+            value = config.get(dest)
+            if value is None:
+                missing_flags.append(flag)
+                continue
+            if isinstance(value, str) and not value.strip():
+                missing_flags.append(flag)
+                continue
+            if isinstance(value, list) and len(value) == 0:
+                missing_flags.append(flag)
+        return missing_flags
 
     def run(self, path: str, event: FileSystemEvent) -> Dict[str, int] | None:
         def _update_config():
@@ -79,6 +122,20 @@ class ModuleManager:
                 continue
 
             if event.event_type not in module.__class__.__dict__:  # not from parent
+                continue
+
+            missing_required = self._module_missing_required_flags(module, config)
+            if missing_required:
+                missing_text = ", ".join(missing_required)
+                message = (
+                    f"Skipping module '{module.name}': missing required args: {missing_text}"
+                )
+                logger.error(message)
+                safe_notify(
+                    f"module_missing_required:{module.name}",
+                    message,
+                    config=config,
+                )
                 continue
 
             action = getattr(module, event.event_type)

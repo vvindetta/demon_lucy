@@ -27,7 +27,7 @@ class _ObserverState:
 
 
 def _run_main_with_flag(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, enable_experimental: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> _ObserverState:
     state = _ObserverState()
 
@@ -50,9 +50,10 @@ def _run_main_with_flag(
             self.open_cooldown_seconds = open_cooldown_seconds
 
     class FakeModuleManager:
-        def __init__(self, modules, args):
+        def __init__(self, modules, args, system_config=None):
             self.modules = modules
             self.args = args
+            self.system_config = system_config
 
     monkeypatch.setattr(observers_mod, "Observer", FakeObserver)
     monkeypatch.setattr(file_handler_mod, "FileHandler", FakeFileHandler)
@@ -66,7 +67,6 @@ def _run_main_with_flag(
                 "sys_logging_format": "%(message)s",
                 "sys_notes_dirs": [str(tmp_path)],
                 "sys_on_open_cooldown": 20,
-                "sys_enable_experimental_modules": enable_experimental,
                 "sys_notify_provider": "auto",
                 "sys_notify_min_interval_sec": 10.0,
             },
@@ -81,35 +81,13 @@ def _run_main_with_flag(
     return state
 
 
-@pytest.mark.parametrize(
-    ("enable_experimental", "expected_modules"),
-    [
-        (False, ["banner", "renamer", "linker", "formatter", "today", "sys"]),
-        (
-            True,
-            [
-                "banner",
-                "renamer",
-                "linker",
-                "formatter",
-                "today",
-                "sys",
-                "git",
-                "plasma_sync",
-            ],
-        ),
-    ],
-)
 def test_main_schedules_observer_and_modules(
     tmp_path: Path,
     monkeypatch,
-    enable_experimental: bool,
-    expected_modules: list[str],
 ):
     state = _run_main_with_flag(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
-        enable_experimental=enable_experimental,
     )
 
     assert state.started is True
@@ -120,7 +98,16 @@ def test_main_schedules_observer_and_modules(
     assert scheduled_path == str(tmp_path)
     assert recursive is True
     assert handler.open_cooldown_seconds == 20
-    assert [m.name for m in handler.modules.modules] == expected_modules
+    assert [m.name for m in handler.modules.modules] == [
+        "banner",
+        "renamer",
+        "linker",
+        "formatter",
+        "today",
+        "sys",
+        "git",
+        "plasma_sync",
+    ]
 
 
 def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
@@ -133,7 +120,6 @@ def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
                 "sys_logging_format": "%(message)s",
                 "sys_notes_dirs": None,
                 "sys_on_open_cooldown": 20,
-                "sys_enable_experimental_modules": False,
                 "sys_notify_provider": "auto",
                 "sys_notify_min_interval_sec": 10.0,
             },

@@ -28,10 +28,9 @@ def main() -> int:
         )
 
     modules = ModuleManager(
-        modules=select_lucy_modules(
-            include_experimental=config["sys_enable_experimental_modules"],
-        ),
+        modules=select_lucy_modules(),
         args=list(unknown_args),
+        system_config=config,
     )
 
     observer = Observer()

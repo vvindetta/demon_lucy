@@ -65,16 +65,15 @@ class AbstractModule(ABC):
 
     - example:
         [
-            ("--flag", type, "default value", "manual string"),
-            ("--rename", str, None, "Will rename file),
-            ("--banner", str, "date", "Draws ASCII banner),
-            ("--tags", str, [], "Multi-value argument),
+            ("--flag", type, "default value", "manual string", False),
+            ("--rename", str, None, "Will rename file", False),
+            ("--banner", str, "date", "Draws ASCII banner", False),
+            ("--tags", str, [], "Multi-value argument", False),
         ]
     """
 
     name: str
     priority: int = 15
-    experimental: bool = False
     template: Template = []
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:

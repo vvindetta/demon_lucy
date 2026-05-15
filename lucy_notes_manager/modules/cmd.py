@@ -49,25 +49,29 @@ class Cmd(AbstractModule):
             str,
             [],
             "Command tokens to execute (nargs='+'). Example: --c ls -la",
+            False,
         ),
-        ("--cmd-timeout", int, 5, "Timeout in seconds for each command run."),
+        ("--cmd-timeout", int, 5, "Timeout in seconds for each command run.", False),
         (
             "--cmd-max-bytes",
             int,
             20000,
             "Maximum bytes of stdout/stderr written into the file (output is clipped).",
+            False,
         ),
         (
             "--cmd-show-stderr",
             bool,
             True,
             "Include stderr in the output block.",
+            False,
         ),
         (
             "--cmd-show-stdout",
             bool,
             True,
             "Include stdout in the output block.",
+            False,
         ),
     ]
 

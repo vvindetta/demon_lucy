@@ -93,6 +93,7 @@ pip install -r requirements.txt
 
 3. Setup ```--sys-notes-dirs``` in ```config.txt```
 
+**Turn on file auto-update in your text editor!**
 
 ### Daemon mode
 ```
@@ -109,7 +110,6 @@ python3 main_oneshot.py \
   --oneshot-include-modules git
 ```
 
-**Turn on file auto-update in your text editor!**
 
 ## Modules
 
@@ -125,9 +125,9 @@ Hot reload and install/uninstall commands are in the roadmap.
 - `banner`: prints an ASCII banner with the current date or custom text
 - `renamer`: renames a file using `--r name`
 - `today`: archives stale `now.md` into `past.md`
+- `cmd`: run a terminal command with `--c command`. Disabled in code by default.  
+  Cmd module may cause security issues when used with the `git`.
 
-**Experimental (disabled by default):**
+**Integrations:**
 - `git`: auto commit, pull, push, etc. Please install GIT cli. 
 - `plasma_sync`: sync KDE Plasma widgets ([see video](media/plasma_sync.mp4))
-- `cmd`: run a terminal command with `--c command`.  
-  Cmd module may cause security issues when used with the `git`.

@@ -21,68 +21,51 @@ LUCY_STARTUP_TEMPLATE: Template = [
         str,
         "config.txt",
         "Path to the config file. Default: config.txt",
+        False,
     ),
     (
         "--sys-logging-lvl",
         str,
         "info",
         "Logging level: debug, info, warning, error, critical. Default: info.",
+        False,
     ),
     (
         "--sys-logging-format",
         str,
         "%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d: %(message)s",
         "Python logging format string. Default includes time, level, file, line, message.",
+        False,
     ),
     (
         "--sys-notes-dirs",
         str,
         [],
         "One or more directories to watch recursively. Example: --sys-notes_dirs ~/notes ~/work/notes",
+        False,
     ),
     (
         "--sys-on-open-cooldown",
         int,
         30,
         "Cooldown for 'opened' events per file, in seconds. Prevents editor spam. Default: 30 seconds).",
-    ),
-    (
-        "--sys-enable-experimental-modules",
-        bool,
         False,
-        "Enable modules marked as experimental.",
     ),
     (
         "--sys-notify-provider",
         str,
         "termuxapi",
         "Notification provider. Supported: termuxapi, desktop, disable. Default: termuxapi.",
+        False,
     ),
     (
         "--sys-notify-min-interval-sec",
         float,
         10.0,
         "Minimum seconds between repeated notifications with the same key. Default: 10.0.",
+        False,
     ),
 ]
-
-
-def build_lucy_modules(include_experimental: bool) -> List[AbstractModule]:
-    modules: List[AbstractModule] = [
-        Banner(),
-        Renamer(),
-        Linker(),
-        Formatter(),
-        Today(),
-        Sys(),
-        Git(),
-        PlasmaSync(),
-    ]
-
-    if not include_experimental:
-        modules = [module for module in modules if not module.experimental]
-
-    return modules
 
 
 def resolve_logging_level(raw_level: str) -> int:
@@ -127,10 +110,18 @@ def normalize_name_list(values: Iterable[str]) -> list[str]:
 
 
 def select_lucy_modules(
-    include_experimental: bool,
     include_names: Iterable[str] | None = None,
 ) -> List[AbstractModule]:
-    modules = build_lucy_modules(include_experimental=include_experimental)
+    modules: List[AbstractModule] = [
+        Banner(),
+        Renamer(),
+        Linker(),
+        Formatter(),
+        Today(),
+        Sys(),
+        Git(),
+        PlasmaSync(),
+    ]
     include_set = set(normalize_name_list(include_names or []))
     available_names = {module.name for module in modules}
 

@@ -23,12 +23,14 @@ class Linker(AbstractModule):
             bool,
             False,
             "Create symlink in repository root with the same filename as current note.",
+            False,
         ),
         (
             "--linker-auto-clean-up",
             bool,
             False,
             "If enabled and --linker-top is not set, delete all symlinks from repository root.",
+            False,
         ),
     ]
 

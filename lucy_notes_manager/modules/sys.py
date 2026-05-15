@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, List, Optional
 
-from lucy_notes_manager.lib.args import delete_args_from_string
+from lucy_notes_manager.lib.args import (
+    delete_args_from_string,
+    flag_to_dest,
+    parse_template_item,
+)
 from lucy_notes_manager.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -17,32 +21,31 @@ class Sys(AbstractModule):
     priority: int = 0
 
     template = [
-        ("--mods", bool, False, "Print loaded modules and their priorities."),
-        ("--ping", bool, False, "Health-check command: prints pong."),
+        ("--mods", bool, False, "Print loaded modules and their priorities.", False),
+        ("--ping", bool, False, "Health-check command: prints pong.", False),
         (
             "--config",
             bool,
             False,
             "Print config values that differ from defaults (and where they were set).",
+            False,
         ),
         (
             "--man",
             str,
             [],
             "Argument manual. Use: --man list OR --man full OR --man <name> (example: --man mods).",
+            False,
         ),
         (
             "--help",
             bool,
             False,
             "Print SysInfo commands help: --mods, --man, --config.",
+            False,
         ),
-        ("--sys-event", bool, False, "Print current filesystem event details."),
+        ("--sys-event", bool, False, "Print current filesystem event details.", False),
     ]
-
-    @staticmethod
-    def _flag_to_dest(flag: str) -> str:
-        return flag.lstrip("-").replace("-", "_")
 
     @staticmethod
     def _type_name(type_value: Any) -> str:
@@ -50,8 +53,9 @@ class Sys(AbstractModule):
 
     def _defaults_map(self, system: System) -> dict[str, Any]:
         defaults: dict[str, Any] = {}
-        for flag, _typ, default, _desc in system.global_template:
-            defaults[self._flag_to_dest(flag)] = default
+        for item in system.global_template:
+            flag, _typ, default, _desc, _required = parse_template_item(item)
+            defaults[flag_to_dest(flag)] = default
         return defaults
 
     @staticmethod
@@ -85,14 +89,16 @@ class Sys(AbstractModule):
 
     def _man_list_lines(self, system: System) -> List[str]:
         lines: List[str] = []
-        for flag, typ, default, _desc in system.global_template:
+        for item in system.global_template:
+            flag, typ, default, _desc, _required = parse_template_item(item)
             type_name = self._type_name(typ)
             lines.append(f"* {flag} type={type_name} default={default}\n")
         return lines or ["* (no args)\n"]
 
     def _man_full_lines(self, system: System) -> List[str]:
         lines: List[str] = []
-        for flag, typ, default, desc in system.global_template:
+        for item in system.global_template:
+            flag, typ, default, desc, _required = parse_template_item(item)
             type_name = self._type_name(typ)
             description = (desc or "").strip()
             lines.append(
@@ -109,9 +115,10 @@ class Sys(AbstractModule):
         requested_set = set(requested)
         matched: List[str] = []
 
-        for flag, typ, default, desc in system.global_template:
+        for item in system.global_template:
+            flag, typ, default, desc, _required = parse_template_item(item)
             flag_name = flag.lstrip("-").lower()
-            dest_name = self._flag_to_dest(flag).lower()
+            dest_name = flag_to_dest(flag).lower()
             if flag_name in requested_set or dest_name in requested_set:
                 type_name = self._type_name(typ)
                 description = (desc or "").strip()

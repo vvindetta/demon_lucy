@@ -11,21 +11,33 @@ logger = logging.getLogger(__name__)
 """
 Template example:
     [
-        ("--rename", str, None, "Will rename file),
-        ("--banner", str, "date", "Draws ASCII banner),
-        ("--tags", str, [], "Multi-value argument),
+        ("--rename", str, None, "Will rename file", False),
+        ("--banner", str, "date", "Draws ASCII banner", False),
+        ("--tags", str, [], "Multi-value argument", False),
+        ("--required", str, None, "Required value", True),
     ]
 """
-Template = List[Tuple[str, type, Any, str]]
+TemplateItem = Tuple[str, type, Any, str, bool]
+Template = List[TemplateItem]
 
 ArgLines = Dict[str, List[int]]
+
+
+def parse_template_item(item: TemplateItem) -> tuple[str, type, Any, str, bool]:
+    flag, typ, default, desc, required = item
+    return flag, typ, default, desc, bool(required)
+
+
+def flag_to_dest(flag: str) -> str:
+    return flag.lstrip("-").replace("-", "_")
 
 
 def parse_args(args: list[str], template: Template) -> tuple[dict[str, Any], list[str]]:
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
 
-    for flag, typ, default, desc in template:
-        dest = flag.lstrip("-").replace("-", "_")
+    for item in template:
+        flag, typ, default, _desc, _required = parse_template_item(item)
+        dest = flag_to_dest(flag)
 
         if typ is bool:
             parser.add_argument(
@@ -89,8 +101,11 @@ def merge_known_args(
     """
     merged_args = dict(args)
     for key, value in overwrite_args.items():
-        if value not in (None, ""):
-            merged_args[key] = value
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        merged_args[key] = value
     return merged_args
 
 
@@ -110,10 +125,10 @@ def setup_config_and_cli_args(
         template=template,
         args=sys.argv[1:],
     )
-    defaults_by_key: Dict[str, Any] = {
-        flag.lstrip("-").replace("-", "_"): default
-        for flag, _typ, default, _desc in template
-    }
+    defaults_by_key: Dict[str, Any] = {}
+    for item in template:
+        flag, _typ, default, _desc, _required = parse_template_item(item)
+        defaults_by_key[flag_to_dest(flag)] = default
 
     # 2. Parse config-file args
     try:
@@ -236,7 +251,9 @@ def get_args_from_file(
             arg_lines["__unknown__"].extend([lineno] * len(line_unknown))
 
         for key, value in line_known.items():
-            if value in (None, ""):
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
                 continue
 
             count = len(value) if isinstance(value, list) else 1

@@ -16,12 +16,13 @@ class Renamer(AbstractModule):
     priority: int = 20
 
     template: Template = [
-        ("--r", str, None, "Rename file. Example: --r new_name.md."),
+        ("--r", str, None, "Rename file. Example: --r new_name.md.", False),
         (
             "--auto-rename",
             bool,
             False,  # IMPORTANT: for your argparse bool handling, default is a bool, not [False]
             "On create: t|txt -> DD-MM.txt, m|md -> DD-MM.md. If exists -> HHMM-DD-MM.ext",
+            False,
         ),
     ]
 

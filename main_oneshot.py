@@ -29,30 +29,35 @@ ONESHOT_STARTUP_TEMPLATE: Template = LUCY_STARTUP_TEMPLATE + [
         str,
         "modified",
         "Single event to trigger once. Allowed: created modified moved deleted opened.",
+        False,
     ),
     (
         "--oneshot-path",
         str,
         [],
         "One or more file or directory paths to process in one-shot mode.",
+        False,
     ),
     (
         "--oneshot-src-path",
         str,
         "",
         "Source path for moved event.",
+        False,
     ),
     (
         "--oneshot-dest-path",
         str,
         "",
         "Destination path for moved event.",
+        False,
     ),
     (
         "--oneshot-include-modules",
         str,
         [],
         "Run only these modules by name. Example: --oneshot-include-modules git sys",
+        False,
     ),
 ]
 
@@ -61,7 +66,6 @@ _ALLOWED_EVENTS = {"created", "modified", "moved", "deleted", "opened"}
 
 def _select_modules(config: dict):
     modules = select_lucy_modules(
-        include_experimental=config["sys_enable_experimental_modules"],
         include_names=config["oneshot_include_modules"],
     )
 
@@ -137,7 +141,11 @@ def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
     set_oneshot_mode(True)
     try:
         modules = _select_modules(config)
-        manager = ModuleManager(modules=modules, args=list(unknown_args))
+        manager = ModuleManager(
+            modules=modules,
+            args=list(unknown_args),
+            system_config=config,
+        )
 
         plan = _build_event_plan(config)
         for path_value, event in plan:

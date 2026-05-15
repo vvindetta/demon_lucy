@@ -8,60 +8,70 @@ GIT_TEMPLATE: Template = [
         str,
         "Auto-commit",
         "Base commit message. Example: --git-msg 'Notes update'.",
+        False,
     ),
     (
         "--git-tsmsg",
         bool,
         False,
         "Append a timestamp to the commit message. Example: --git-tsmsg true.",
+        False,
     ),
     (
         "--git-tsfmt",
         str,
         "%Y-%m-%d_%H-%M-%S",
         "Timestamp format for --git-tsmsg (Python strftime). Example: --git-tsfmt '%Y-%m-%d %H:%M:%S'.",
+        False,
     ),
     (
         "--git-key",
         str,
         "",
         "Path to SSH private key for Git operations (no .pub). Used via GIT_SSH_COMMAND. Example: --git-key ~/.ssh/id_ed25519.",
+        False,
     ),
     (
         "--git-auto-pull",
         bool,
         True,
         "Automatically run 'git pull --no-rebase' when a repo is opened. Never uses rebase or force.",
+        False,
     ),
     (
         "--git-auto-pull-every-hours",
         float,
         0.0,
         "Run pull-only sync every N hours for active repos. Set 0 to disable (default).",
+        False,
     ),
     (
         "--git-pull-cooldown-min-sec",
         float,
         10.0,
         "Minimum cooldown (seconds) between auto-pulls triggered by opened.",
+        False,
     ),
     (
         "--git-pull-cooldown-max-sec",
         float,
         200.0,
         "Maximum cooldown cap (seconds). Cooldown progresses (doubles) if opened triggers too often.",
+        False,
     ),
     (
         "--git-auto-merge-on-push",
         bool,
         True,
         "If 'git push' is rejected because the remote is ahead, automatically run 'git pull --no-rebase' (merge) and retry push. No rebase, no force.",
+        False,
     ),
     (
         "--git-auto-set-upstream",
         bool,
         True,
         "If the current branch has no upstream, try to set it to <remote>/<branch> (prefer remote 'origin') when that remote branch exists.",
+        False,
     ),
     (
         "--git-autoresolve",
@@ -69,12 +79,14 @@ GIT_TEMPLATE: Template = [
         "union",
         "How to auto-resolve merge conflicts during auto-merge: "
         "'none' (do not resolve), 'ours' (keep local), 'theirs' (keep remote), 'union' (keep both sides, remove markers).",
+        False,
     ),
     (
         "--git-debounce-seconds",
         float,
         0.8,
         "Debounce window in seconds: group file events and commit/push once after changes calm down.",
+        False,
     ),
     (
         "--git-max-batch-seconds",
@@ -82,18 +94,21 @@ GIT_TEMPLATE: Template = [
         8.0,
         "Maximum time to keep a non-pull batch pending while new events keep arriving. "
         "Set 0 to disable forced flush.",
+        False,
     ),
     (
         "--git-timeout-sec",
         float,
         8.0,
         "Timeout (seconds) for git add/status/commit operations.",
+        False,
     ),
     (
         "--git-pull-timeout-sec",
         float,
         30.0,
         "Timeout (seconds) for git pull (merge). Increase for slow networks or large repos.",
+        False,
     ),
     (
         "--git-network-probe-timeout-sec",
@@ -101,6 +116,7 @@ GIT_TEMPLATE: Template = [
         2.0,
         "Timeout (seconds) for remote host network probe before pull. "
         "Used to decide whether to wait for network and skip pull/notify when offline.",
+        False,
     ),
     (
         "--git-pull-offline-error-marker",
@@ -118,18 +134,21 @@ GIT_TEMPLATE: Template = [
         ],
         "Error markers treated as offline/network failures for git pull. "
         "Provide one or more markers to customize detection.",
+        False,
     ),
-    ("--git-push-timeout-sec", float, 20.0, "Timeout (seconds) for git push."),
+    ("--git-push-timeout-sec", float, 20.0, "Timeout (seconds) for git push.", False),
     (
         "--git-push-backoff-start-sec",
         float,
         5.0,
         "Initial backoff (seconds) before retrying push after a failure.",
+        False,
     ),
     (
         "--git-push-backoff-max-sec",
         float,
         120.0,
         "Maximum backoff (seconds) cap for repeated push failures.",
+        False,
     ),
 ]

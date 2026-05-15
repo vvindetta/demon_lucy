@@ -17,10 +17,10 @@ from lucy_notes_manager.lib.args import (
 
 def test_parse_args_handles_bool_and_nargs():
     template = [
-        ("--formatter-todo", bool, False, ""),
-        ("--formatter-blank", str, [], ""),
-        ("--name", str, None, ""),
-        ("--tags", str, [], ""),
+        ("--formatter-todo", bool, False, "", False),
+        ("--formatter-blank", str, [], "", False),
+        ("--name", str, None, "", False),
+        ("--tags", str, [], "", False),
     ]
 
     known, unknown = parse_args(
@@ -46,6 +46,20 @@ def test_parse_args_handles_bool_and_nargs():
     assert unknown == ["--unknown"]
 
 
+def test_parse_args_supports_required_field_in_template_item():
+    template = [
+        ("--required-path", str, None, "", True),
+    ]
+
+    known, unknown = parse_args(
+        args=["--required-path", "/tmp/a.md"],
+        template=template,
+    )
+
+    assert known["required_path"] == "/tmp/a.md"
+    assert unknown == []
+
+
 def test_get_config_args_reads_lines_and_ignores_comments(tmp_path: Path):
     cfg = tmp_path / "config.txt"
     cfg.write_text(
@@ -53,8 +67,8 @@ def test_get_config_args_reads_lines_and_ignores_comments(tmp_path: Path):
         encoding="utf-8",
     )
     template = [
-        ("--name", str, None, ""),
-        ("--count", int, 0, ""),
+        ("--name", str, None, "", False),
+        ("--count", int, 0, "", False),
     ]
 
     known, unknown = get_config_args(str(cfg), template)
@@ -94,7 +108,7 @@ def test_get_args_from_file_skips_non_utf8_files(tmp_path: Path):
     path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
 
     template = [
-        ("--help", bool, False, ""),
+        ("--help", bool, False, "", False),
     ]
 
     known, unknown, arg_lines = get_args_from_file(str(path), template)
@@ -113,9 +127,9 @@ def test_setup_config_and_cli_args_keeps_config_values_when_cli_uses_defaults(
     )
 
     template = [
-        ("--sys-config-path", str, "config.txt", ""),
-        ("--sys-notes-dirs", str, [], ""),
-        ("--sys-logging-lvl", str, "info", ""),
+        ("--sys-config-path", str, "config.txt", "", False),
+        ("--sys-notes-dirs", str, [], "", False),
+        ("--sys-logging-lvl", str, "info", "", False),
     ]
 
     monkeypatch.setattr(

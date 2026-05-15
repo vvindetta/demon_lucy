@@ -26,24 +26,28 @@ class Today(AbstractModule):
             str,
             "now.md",
             "Path of active note file to archive when stale. Default: now.md",
+            True,
         ),
         (
             "--today-past-path",
             str,
             "past.md",
             "Path of archive file. Default: past.md",
+            True,
         ),
         (
             "--today-idle-hours",
             float,
             12.0,
             "Archive now file when its last modification age is >= this many hours. Default: 12",
+            False,
         ),
         (
             "--today-force-fs",
             bool,
             False,
             "Force OS filesystem mtime checks even inside Git repositories.",
+            False,
         ),
     ]
 
@@ -83,8 +87,6 @@ class Today(AbstractModule):
     def _resolve_paths(self, ctx: Context) -> tuple[str, str] | None:
         now_selector = str(ctx.config["today_now_path"]).strip()
         past_selector = str(ctx.config["today_past_path"]).strip()
-        if not now_selector or not past_selector:
-            return None
 
         event_path = os.path.abspath(ctx.path)
         parent_dir = os.path.dirname(event_path)

@@ -25,12 +25,14 @@ class Formatter(AbstractModule):
             bool,
             False,
             "Enable TODO formatting: converts list items like '- task' into unchecked checkboxes '- [ ] task' in the current file.",
+            False,
         ),
         (
             "--formatter-blank",
             str,
             [],
             "Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
+            False,
         ),
     ]
 

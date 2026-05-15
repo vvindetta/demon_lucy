@@ -25,6 +25,7 @@ class Banner(AbstractModule):
             None,
             "Insert an ASCII banner (pyfiglet) at the line where the flag appears. "
             "Use '--banner date' to insert today's date. Example: --banner 'LOL' or --banner date.",
+            False,
         ),
         (
             "--banner-separator",
@@ -32,6 +33,7 @@ class Banner(AbstractModule):
             "---",
             "Separator line inserted before the banner when the banner is placed at the top of the file. "
             "Example: --banner-separator '---' (default).",
+            False,
         ),
     ]
 

@@ -11,8 +11,8 @@ class DemoModule(AbstractModule):
     name: str = "demo"
 
 
-def test_default_module_experimental_flag_is_false():
-    assert DemoModule().experimental is False
+def test_default_module_priority_is_15():
+    assert DemoModule().priority == 15
 
 
 @pytest.mark.parametrize(
@@ -31,7 +31,7 @@ def test_default_module_hooks_are_noops(hook_name: str):
 def test_context_and_system_dataclasses_keep_values():
     module = DemoModule()
     event = FileModifiedEvent("/tmp/file")
-    template: Template = [("--x", str, None, "")]
+    template: Template = [("--x", str, None, "", False)]
     ctx = Context(path="/tmp/file", config={"x": ["1"]}, arg_lines={"x": [1]})
     system = System(event=event, global_template=template, modules=[module])
 

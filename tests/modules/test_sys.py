@@ -25,8 +25,8 @@ def test_man_lines_list_and_specific_name():
     system = System(
         event=FileModifiedEvent("/tmp/x"),
         global_template=[
-            ("--mods", bool, False, "mods help"),
-            ("--formatter-todo", bool, False, "formatter todo help"),
+            ("--mods", bool, False, "mods help", False),
+            ("--formatter-todo", bool, False, "formatter todo help", False),
         ],
         modules=[],
     )
@@ -45,14 +45,14 @@ def test_man_lines_list_and_specific_name():
             "--mods --help\nbody\n",
             {"mods": True, "help": True},
             {"mods": [1], "help": [1]},
-            [("--mods", bool, False, ""), ("--help", bool, False, "")],
+            [("--mods", bool, False, "", False), ("--help", bool, False, "", False)],
             ["--- mods+help ---\n", "* --mods: print loaded modules and their priorities\n"],
         ),
         (
             "--ping\n",
             {"ping": True},
             {"ping": [1]},
-            [("--ping", bool, False, "Health-check command: prints pong.")],
+            [("--ping", bool, False, "Health-check command: prints pong.", False)],
             ["++pong!\n"],
         ),
     ],
@@ -62,7 +62,7 @@ def test_apply_inserts_block_for_first_line_flags(
     first_line: str,
     config_patch: dict[str, object],
     arg_lines: dict[str, list[int]],
-    global_template: list[tuple[str, type, object, str]],
+    global_template: list[tuple[str, type, object, str, bool]],
     expected_lines: list[str],
 ):
     note = tmp_path / "note.md"
@@ -104,7 +104,7 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
     )
     system = System(
         event=FileModifiedEvent(str(note)),
-        global_template=[("--man", str, None, "manual")],
+        global_template=[("--man", str, None, "manual", False)],
         modules=[],
     )
 

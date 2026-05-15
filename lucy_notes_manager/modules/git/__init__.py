@@ -39,7 +39,6 @@ def set_oneshot_mode(enabled: bool) -> None:
 class Git(AbstractModule):
     name: str = "git"
     priority: int = 50
-    experimental: bool = True
 
     template: Template = GIT_TEMPLATE
 
