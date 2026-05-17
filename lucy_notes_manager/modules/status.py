@@ -21,8 +21,9 @@ from lucy_notes_manager.modules.abstract_module import (
 _OLD_STATUS_TOKEN_RE = re.compile(r"^\[(d|t|g):([^\]]+)\]\s*")
 _DATE_TOKEN_RE = re.compile(r"^\d{2}-\d{2}$")
 _TIME_TOKEN_RE = re.compile(r"^\d{2}:\d{2}$")
-_GIT_STATIC_RE = re.compile(r"^Git:\s*(\d+)$")
-_GIT_UPDATE_RE = re.compile(r"^From git:\s*(\d+)$")
+_TIME_SECONDS_TOKEN_RE = re.compile(r"^\d{2}:\d{2}:\d{2}$")
+_GIT_STATIC_RE = re.compile(r"^(?:Last Git Sync|Git):\s*(\d+)$")
+_GIT_UPDATE_RE = re.compile(r"^(?:From last Git sync|From git):\s*(\d+)$")
 
 
 class Status(AbstractModule):
@@ -31,33 +32,21 @@ class Status(AbstractModule):
 
     template: Template = [
         (
-            "--status-time",
-            bool,
-            False,
-            "Prefix filename with current time (HH:MM). Updates when the minute changes.",
-            False,
-        ),
-        (
-            "--status-date",
-            bool,
-            False,
-            "Prefix filename with current date (YYYY-MM-DD). Updates when the day changes.",
-            False,
-        ),
-        (
-            "--status-git",
-            bool,
-            False,
-            "Prefix filename with time since last repository commit.",
+            "--status",
+            str,
+            [],
+            "Filename status tokens. Examples: --status date OR --status time date OR --status time-with-seconds OR --status git OR --status git update",
             False,
         ),
     ]
 
     def __init__(self) -> None:
         super().__init__()
-        self._tracked_paths: dict[str, dict[str, bool]] = {}
+        self._tracked_paths: dict[str, list[str]] = {}
         self._track_lock = threading.Lock()
         self._rename_lock = threading.Lock()
+        self._bootstrap_lock = threading.Lock()
+        self._bootstrap_done = False
         self._ticker_stop = threading.Event()
         self._last_tick_minute: tuple[int, int, int, int, int] | None = None
         self._ticker_thread: threading.Thread | None = None
@@ -81,6 +70,11 @@ class Status(AbstractModule):
                 index += 1
                 continue
 
+            if _TIME_SECONDS_TOKEN_RE.fullmatch(part):
+                tokens["ts"] = part
+                index += 1
+                continue
+
             static_match = _GIT_STATIC_RE.fullmatch(part)
             if static_match:
                 tokens["g_sync"] = static_match.group(1)
@@ -99,7 +93,7 @@ class Status(AbstractModule):
             clean = " | ".join(parts[index:]).strip() or stem.strip()
             return tokens, clean
 
-        # Backward compatibility: allow migration from old [d:..] [t:..] [g:..] format.
+        # Backward compatibility: migrate old [d:..] [t:..] [g:..] names.
         while True:
             matched = _OLD_STATUS_TOKEN_RE.match(text)
             if not matched:
@@ -110,26 +104,69 @@ class Status(AbstractModule):
                 tokens["d"] = value
             elif key == "t":
                 tokens["t"] = value
-            elif key == "g":
-                tokens["g_old"] = value
+            elif key == "g" and value.isdigit():
+                tokens["g_sync"] = value
             text = text[matched.end() :].lstrip()
 
         return tokens, (text.strip() or stem.strip())
 
     @staticmethod
-    def _format_age(seconds: float) -> str:
-        safe_seconds = max(0.0, float(seconds))
+    def _normalize_status_token(raw: str) -> str:
+        return str(raw).strip().lower().replace("_", "-")
 
-        if safe_seconds < 3600.0:
-            minutes = int(safe_seconds // 60.0)
-            return f"{minutes}m"
+    def _parse_status_parts(self, values: list[str]) -> list[str]:
+        parts: list[str] = []
+        seen: set[str] = set()
 
-        if safe_seconds < 86400.0:
-            hours = int(safe_seconds // 3600.0)
-            return f"{hours}h"
+        def _append(part: str) -> None:
+            if part in seen:
+                return
+            seen.add(part)
+            parts.append(part)
 
-        days = int(safe_seconds // 86400.0)
-        return f"{days}d"
+        i = 0
+        while i < len(values):
+            token = self._normalize_status_token(values[i])
+            nxt = self._normalize_status_token(values[i + 1]) if i + 1 < len(values) else ""
+
+            if token in ("date", "d"):
+                _append("date")
+                i += 1
+                continue
+
+            if token in ("time", "t"):
+                _append("time")
+                i += 1
+                continue
+
+            if token in (
+                "time-with-seconds",
+                "time-seconds",
+                "time-sec",
+                "timesec",
+                "ts",
+            ):
+                _append("time_with_seconds")
+                i += 1
+                continue
+
+            if token in ("git", "g"):
+                if nxt in ("update", "u"):
+                    _append("git_update")
+                    i += 2
+                    continue
+                _append("git_static")
+                i += 1
+                continue
+
+            if token in ("git-update", "from-git", "update-git"):
+                _append("git_update")
+                i += 1
+                continue
+
+            i += 1
+
+        return parts
 
     def _git_last_commit_timestamp(self, path: str) -> Optional[float]:
         repo_root = find_parent_with(path, ".git")
@@ -161,7 +198,7 @@ class Status(AbstractModule):
         except ValueError:
             return None
 
-    def _git_age_label(self, path: str) -> str:
+    def _git_age_minutes_label(self, path: str) -> str:
         last_commit_ts = self._git_last_commit_timestamp(path)
         if last_commit_ts is None:
             return "0"
@@ -177,65 +214,48 @@ class Status(AbstractModule):
     def _build_tokens(
         self,
         path: str,
-        config: dict,
+        parts: list[str],
         existing_git_sync_token: str | None,
     ) -> list[str]:
-        if not (
-            config.get("status_time")
-            or config.get("status_date")
-            or config.get("status_git")
-        ):
+        if not parts:
             return []
 
         now = datetime.now()
         tokens: list[str] = []
 
-        if config.get("status_date"):
-            tokens.append(now.strftime("%d-%m"))
-
-        if config.get("status_time"):
-            tokens.append(now.strftime("%H:%M"))
-
-        if config.get("status_git"):
-            if config.get("status_git_update"):
-                tokens.append(f"From git: {self._git_age_label(path)}")
-            elif existing_git_sync_token:
-                tokens.append(f"Git: {existing_git_sync_token}")
-            else:
-                tokens.append(f"Git: {self._git_sync_time_label(path)}")
+        for part in parts:
+            if part == "date":
+                tokens.append(now.strftime("%d-%m"))
+                continue
+            if part == "time":
+                tokens.append(now.strftime("%H:%M"))
+                continue
+            if part == "time_with_seconds":
+                tokens.append(now.strftime("%H:%M:%S"))
+                continue
+            if part == "git_update":
+                tokens.append(f"From last Git sync: {self._git_age_minutes_label(path)}")
+                continue
+            if part == "git_static":
+                if existing_git_sync_token:
+                    tokens.append(f"Last Git Sync: {existing_git_sync_token}")
+                else:
+                    tokens.append(f"Last Git Sync: {self._git_sync_time_label(path)}")
 
         return tokens
 
     @staticmethod
-    def _status_flags(config: dict) -> dict[str, bool]:
-        return {
-            "status_time": bool(config.get("status_time")),
-            "status_date": bool(config.get("status_date")),
-            "status_git": bool(config.get("status_git")),
-            "status_git_update": bool(config.get("status_git_update")),
-        }
-
-    @staticmethod
-    def _has_any_status(config: dict) -> bool:
-        return bool(
-            config.get("status_time")
-            or config.get("status_date")
-            or config.get("status_git")
+    def _needs_background_updates(parts: list[str]) -> bool:
+        return any(
+            part in ("date", "time", "time_with_seconds", "git_update")
+            for part in parts
         )
 
-    @staticmethod
-    def _needs_background_updates(config: dict) -> bool:
-        return bool(
-            config.get("status_time")
-            or config.get("status_date")
-            or (config.get("status_git") and config.get("status_git_update"))
-        )
-
-    def _set_tracked_flags(self, path: str, config: dict) -> None:
+    def _set_tracked_parts(self, path: str, parts: list[str]) -> None:
         abs_path = os.path.abspath(path)
         with self._track_lock:
-            if self._needs_background_updates(config):
-                self._tracked_paths[abs_path] = self._status_flags(config)
+            if self._needs_background_updates(parts):
+                self._tracked_paths[abs_path] = list(parts)
                 self._ensure_ticker_started()
                 return
             self._tracked_paths.pop(abs_path, None)
@@ -253,20 +273,20 @@ class Status(AbstractModule):
         old_abs = os.path.abspath(old_path)
         new_abs = os.path.abspath(new_path)
         with self._track_lock:
-            flags = self._tracked_paths.pop(old_abs, None)
-            if flags:
-                self._tracked_paths[new_abs] = dict(flags)
+            parts = self._tracked_paths.pop(old_abs, None)
+            if parts:
+                self._tracked_paths[new_abs] = list(parts)
 
     def _tick_once(self) -> None:
         with self._track_lock:
             tracked_items = list(self._tracked_paths.items())
 
-        for path, flags in tracked_items:
+        for path, parts in tracked_items:
             if not os.path.exists(path):
                 with self._track_lock:
                     self._tracked_paths.pop(path, None)
                 continue
-            self._apply(path=path, config=flags)
+            self._apply(path=path, parts=parts)
 
     def _ticker_loop(self) -> None:
         while not self._ticker_stop.is_set():
@@ -277,7 +297,104 @@ class Status(AbstractModule):
                 self._tick_once()
             self._ticker_stop.wait(1.0)
 
-    def _apply(self, path: str, config: dict) -> Optional[IgnoreMap]:
+    @staticmethod
+    def _merge_ignore_maps(
+        left: Optional[IgnoreMap],
+        right: Optional[IgnoreMap],
+    ) -> Optional[IgnoreMap]:
+        if not left and not right:
+            return None
+        merged: IgnoreMap = {}
+        for source in (left or {}, right or {}):
+            for path, times in source.items():
+                if not times:
+                    continue
+                merged[path] = merged.get(path, 0) + int(times)
+        return merged or None
+
+    @staticmethod
+    def _discover_status_dirs_from_path(path: str) -> list[str]:
+        result: list[str] = []
+        current = os.path.abspath(path)
+        if not os.path.isdir(current):
+            current = os.path.dirname(current)
+
+        while True:
+            candidate = os.path.join(current, "_status")
+            if os.path.isdir(candidate):
+                result.append(os.path.abspath(candidate))
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+
+        return result
+
+    def _status_parts_from_file(self, path: str) -> list[str]:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                lines = handle.readlines()
+        except (OSError, UnicodeDecodeError):
+            return []
+
+        values: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "--status" not in stripped:
+                continue
+            try:
+                tokens = shlex.split(stripped, comments=False, posix=True)
+            except ValueError:
+                continue
+
+            i = 0
+            while i < len(tokens):
+                if tokens[i] != "--status":
+                    i += 1
+                    continue
+                j = i + 1
+                while j < len(tokens):
+                    token = tokens[j]
+                    if token.startswith("--"):
+                        break
+                    values.append(token)
+                    j += 1
+                i = j
+
+        return self._parse_status_parts(values)
+
+    def _bootstrap_from_status_dirs(self, event_path: str) -> Optional[IgnoreMap]:
+        status_dirs = self._discover_status_dirs_from_path(event_path)
+        if not status_dirs:
+            return None
+
+        merged: Optional[IgnoreMap] = None
+        for status_dir in status_dirs:
+            for root, _dirs, files in os.walk(status_dir):
+                for file_name in files:
+                    file_path = os.path.abspath(os.path.join(root, file_name))
+                    parts = self._status_parts_from_file(file_path)
+                    if not parts:
+                        self._set_tracked_parts(path=file_path, parts=[])
+                        continue
+                    self._set_tracked_parts(path=file_path, parts=parts)
+                    changed = self._apply(path=file_path, parts=parts)
+                    merged = self._merge_ignore_maps(merged, changed)
+        return merged
+
+    def _bootstrap_once(self, event_path: str) -> Optional[IgnoreMap]:
+        if self._bootstrap_done:
+            return None
+        with self._bootstrap_lock:
+            if self._bootstrap_done:
+                return None
+            changed = self._bootstrap_from_status_dirs(event_path)
+            self._bootstrap_done = True
+            return changed
+
+    def _apply(self, path: str, parts: list[str]) -> Optional[IgnoreMap]:
         with self._rename_lock:
             old_path = os.path.abspath(path)
             if os.path.isdir(old_path) or not os.path.exists(old_path):
@@ -289,16 +406,13 @@ class Status(AbstractModule):
 
             tokens = self._build_tokens(
                 path=old_path,
-                config=config,
+                parts=parts,
                 existing_git_sync_token=existing_tokens.get("g_sync"),
             )
             if not tokens:
                 return None
 
-            prefix = " | ".join(tokens)
-            new_stem = prefix.strip()
-            new_name = new_stem
-
+            new_name = " | ".join(tokens).strip()
             new_path = os.path.abspath(os.path.join(os.path.dirname(old_path), new_name))
 
             if new_path == old_path:
@@ -315,44 +429,12 @@ class Status(AbstractModule):
             self._move_tracked_path(old_path=old_path, new_path=new_path)
             return {old_path: 1, new_path: 1}
 
-    def _status_git_update_enabled(self, ctx: Context) -> bool:
-        if not ctx.config.get("status_git"):
-            return False
-
-        line_numbers = ctx.arg_lines.get("status_git") or []
-        if not line_numbers:
-            return False
-
-        try:
-            with open(ctx.path, "r", encoding="utf-8") as handle:
-                file_lines = handle.readlines()
-        except OSError:
-            return False
-
-        for lineno_1based in line_numbers:
-            idx = int(lineno_1based) - 1
-            if idx < 0 or idx >= len(file_lines):
-                continue
-
-            try:
-                tokens = shlex.split(file_lines[idx], comments=False, posix=True)
-            except ValueError:
-                continue
-
-            for i, token in enumerate(tokens):
-                if token != "--status-git":
-                    continue
-                next_token = tokens[i + 1].strip().lower() if i + 1 < len(tokens) else ""
-                if next_token == "update":
-                    return True
-
-        return False
-
     def _handle_event(self, ctx: Context) -> Optional[IgnoreMap]:
-        config = dict(ctx.config)
-        config["status_git_update"] = self._status_git_update_enabled(ctx)
-        self._set_tracked_flags(path=ctx.path, config=config)
-        return self._apply(path=ctx.path, config=config)
+        bootstrap_changed = self._bootstrap_once(ctx.path)
+        parts = self._parse_status_parts(list(ctx.config.get("status", [])))
+        self._set_tracked_parts(path=ctx.path, parts=parts)
+        current_changed = self._apply(path=ctx.path, parts=parts)
+        return self._merge_ignore_maps(bootstrap_changed, current_changed)
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         _ = system
