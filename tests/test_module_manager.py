@@ -12,6 +12,7 @@ from lucy_notes_manager.modules.abstract_module import AbstractModule, Context, 
 _SYSTEM_CONFIG = {
     "sys_notify_provider": "termuxapi",
     "sys_notify_min_interval_sec": 0.0,
+    "sys_blacklist_paths": [],
 }
 
 
@@ -143,3 +144,26 @@ def test_run_skips_module_when_required_args_missing_and_notifies(tmp_path: Path
     ignore_ok = manager_ok.run(str(note), event)
     assert required_mod_ok.calls == 1
     assert ignore_ok == {str(note.resolve()): 1}
+
+
+def test_run_skips_all_modules_for_blacklisted_paths(tmp_path: Path):
+    blacklisted_dir = tmp_path / "private"
+    blacklisted_dir.mkdir(parents=True, exist_ok=True)
+    note = blacklisted_dir / "n.md"
+    note.write_text("hello\n", encoding="utf-8")
+    event = FileModifiedEvent(str(note))
+
+    a, c = _ModA(), _ModC()
+    manager = ModuleManager(
+        modules=[a, c],
+        args=[],
+        system_config={
+            **_SYSTEM_CONFIG,
+            "sys_blacklist_paths": [str(blacklisted_dir)],
+        },
+    )
+
+    ignore_paths = manager.run(str(note), event)
+    assert a.calls == 0
+    assert c.calls == 0
+    assert ignore_paths is None

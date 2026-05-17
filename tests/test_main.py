@@ -101,6 +101,7 @@ def test_main_schedules_observer_and_modules(
     assert [m.name for m in handler.modules.modules] == [
         "banner",
         "renamer",
+        "status",
         "linker",
         "formatter",
         "today",

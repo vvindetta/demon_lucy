@@ -12,6 +12,7 @@ from lucy_notes_manager.modules.git import Git
 from lucy_notes_manager.modules.linker import Linker
 from lucy_notes_manager.modules.plasma_sync import PlasmaSync
 from lucy_notes_manager.modules.renamer import Renamer
+from lucy_notes_manager.modules.status import Status
 from lucy_notes_manager.modules.sys import Sys
 from lucy_notes_manager.modules.today import Today
 
@@ -65,6 +66,13 @@ LUCY_STARTUP_TEMPLATE: Template = [
         "Minimum seconds between repeated notifications with the same key. Default: 10.0.",
         False,
     ),
+    (
+        "--sys-blacklist-paths",
+        str,
+        [],
+        "Skip module execution for files inside these paths. Example: --sys-blacklist-paths ~/.cache ~/Notes/private",
+        False,
+    ),
 ]
 
 
@@ -115,6 +123,7 @@ def select_lucy_modules(
     modules: List[AbstractModule] = [
         Banner(),
         Renamer(),
+        Status(),
         Linker(),
         Formatter(),
         Today(),

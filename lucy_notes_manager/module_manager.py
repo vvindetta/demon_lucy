@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Dict, List
 
 from watchdog.events import FileSystemEvent
@@ -12,6 +13,7 @@ from lucy_notes_manager.lib.args import (
     parse_template_item,
     parse_args,
 )
+from lucy_notes_manager.lib.path import canonical_path
 from lucy_notes_manager.modules.abstract_module import AbstractModule, Context, System
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,13 @@ class ModuleManager:
                 "Minimum interval between repeated notifications (seconds).",
                 False,
             ),
+            (
+                "--sys-blacklist-paths",
+                str,
+                system_config["sys_blacklist_paths"],
+                "Skip module execution for files under these paths.",
+                False,
+            ),
         ]
 
         for module in self.modules:
@@ -75,6 +84,19 @@ class ModuleManager:
 
         priority_dict = self._parse_priority_list(self.config["sys_priority"])
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))
+
+    def _is_blacklisted_path(self, path: str, values: list[str]) -> bool:
+        normalized_path = canonical_path(path)
+        for value in values or []:
+            raw_value = str(value).strip()
+            if not raw_value:
+                continue
+            blacklisted_path = canonical_path(raw_value)
+            if normalized_path == blacklisted_path:
+                return True
+            if normalized_path.startswith(blacklisted_path + os.sep):
+                return True
+        return False
 
     def _module_missing_required_flags(
         self,
@@ -99,6 +121,10 @@ class ModuleManager:
         return missing_flags
 
     def run(self, path: str, event: FileSystemEvent) -> Dict[str, int] | None:
+        if self._is_blacklisted_path(path, self.config["sys_blacklist_paths"]):
+            logger.info("SKIPPED BLACKLISTED PATH: %s", path)
+            return None
+
         def _update_config():
             known_args, _, arg_lines = get_args_from_file(
                 path=path,
