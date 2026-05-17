@@ -6,7 +6,7 @@ import shlex
 import subprocess
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Optional
 
 from lucy_notes_manager.lib.args import Template
@@ -18,7 +18,11 @@ from lucy_notes_manager.modules.abstract_module import (
     System,
 )
 
-_STATUS_TOKEN_RE = re.compile(r"^\[(d|t|g):([^\]]+)\]\s*")
+_OLD_STATUS_TOKEN_RE = re.compile(r"^\[(d|t|g):([^\]]+)\]\s*")
+_DATE_TOKEN_RE = re.compile(r"^\d{2}-\d{2}$")
+_TIME_TOKEN_RE = re.compile(r"^\d{2}:\d{2}$")
+_GIT_STATIC_RE = re.compile(r"^Git:\s*(\d+)$")
+_GIT_UPDATE_RE = re.compile(r"^From git:\s*(\d+)$")
 
 
 class Status(AbstractModule):
@@ -61,13 +65,55 @@ class Status(AbstractModule):
     @staticmethod
     def _split_status_prefix(stem: str) -> tuple[dict[str, str], str]:
         text = stem.strip()
+        parts = text.split(" | ")
         tokens: dict[str, str] = {}
+
+        index = 0
+        while index < len(parts):
+            part = parts[index].strip()
+            if _DATE_TOKEN_RE.fullmatch(part):
+                tokens["d"] = part
+                index += 1
+                continue
+
+            if _TIME_TOKEN_RE.fullmatch(part):
+                tokens["t"] = part
+                index += 1
+                continue
+
+            static_match = _GIT_STATIC_RE.fullmatch(part)
+            if static_match:
+                tokens["g_sync"] = static_match.group(1)
+                index += 1
+                continue
+
+            update_match = _GIT_UPDATE_RE.fullmatch(part)
+            if update_match:
+                tokens["g_update"] = update_match.group(1)
+                index += 1
+                continue
+
+            break
+
+        if index > 0:
+            clean = " | ".join(parts[index:]).strip() or stem.strip()
+            return tokens, clean
+
+        # Backward compatibility: allow migration from old [d:..] [t:..] [g:..] format.
         while True:
-            matched = _STATUS_TOKEN_RE.match(text)
+            matched = _OLD_STATUS_TOKEN_RE.match(text)
             if not matched:
                 break
-            tokens[matched.group(1)] = matched.group(2).strip()
+            key = matched.group(1)
+            value = matched.group(2).strip()
+            if key == "d":
+                tokens["d"] = value
+            elif key == "t":
+                tokens["t"] = value
+            elif key == "g":
+                tokens["g_old"] = value
             text = text[matched.end() :].lstrip()
+
         return tokens, (text.strip() or stem.strip())
 
     @staticmethod
@@ -118,20 +164,21 @@ class Status(AbstractModule):
     def _git_age_label(self, path: str) -> str:
         last_commit_ts = self._git_last_commit_timestamp(path)
         if last_commit_ts is None:
-            return "na"
-        return self._format_age(time.time() - last_commit_ts)
+            return "0"
+        age_minutes = int(max(0.0, time.time() - last_commit_ts) // 60.0)
+        return str(age_minutes)
 
     def _git_sync_time_label(self, path: str) -> str:
         last_commit_ts = self._git_last_commit_timestamp(path)
         if last_commit_ts is None:
-            return "na"
-        return datetime.fromtimestamp(last_commit_ts, UTC).strftime("%Y-%m-%d_%H-%M")
+            return "0"
+        return str(int(last_commit_ts))
 
     def _build_tokens(
         self,
         path: str,
         config: dict,
-        existing_git_token: str | None,
+        existing_git_sync_token: str | None,
     ) -> list[str]:
         if not (
             config.get("status_time")
@@ -144,18 +191,18 @@ class Status(AbstractModule):
         tokens: list[str] = []
 
         if config.get("status_date"):
-            tokens.append(f"d:{now.strftime('%Y-%m-%d')}")
+            tokens.append(now.strftime("%d-%m"))
 
         if config.get("status_time"):
-            tokens.append(f"t:{now.strftime('%H:%M')}")
+            tokens.append(now.strftime("%H:%M"))
 
         if config.get("status_git"):
             if config.get("status_git_update"):
-                tokens.append(f"g:{self._git_age_label(path)}")
-            elif existing_git_token:
-                tokens.append(f"g:{existing_git_token}")
+                tokens.append(f"From git: {self._git_age_label(path)}")
+            elif existing_git_sync_token:
+                tokens.append(f"Git: {existing_git_sync_token}")
             else:
-                tokens.append(f"g:{self._git_sync_time_label(path)}")
+                tokens.append(f"Git: {self._git_sync_time_label(path)}")
 
         return tokens
 
@@ -237,22 +284,20 @@ class Status(AbstractModule):
                 return None
 
             base_name = os.path.basename(old_path)
-            stem, ext = os.path.splitext(base_name)
-            existing_tokens, clean_stem = self._split_status_prefix(stem)
-            if not clean_stem:
-                clean_stem = stem or "note"
+            stem, _ext = os.path.splitext(base_name)
+            existing_tokens, _clean_stem = self._split_status_prefix(stem)
 
             tokens = self._build_tokens(
                 path=old_path,
                 config=config,
-                existing_git_token=existing_tokens.get("g"),
+                existing_git_sync_token=existing_tokens.get("g_sync"),
             )
             if not tokens:
                 return None
 
-            prefix = " ".join(f"[{token}]" for token in tokens)
-            new_stem = f"{prefix} {clean_stem}".strip()
-            new_name = f"{new_stem}{ext}"
+            prefix = " | ".join(tokens)
+            new_stem = prefix.strip()
+            new_name = new_stem
 
             new_path = os.path.abspath(os.path.join(os.path.dirname(old_path), new_name))
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import subprocess
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -31,12 +31,6 @@ class _FakeDateTime:
     @classmethod
     def now(cls):
         return cls._value
-
-    @classmethod
-    def fromtimestamp(cls, value: float, tz):
-        _ = tz
-        return datetime.fromtimestamp(value, UTC)
-
 
 def _ctx_for(
     path: Path,
@@ -69,7 +63,7 @@ def test_status_time_prefixes_filename_and_renames(tmp_path: Path, monkeypatch) 
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "[t:08:09] note.md"
+    new_path = tmp_path / "08:09"
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -87,7 +81,7 @@ def test_status_date_prefixes_filename(tmp_path: Path, monkeypatch) -> None:
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "[d:2026-05-17] today.md"
+    new_path = tmp_path / "17-05"
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -96,7 +90,7 @@ def test_status_date_prefixes_filename(tmp_path: Path, monkeypatch) -> None:
 def test_status_time_replaces_existing_time_prefix(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
 
-    old_path = tmp_path / "[t:08:08] note.md"
+    old_path = tmp_path / "08:08"
     old_path.write_text("--status-time\n", encoding="utf-8")
 
     module = Status()
@@ -109,7 +103,7 @@ def test_status_time_replaces_existing_time_prefix(tmp_path: Path, monkeypatch) 
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "[t:08:09] note.md"
+    new_path = tmp_path / "08:09"
     assert changed == {str(old_path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not old_path.exists()
@@ -142,7 +136,7 @@ def test_status_git_writes_last_sync_time_once(tmp_path: Path, monkeypatch) -> N
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "[g:2027-01-15_08-00] note.md"
+    new_path = tmp_path / "Git: 1800000000"
     assert calls == [["git", "log", "-1", "--format=%ct"]]
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
@@ -176,7 +170,7 @@ def test_status_combines_date_time_and_git_tokens(tmp_path: Path, monkeypatch) -
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "[d:2026-05-17] [t:08:09] [g:2027-01-15_08-00] note.md"
+    new_path = tmp_path / "17-05 | 08:09 | Git: 1800000000"
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -209,7 +203,7 @@ def test_status_git_update_uses_age_and_tracks_for_background(
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     changed = module.modified(ctx, system)
-    new_path = tmp_path / "[g:3h] note.md"
+    new_path = tmp_path / "From git: 210"
 
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
@@ -241,8 +235,8 @@ def test_status_tick_updates_tracked_filename_on_next_minute(
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     first_changed = module.modified(ctx, system)
-    first_path = tmp_path / "[t:08:09] note.md"
-    second_path = tmp_path / "[t:08:10] note.md"
+    first_path = tmp_path / "08:09"
+    second_path = tmp_path / "08:10"
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
@@ -259,7 +253,7 @@ def test_status_git_update_changes_in_background_tick(
     path = tmp_path / "note.md"
     path.write_text("--status-git update\n", encoding="utf-8")
 
-    now_values = iter([200000.0, 203600.0])  # 3h -> 4h
+    now_values = iter([200000.0, 203600.0])  # 210m -> 270m
     monkeypatch.setattr(status_mod.time, "time", lambda: next(now_values))
     monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
     monkeypatch.setattr(
@@ -280,8 +274,8 @@ def test_status_git_update_changes_in_background_tick(
         _ctx_for(path, status_git=True, arg_lines={"status_git": [1]}),
         system,
     )
-    first_path = tmp_path / "[g:3h] note.md"
-    second_path = tmp_path / "[g:4h] note.md"
+    first_path = tmp_path / "From git: 210"
+    second_path = tmp_path / "From git: 270"
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
