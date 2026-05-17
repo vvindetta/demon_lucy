@@ -323,42 +323,54 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
     assert not first_path.exists()
 
 
-def test_status_banner_holds_last_window_before_restart(tmp_path: Path, monkeypatch) -> None:
+def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypatch) -> None:
     now_state = {"value": 10.0}
     monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
 
     path = tmp_path / "note.md"
-    path.write_text('--status-banner "Working" 2000 4\n', encoding="utf-8")
+    path.write_text('--status date\n--status-banner "Working" 2000 4\n', encoding="utf-8")
 
     module = Status()
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
     changed = module.modified(
-        _ctx_for(path, status_banner_values=["Working", "2000", "4"]),
+        _ctx_for(
+            path,
+            status_values=["date"],
+            status_banner_values=["Working", "2000", "4"],
+        ),
         system,
     )
-    first_path = tmp_path / "Work"
+    first_path = tmp_path / "17-05 Work"
     assert changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     module._tick_once()  # init slot
     now_state["value"] = 12.1
-    module._tick_once()  # orki
+    module._tick_once()  # 17-05 orki
     now_state["value"] = 14.1
-    module._tick_once()  # rkin
+    module._tick_once()  # 17-05 rkin
     now_state["value"] = 16.1
-    module._tick_once()  # king
-    king_path = tmp_path / "king"
-    assert king_path.exists()
-
+    module._tick_once()  # 17-05 king
     now_state["value"] = 18.1
-    module._tick_once()  # hold at end, still king
-    assert king_path.exists()
+    module._tick_once()  # 17-05 ing
+    now_state["value"] = 20.1
+    module._tick_once()  # 17-05 ng
+    now_state["value"] = 22.1
+    module._tick_once()  # 17-05 g
+    now_state["value"] = 24.1
+    module._tick_once()  # fully disappeared banner
+    disappeared_path = tmp_path / "17-05"
+    assert disappeared_path.exists()
 
     now_state["value"] = 26.1
-    module._tick_once()  # restart after hold
-    restarted_path = tmp_path / "Work"
+    module._tick_once()  # still disappeared (blank tail)
+    assert disappeared_path.exists()
+    now_state["value"] = 32.1
+    module._tick_once()  # restart after full blank tail
+    restarted_path = tmp_path / "17-05 Work"
     assert restarted_path.exists()
-    assert not king_path.exists()
+    assert not disappeared_path.exists()
 
 
 def test_status_ticker_starts_only_after_first_status_use(tmp_path: Path, monkeypatch) -> None:

@@ -261,19 +261,13 @@ class Status(AbstractModule):
             return Status._rotate_banner_text(text, offset)
 
         width = max(1, int(max_chars))
-        if len(text) <= width:
-            return text
-
-        # Scroll left to right window, then hold the final frame for a short pause.
-        sliding_frames = len(text) - width + 1
-        hold_frames = width
-        cycle_len = sliding_frames + hold_frames
+        # Scroll left until text fully disappears, then restart.
+        # Example (text=Working, width=4): Work -> orki -> rkin -> king -> ing -> ng -> g -> "" -> ...
+        cycle_len = len(text) + width
         step = offset % cycle_len
-        if step < sliding_frames:
-            start = step
-        else:
-            start = sliding_frames - 1
-        return text[start : start + width]
+        if step < len(text):
+            return text[step : step + width]
+        return ""
 
     def _git_last_commit_timestamp(self, path: str) -> Optional[float]:
         repo_root = find_parent_with(path, ".git")
@@ -356,13 +350,13 @@ class Status(AbstractModule):
                     tokens.append(f"Last Git Sync: {self._git_sync_time_label(path)}")
 
         if banner_text:
-            tokens.append(
-                self._render_banner_frame(
-                    text=banner_text,
-                    offset=banner_offset,
-                    max_chars=banner_max_chars,
-                )
+            banner_frame = self._render_banner_frame(
+                text=banner_text,
+                offset=banner_offset,
+                max_chars=banner_max_chars,
             )
+            if banner_frame:
+                tokens.append(banner_frame)
 
         if status_dot and tokens:
             tokens[0] = f". {tokens[0]}"
