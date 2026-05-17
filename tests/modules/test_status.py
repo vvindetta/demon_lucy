@@ -37,11 +37,13 @@ def _ctx_for(
     path: Path,
     *,
     status_values: list[str] | None = None,
+    status_banner_values: list[str] | None = None,
 ) -> Context:
     return Context(
         path=str(path),
         config={
             "status": list(status_values or []),
+            "status_banner": list(status_banner_values or []),
         },
         arg_lines={},
     )
@@ -114,6 +116,56 @@ def test_status_time_with_seconds_order(tmp_path: Path, monkeypatch) -> None:
     changed = module.modified(ctx, system)
 
     new_path = tmp_path / "17-05 08:09:00"
+    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert new_path.exists()
+    assert not path.exists()
+
+
+def test_status_banner_renames_and_rotates_with_speed(tmp_path: Path, monkeypatch) -> None:
+    now_state = {"value": 10.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+
+    path = tmp_path / "note.md"
+    path.write_text('--status-banner "Work sentence" 2\n', encoding="utf-8")
+
+    module = Status()
+    system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
+
+    first_changed = module.modified(
+        _ctx_for(path, status_banner_values=["Work sentence", "2"]),
+        system,
+    )
+    first_path = tmp_path / "Work sentence"
+    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    module._tick_once()
+    assert first_path.exists()
+
+    now_state["value"] = 12.1
+    module._tick_once()
+    second_path = tmp_path / "ork sentenceW"
+    assert second_path.exists()
+    assert not first_path.exists()
+
+
+def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
+
+    path = tmp_path / "note.md"
+    path.write_text('--status date time\n--status-banner "Focus now" 3\n', encoding="utf-8")
+
+    module = Status()
+    ctx = _ctx_for(
+        path,
+        status_values=["date", "time"],
+        status_banner_values=["Focus now", "3"],
+    )
+    system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
+
+    changed = module.modified(ctx, system)
+
+    new_path = tmp_path / "17-05 08:09 Focus now"
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -207,6 +259,21 @@ def test_status_ticker_interval_prefers_second_precision(monkeypatch) -> None:
     module._set_tracked_parts("/tmp/seconds-status-note", ["time_with_seconds"])
 
     assert module._ticker_interval_seconds() == 1.0
+
+
+def test_status_ticker_interval_uses_banner_speed(monkeypatch) -> None:
+    now_state = {"value": 1000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+
+    module = Status()
+    module._set_tracked_parts(
+        "/tmp/banner-status-note",
+        [],
+        banner_text="Focus",
+        banner_speed=5,
+    )
+
+    assert module._ticker_interval_seconds() == 5.0
 
 
 def test_status_ticker_starts_only_after_first_status_use(tmp_path: Path, monkeypatch) -> None:
