@@ -24,14 +24,14 @@ _TIME_TOKEN_RE = re.compile(r"^\d{2}:\d{2}$")
 _TIME_SECONDS_TOKEN_RE = re.compile(r"^\d{2}:\d{2}:\d{2}$")
 _GIT_STATIC_RE = re.compile(r"^(?:Last Git Sync|Git):\s*(\d+)$")
 _GIT_UPDATE_RE = re.compile(
-    r"^(?:From last sync|From last Git sync|From git):\s*(\d+(?:[mh])?)$"
+    r"^(?:Last sync|From last sync|From last Git sync|From git):\s*(\d+(?:[mh])?)$"
 )
 _DATE_PREFIX_RE = re.compile(r"^(\d{2}-\d{2})(?:\s+|$)")
 _TIME_SECONDS_PREFIX_RE = re.compile(r"^(\d{2}:\d{2}:\d{2})(?:\s+|$)")
 _TIME_PREFIX_RE = re.compile(r"^(\d{2}:\d{2})(?:\s+|$)")
 _GIT_STATIC_PREFIX_RE = re.compile(r"^(?:Last Git Sync|Git):\s*(\d+)(?:\s+|$)")
 _GIT_UPDATE_PREFIX_RE = re.compile(
-    r"^(?:From last sync|From last Git sync|From git):\s*(\d+(?:[mh])?)(?:\s+|$)"
+    r"^(?:Last sync|From last sync|From last Git sync|From git):\s*(\d+(?:[mh])?)(?:\s+|$)"
 )
 _SECONDS_TICK_INTERVAL = 1.0
 _GIT_FAST_TICK_INTERVAL = 2.0
@@ -254,10 +254,26 @@ class Status(AbstractModule):
         return text[safe_offset:] + text[:safe_offset]
 
     @staticmethod
-    def _limit_banner_text(text: str, max_chars: int) -> str:
+    def _render_banner_frame(text: str, offset: int, max_chars: int) -> str:
+        if not text:
+            return ""
         if max_chars <= 0:
+            return Status._rotate_banner_text(text, offset)
+
+        width = max(1, int(max_chars))
+        if len(text) <= width:
             return text
-        return text[:max_chars]
+
+        # Scroll left to right window, then hold the final frame for a short pause.
+        sliding_frames = len(text) - width + 1
+        hold_frames = width
+        cycle_len = sliding_frames + hold_frames
+        step = offset % cycle_len
+        if step < sliding_frames:
+            start = step
+        else:
+            start = sliding_frames - 1
+        return text[start : start + width]
 
     def _git_last_commit_timestamp(self, path: str) -> Optional[float]:
         repo_root = find_parent_with(path, ".git")
@@ -331,7 +347,7 @@ class Status(AbstractModule):
                 tokens.append(now.strftime("%H:%M:%S"))
                 continue
             if part == "git_update":
-                tokens.append(f"From last sync: {self._git_age_label(path)}")
+                tokens.append(f"Last sync: {self._git_age_label(path)}")
                 continue
             if part == "git_static":
                 if existing_git_sync_token:
@@ -340,8 +356,13 @@ class Status(AbstractModule):
                     tokens.append(f"Last Git Sync: {self._git_sync_time_label(path)}")
 
         if banner_text:
-            rotated = self._rotate_banner_text(banner_text, banner_offset)
-            tokens.append(self._limit_banner_text(rotated, banner_max_chars))
+            tokens.append(
+                self._render_banner_frame(
+                    text=banner_text,
+                    offset=banner_offset,
+                    max_chars=banner_max_chars,
+                )
+            )
 
         if status_dot and tokens:
             tokens[0] = f". {tokens[0]}"
@@ -526,9 +547,10 @@ class Status(AbstractModule):
             current = os.path.dirname(current)
 
         while True:
-            candidate = os.path.join(current, ".status")
-            if os.path.isdir(candidate):
-                result.append(os.path.abspath(candidate))
+            for status_dir_name in (".status", ". status"):
+                candidate = os.path.join(current, status_dir_name)
+                if os.path.isdir(candidate):
+                    result.append(os.path.abspath(candidate))
             parent = os.path.dirname(current)
             if parent == current:
                 break

@@ -227,8 +227,8 @@ def test_status_git_update_uses_compact_units_and_ticks(tmp_path: Path, monkeypa
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     first_changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
-    first_path = tmp_path / "From last sync: 3h"
-    second_path = tmp_path / "From last sync: 4h"
+    first_path = tmp_path / "Last sync: 3h"
+    second_path = tmp_path / "Last sync: 4h"
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
@@ -323,6 +323,44 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
     assert not first_path.exists()
 
 
+def test_status_banner_holds_last_window_before_restart(tmp_path: Path, monkeypatch) -> None:
+    now_state = {"value": 10.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+
+    path = tmp_path / "note.md"
+    path.write_text('--status-banner "Working" 2000 4\n', encoding="utf-8")
+
+    module = Status()
+    system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
+    changed = module.modified(
+        _ctx_for(path, status_banner_values=["Working", "2000", "4"]),
+        system,
+    )
+    first_path = tmp_path / "Work"
+    assert changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    module._tick_once()  # init slot
+    now_state["value"] = 12.1
+    module._tick_once()  # orki
+    now_state["value"] = 14.1
+    module._tick_once()  # rkin
+    now_state["value"] = 16.1
+    module._tick_once()  # king
+    king_path = tmp_path / "king"
+    assert king_path.exists()
+
+    now_state["value"] = 18.1
+    module._tick_once()  # hold at end, still king
+    assert king_path.exists()
+
+    now_state["value"] = 26.1
+    module._tick_once()  # restart after hold
+    restarted_path = tmp_path / "Work"
+    assert restarted_path.exists()
+    assert not king_path.exists()
+
+
 def test_status_ticker_starts_only_after_first_status_use(tmp_path: Path, monkeypatch) -> None:
     starts = {"count": 0}
 
@@ -363,6 +401,36 @@ def test_status_bootstrap_scans_dot_status_dir_after_restart_like_event(
 
     notes_root = tmp_path / "notes"
     status_dir = notes_root / ".status"
+    status_dir.mkdir(parents=True, exist_ok=True)
+
+    status_file = status_dir / "dead.md"
+    status_file.write_text("--status time\n", encoding="utf-8")
+
+    trigger_file = notes_root / "random.md"
+    trigger_file.write_text("body\n", encoding="utf-8")
+
+    module = Status()
+    system = System(
+        event=FileModifiedEvent(str(trigger_file)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.modified(_ctx_for(trigger_file), system)
+
+    revived_path = status_dir / "08:09"
+    assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
+    assert revived_path.exists()
+    assert not status_file.exists()
+
+
+def test_status_bootstrap_scans_dot_space_status_dir_after_restart_like_event(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
+
+    notes_root = tmp_path / "notes"
+    status_dir = notes_root / ". status"
     status_dir.mkdir(parents=True, exist_ok=True)
 
     status_file = status_dir / "dead.md"
