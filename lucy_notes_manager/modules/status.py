@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import shlex
 import subprocess
 import threading
@@ -18,28 +17,12 @@ from lucy_notes_manager.modules.abstract_module import (
     System,
 )
 
-_OLD_STATUS_TOKEN_RE = re.compile(r"^\[(d|t|g):([^\]]+)\]\s*")
-_DATE_TOKEN_RE = re.compile(r"^\d{2}-\d{2}$")
-_TIME_TOKEN_RE = re.compile(r"^\d{2}:\d{2}$")
-_TIME_SECONDS_TOKEN_RE = re.compile(r"^\d{2}:\d{2}:\d{2}$")
-_GIT_STATIC_RE = re.compile(r"^(?:Last Git Sync|Git):\s*(\d+)$")
-_GIT_UPDATE_RE = re.compile(
-    r"^(?:Last sync|From last sync|From last Git sync|From git):\s*(\d+(?:[mh])?)$"
-)
-_DATE_PREFIX_RE = re.compile(r"^(\d{2}-\d{2})(?:\s+|$)")
-_TIME_SECONDS_PREFIX_RE = re.compile(r"^(\d{2}:\d{2}:\d{2})(?:\s+|$)")
-_TIME_PREFIX_RE = re.compile(r"^(\d{2}:\d{2})(?:\s+|$)")
-_GIT_STATIC_PREFIX_RE = re.compile(r"^(?:Last Git Sync|Git):\s*(\d+)(?:\s+|$)")
-_GIT_UPDATE_PREFIX_RE = re.compile(
-    r"^(?:Last sync|From last sync|From last Git sync|From git):\s*(\d+(?:[mh])?)(?:\s+|$)"
-)
 _SECONDS_TICK_INTERVAL = 1.0
 _GIT_FAST_TICK_INTERVAL = 2.0
 _DEFAULT_TICK_INTERVAL = 60.0
 _GIT_FAST_TICK_WINDOW_SECONDS = 120.0
 _DEFAULT_BANNER_SPEED_MS = 500
 _DEFAULT_BANNER_MAX_CHARS = 0
-_INVISIBLE_SPACE = "\u200b"
 
 
 class Status(AbstractModule):
@@ -101,75 +84,80 @@ class Status(AbstractModule):
         self._ticker_thread: threading.Thread | None = None
 
     @staticmethod
+    def _is_date_token(token: str) -> bool:
+        return (
+            len(token) == 5
+            and token[2] == "-"
+            and token[:2].isdigit()
+            and token[3:].isdigit()
+        )
+
+    @staticmethod
+    def _is_time_token(token: str) -> bool:
+        return (
+            len(token) == 5
+            and token[2] == ":"
+            and token[:2].isdigit()
+            and token[3:].isdigit()
+        )
+
+    @staticmethod
+    def _is_time_seconds_token(token: str) -> bool:
+        return (
+            len(token) == 8
+            and token[2] == ":"
+            and token[5] == ":"
+            and token[:2].isdigit()
+            and token[3:5].isdigit()
+            and token[6:].isdigit()
+        )
+
+    @staticmethod
+    def _is_git_update_token(token: str) -> bool:
+        if len(token) < 2:
+            return False
+        unit = token[-1].lower()
+        return unit in ("m", "h") and token[:-1].isdigit()
+
+    @staticmethod
     def _split_status_prefix(
         stem: str,
         status_prefix: str = "",
     ) -> tuple[dict[str, str], str]:
         tokens: dict[str, str] = {}
-        text = stem.replace(_INVISIBLE_SPACE, " ").strip().replace(" | ", " ")
+        text = stem.replace("\u200b", " ").strip().replace(" | ", " ")
         normalized_prefix = str(status_prefix or "")
         if normalized_prefix and text.startswith(normalized_prefix):
             text = text[len(normalized_prefix) :].lstrip()
-        matched_count = 0
+        parts = text.split()
+        consumed = 0
 
-        while text:
-            date_match = _DATE_PREFIX_RE.match(text)
-            if date_match:
-                tokens["d"] = date_match.group(1)
-                matched_count += 1
-                text = text[date_match.end() :].lstrip()
+        for part in parts:
+            if Status._is_date_token(part):
+                tokens.setdefault("d", part)
+                consumed += 1
                 continue
-
-            time_seconds_match = _TIME_SECONDS_PREFIX_RE.match(text)
-            if time_seconds_match:
-                tokens["ts"] = time_seconds_match.group(1)
-                matched_count += 1
-                text = text[time_seconds_match.end() :].lstrip()
+            if Status._is_time_seconds_token(part):
+                tokens.setdefault("ts", part)
+                consumed += 1
                 continue
-
-            time_match = _TIME_PREFIX_RE.match(text)
-            if time_match:
-                tokens["t"] = time_match.group(1)
-                matched_count += 1
-                text = text[time_match.end() :].lstrip()
+            if Status._is_time_token(part):
+                tokens.setdefault("t", part)
+                consumed += 1
                 continue
-
-            static_match = _GIT_STATIC_PREFIX_RE.match(text)
-            if static_match:
-                tokens["g_sync"] = static_match.group(1)
-                matched_count += 1
-                text = text[static_match.end() :].lstrip()
+            if Status._is_git_update_token(part):
+                tokens.setdefault("g_update", part)
+                consumed += 1
                 continue
-
-            update_match = _GIT_UPDATE_PREFIX_RE.match(text)
-            if update_match:
-                tokens["g_update"] = update_match.group(1)
-                matched_count += 1
-                text = text[update_match.end() :].lstrip()
+            if part.isdigit():
+                tokens.setdefault("g_sync", part)
+                consumed += 1
                 continue
-
             break
 
-        if matched_count > 0:
-            clean = text.strip() or stem.strip()
-            return tokens, clean
-
-        # Backward compatibility: migrate old [d:..] [t:..] [g:..] names.
-        while True:
-            matched = _OLD_STATUS_TOKEN_RE.match(text)
-            if not matched:
-                break
-            key = matched.group(1)
-            value = matched.group(2).strip()
-            if key == "d":
-                tokens["d"] = value
-            elif key == "t":
-                tokens["t"] = value
-            elif key == "g" and value.isdigit():
-                tokens["g_sync"] = value
-            text = text[matched.end() :].lstrip()
-
-        return tokens, (text.strip() or stem.strip())
+        clean_parts = parts[consumed:]
+        clean = " ".join(clean_parts).strip() if clean_parts else ""
+        return tokens, (clean or stem.strip())
 
     @staticmethod
     def _normalize_status_token(raw: str) -> str:
@@ -349,13 +337,13 @@ class Status(AbstractModule):
                 tokens.append(now.strftime("%H:%M:%S"))
                 continue
             if part == "git_update":
-                tokens.append(f"Last sync: {self._git_age_label(path)}")
+                tokens.append(self._git_age_label(path))
                 continue
             if part == "git_static":
                 if existing_git_sync_token:
-                    tokens.append(f"Last Git Sync: {existing_git_sync_token}")
+                    tokens.append(existing_git_sync_token)
                 else:
-                    tokens.append(f"Last Git Sync: {self._git_sync_time_label(path)}")
+                    tokens.append(self._git_sync_time_label(path))
 
         if banner_text:
             banner_frame = self._render_banner_frame(
@@ -746,8 +734,10 @@ class Status(AbstractModule):
             if not tokens:
                 return None
 
-            # Keep trailing spaces for banner frames where text fully disappears.
-            new_name = " ".join(tokens).replace(" ", _INVISIBLE_SPACE)
+            # Keep plain spaces in filenames for readability.
+            new_name = " ".join(tokens)
+            if not new_name.strip():
+                new_name = " - "
             new_path = os.path.abspath(os.path.join(os.path.dirname(old_path), new_name))
 
             if new_path == old_path:

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from watchdog.events import FileMovedEvent
 
+import lucy_notes_manager.modules.dropdir as dropdir_mod
 import lucy_notes_manager.modules.today as today_mod
 from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.dropdir import DropDir
@@ -20,11 +21,12 @@ def _freeze_today(monkeypatch, year: int, month: int, day: int) -> None:
     monkeypatch.setattr(today_mod, "datetime", _FakeDatetime)
 
 
-def _ctx(path: Path, cleanup_selector: str) -> Context:
+def _ctx(path: Path, cleanup_selector: str, *, delay_ms: int = 0) -> Context:
     return Context(
         path=str(path),
         config={
             "dropdir_today_clean_paths": [cleanup_selector],
+            "dropdir_today_clean_delay_ms": delay_ms,
             "today_now_path": "now.md",
             "today_past_path": "past.md",
             "today_idle_hours": 12.0,
@@ -87,3 +89,29 @@ def test_dropdir_ignores_non_today_filename(tmp_path: Path, monkeypatch) -> None
     assert not file_path.exists()
     assert src_path.read_text(encoding="utf-8") == "keep\n"
     assert not (src_path.parent / "past.md").exists()
+
+
+def test_dropdir_applies_custom_delay_before_today_clean(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_today(monkeypatch, 2026, 5, 3)
+
+    slept: list[float] = []
+    monkeypatch.setattr(dropdir_mod.time, "sleep", lambda value: slept.append(value))
+
+    cleanup_dir = tmp_path / "cleanup"
+    cleanup_dir.mkdir(parents=True, exist_ok=True)
+    now_path = cleanup_dir / "now.md"
+    now_path.write_text("clean this now\n", encoding="utf-8")
+
+    src_path = tmp_path / "inbox" / "now.md"
+    src_path.parent.mkdir(parents=True, exist_ok=True)
+
+    dropdir = DropDir()
+    today = Today()
+    event = FileMovedEvent(str(src_path), str(now_path))
+    system = System(event=event, global_template=[], modules=[dropdir, today])
+
+    _ = dropdir.moved(_ctx(now_path, "cleanup", delay_ms=1500), system)
+
+    assert slept == [1.5]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Optional
 
 from lucy_notes_manager.lib.args import Template
@@ -25,6 +26,14 @@ class DropDir(AbstractModule):
             [],
             "Directories where moved today-now files are immediately archived into today-past. "
             "Example: --dropdir-today-clean-paths cleanup ~/Notes/cleanup",
+            False,
+        ),
+        (
+            "--dropdir-today-clean-delay-ms",
+            int,
+            0,
+            "Delay before triggering today clean after instant move-back (milliseconds). "
+            "Example: --dropdir-today-clean-delay-ms 1200",
             False,
         ),
     ]
@@ -109,6 +118,17 @@ class DropDir(AbstractModule):
                 return module
         return None
 
+    @staticmethod
+    def _delay_seconds_from_config(ctx: Context) -> float:
+        raw_value = ctx.config.get("dropdir_today_clean_delay_ms", 0)
+        try:
+            delay_ms = int(raw_value)
+        except (TypeError, ValueError):
+            return 0.0
+        if delay_ms <= 0:
+            return 0.0
+        return delay_ms / 1000.0
+
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         selectors = list(ctx.config.get("dropdir_today_clean_paths", []))
         if not selectors:
@@ -139,6 +159,10 @@ class DropDir(AbstractModule):
 
         if canonical_path(now_path) != canonical_path(action_path):
             return move_back_changed
+
+        delay_seconds = self._delay_seconds_from_config(ctx)
+        if delay_seconds > 0:
+            time.sleep(delay_seconds)
 
         today_changed = today_module.archive_now_to_past(action_ctx, force=True)
         return self._merge_ignore_maps(move_back_changed, today_changed)

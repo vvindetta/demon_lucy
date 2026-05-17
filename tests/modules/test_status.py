@@ -13,7 +13,7 @@ from lucy_notes_manager.modules.status import Status
 
 
 def _inv(text: str) -> str:
-    return text.replace(" ", status_mod._INVISIBLE_SPACE)
+    return text
 
 
 @pytest.fixture(autouse=True)
@@ -214,7 +214,7 @@ def test_status_git_writes_sync_timestamp_once(tmp_path: Path, monkeypatch) -> N
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     first_changed = module.modified(_ctx_for(path, status_values=["git"]), system)
-    first_path = tmp_path / _inv("Last Git Sync: 1800000000")
+    first_path = tmp_path / _inv("1800000000")
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
@@ -246,8 +246,8 @@ def test_status_git_update_uses_compact_units_and_ticks(tmp_path: Path, monkeypa
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     first_changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
-    first_path = tmp_path / _inv("Last sync: 3h")
-    second_path = tmp_path / _inv("Last sync: 4h")
+    first_path = tmp_path / _inv("3h")
+    second_path = tmp_path / _inv("4h")
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
