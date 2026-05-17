@@ -151,12 +151,12 @@ def test_status_git_writes_sync_timestamp_once(tmp_path: Path, monkeypatch) -> N
     assert first_path.exists()
 
 
-def test_status_git_update_uses_minutes_and_ticks(tmp_path: Path, monkeypatch) -> None:
+def test_status_git_update_uses_compact_units_and_ticks(tmp_path: Path, monkeypatch) -> None:
     path = tmp_path / "note.md"
     path.write_text("--status git update\n", encoding="utf-8")
 
-    now_values = iter([200000.0, 203600.0])  # 210m -> 270m
-    monkeypatch.setattr(status_mod.time, "time", lambda: next(now_values))
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
     monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
     monkeypatch.setattr(
         status_mod.subprocess,
@@ -173,16 +173,40 @@ def test_status_git_update_uses_minutes_and_ticks(tmp_path: Path, monkeypatch) -
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     first_changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
-    first_path = tmp_path / "From last Git sync: 210"
-    second_path = tmp_path / "From last Git sync: 270"
+    first_path = tmp_path / "From last Git sync: 3h"
+    second_path = tmp_path / "From last Git sync: 4h"
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
+    now_state["value"] = 203600.0
     module._tick_once()
 
     assert second_path.exists()
     assert not first_path.exists()
+
+
+def test_status_ticker_interval_keeps_git_fast_window_temporary(monkeypatch) -> None:
+    now_state = {"value": 1000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+
+    module = Status()
+    module._set_tracked_parts("/tmp/git-status-note", ["git_update"])
+
+    assert module._ticker_interval_seconds() == 2.0
+
+    now_state["value"] = 1121.0
+    assert module._ticker_interval_seconds() == 60.0
+
+
+def test_status_ticker_interval_prefers_second_precision(monkeypatch) -> None:
+    now_state = {"value": 1000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+
+    module = Status()
+    module._set_tracked_parts("/tmp/seconds-status-note", ["time_with_seconds"])
+
+    assert module._ticker_interval_seconds() == 1.0
 
 
 def test_status_ticker_starts_only_after_first_status_use(tmp_path: Path, monkeypatch) -> None:

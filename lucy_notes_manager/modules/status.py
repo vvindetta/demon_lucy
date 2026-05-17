@@ -23,7 +23,11 @@ _DATE_TOKEN_RE = re.compile(r"^\d{2}-\d{2}$")
 _TIME_TOKEN_RE = re.compile(r"^\d{2}:\d{2}$")
 _TIME_SECONDS_TOKEN_RE = re.compile(r"^\d{2}:\d{2}:\d{2}$")
 _GIT_STATIC_RE = re.compile(r"^(?:Last Git Sync|Git):\s*(\d+)$")
-_GIT_UPDATE_RE = re.compile(r"^(?:From last Git sync|From git):\s*(\d+)$")
+_GIT_UPDATE_RE = re.compile(r"^(?:From last Git sync|From git):\s*(\d+(?:[mh])?)$")
+_SECONDS_TICK_INTERVAL = 1.0
+_GIT_FAST_TICK_INTERVAL = 2.0
+_DEFAULT_TICK_INTERVAL = 60.0
+_GIT_FAST_TICK_WINDOW_SECONDS = 120.0
 
 
 class Status(AbstractModule):
@@ -48,7 +52,8 @@ class Status(AbstractModule):
         self._bootstrap_lock = threading.Lock()
         self._bootstrap_done = False
         self._ticker_stop = threading.Event()
-        self._last_tick_minute: tuple[int, int, int, int, int] | None = None
+        self._last_tick_key: tuple[float, int] | None = None
+        self._git_fast_tick_until = 0.0
         self._ticker_thread: threading.Thread | None = None
 
     @staticmethod
@@ -198,12 +203,14 @@ class Status(AbstractModule):
         except ValueError:
             return None
 
-    def _git_age_minutes_label(self, path: str) -> str:
+    def _git_age_label(self, path: str) -> str:
         last_commit_ts = self._git_last_commit_timestamp(path)
         if last_commit_ts is None:
-            return "0"
+            return "0m"
         age_minutes = int(max(0.0, time.time() - last_commit_ts) // 60.0)
-        return str(age_minutes)
+        if age_minutes >= 60:
+            return f"{age_minutes // 60}h"
+        return f"{age_minutes}m"
 
     def _git_sync_time_label(self, path: str) -> str:
         last_commit_ts = self._git_last_commit_timestamp(path)
@@ -234,7 +241,7 @@ class Status(AbstractModule):
                 tokens.append(now.strftime("%H:%M:%S"))
                 continue
             if part == "git_update":
-                tokens.append(f"From last Git sync: {self._git_age_minutes_label(path)}")
+                tokens.append(f"From last Git sync: {self._git_age_label(path)}")
                 continue
             if part == "git_static":
                 if existing_git_sync_token:
@@ -256,6 +263,11 @@ class Status(AbstractModule):
         with self._track_lock:
             if self._needs_background_updates(parts):
                 self._tracked_paths[abs_path] = list(parts)
+                if "git_update" in parts:
+                    self._git_fast_tick_until = max(
+                        self._git_fast_tick_until,
+                        time.time() + _GIT_FAST_TICK_WINDOW_SECONDS,
+                    )
                 self._ensure_ticker_started()
                 return
             self._tracked_paths.pop(abs_path, None)
@@ -288,14 +300,30 @@ class Status(AbstractModule):
                 continue
             self._apply(path=path, parts=parts)
 
+    def _ticker_interval_seconds(self) -> float:
+        now_ts = time.time()
+        with self._track_lock:
+            tracked_parts = list(self._tracked_paths.values())
+            has_seconds = any("time_with_seconds" in parts for parts in tracked_parts)
+            has_git_update = any("git_update" in parts for parts in tracked_parts)
+            fast_until = self._git_fast_tick_until
+
+        if has_seconds:
+            return _SECONDS_TICK_INTERVAL
+        if has_git_update and now_ts < fast_until:
+            return _GIT_FAST_TICK_INTERVAL
+        return _DEFAULT_TICK_INTERVAL
+
     def _ticker_loop(self) -> None:
         while not self._ticker_stop.is_set():
-            now = datetime.now()
-            minute_key = (now.year, now.month, now.day, now.hour, now.minute)
-            if minute_key != self._last_tick_minute:
-                self._last_tick_minute = minute_key
+            interval_seconds = self._ticker_interval_seconds()
+            current_slot = int(time.time() // interval_seconds)
+            tick_key = (interval_seconds, current_slot)
+            if tick_key != self._last_tick_key:
+                self._last_tick_key = tick_key
                 self._tick_once()
-            self._ticker_stop.wait(1.0)
+            wait_seconds = 0.25 if interval_seconds <= _GIT_FAST_TICK_INTERVAL else 1.0
+            self._ticker_stop.wait(wait_seconds)
 
     @staticmethod
     def _merge_ignore_maps(
