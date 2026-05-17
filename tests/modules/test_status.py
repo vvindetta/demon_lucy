@@ -218,13 +218,13 @@ def test_status_ticker_starts_only_after_first_status_use(tmp_path: Path, monkey
     assert starts["count"] == 1
 
 
-def test_status_bootstrap_scans__status_dir_after_restart_like_event(
+def test_status_bootstrap_scans_dot_status_dir_after_restart_like_event(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
 
     notes_root = tmp_path / "notes"
-    status_dir = notes_root / "_status"
+    status_dir = notes_root / ".status"
     status_dir.mkdir(parents=True, exist_ok=True)
 
     status_file = status_dir / "dead.md"
@@ -268,7 +268,7 @@ def test_status_bootstrap_scans_only_once_even_if_first_scan_found_nothing(
     first_changed = module.modified(_ctx_for(trigger_file), system)
     assert first_changed is None
 
-    status_dir = notes_root / "_status"
+    status_dir = notes_root / ".status"
     status_dir.mkdir(parents=True, exist_ok=True)
     status_file = status_dir / "late.md"
     status_file.write_text("--status time\n", encoding="utf-8")

@@ -320,7 +320,7 @@ class Status(AbstractModule):
             current = os.path.dirname(current)
 
         while True:
-            candidate = os.path.join(current, "_status")
+            candidate = os.path.join(current, ".status")
             if os.path.isdir(candidate):
                 result.append(os.path.abspath(candidate))
             parent = os.path.dirname(current)
