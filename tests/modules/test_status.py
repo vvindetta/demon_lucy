@@ -77,7 +77,7 @@ def test_status_date_time_order(tmp_path: Path, monkeypatch) -> None:
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "17-05 | 08:09"
+    new_path = tmp_path / "17-05 08:09"
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -95,7 +95,7 @@ def test_status_time_date_order(tmp_path: Path, monkeypatch) -> None:
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "08:09 | 17-05"
+    new_path = tmp_path / "08:09 17-05"
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -113,7 +113,7 @@ def test_status_time_with_seconds_order(tmp_path: Path, monkeypatch) -> None:
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "17-05 | 08:09:00"
+    new_path = tmp_path / "17-05 08:09:00"
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -173,8 +173,8 @@ def test_status_git_update_uses_compact_units_and_ticks(tmp_path: Path, monkeypa
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     first_changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
-    first_path = tmp_path / "From last Git sync: 3h"
-    second_path = tmp_path / "From last Git sync: 4h"
+    first_path = tmp_path / "From last sync: 3h"
+    second_path = tmp_path / "From last sync: 4h"
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()

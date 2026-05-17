@@ -122,7 +122,7 @@ class ModuleManager:
 
     def run(self, path: str, event: FileSystemEvent) -> Dict[str, int] | None:
         if self._is_blacklisted_path(path, self.config["sys_blacklist_paths"]):
-            logger.info("SKIPPED BLACKLISTED PATH: %s", path)
+            logger.debug("SKIPPED BLACKLISTED PATH: %s", path)
             return None
 
         def _update_config():

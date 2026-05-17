@@ -23,7 +23,16 @@ _DATE_TOKEN_RE = re.compile(r"^\d{2}-\d{2}$")
 _TIME_TOKEN_RE = re.compile(r"^\d{2}:\d{2}$")
 _TIME_SECONDS_TOKEN_RE = re.compile(r"^\d{2}:\d{2}:\d{2}$")
 _GIT_STATIC_RE = re.compile(r"^(?:Last Git Sync|Git):\s*(\d+)$")
-_GIT_UPDATE_RE = re.compile(r"^(?:From last Git sync|From git):\s*(\d+(?:[mh])?)$")
+_GIT_UPDATE_RE = re.compile(
+    r"^(?:From last sync|From last Git sync|From git):\s*(\d+(?:[mh])?)$"
+)
+_DATE_PREFIX_RE = re.compile(r"^(\d{2}-\d{2})(?:\s+|$)")
+_TIME_SECONDS_PREFIX_RE = re.compile(r"^(\d{2}:\d{2}:\d{2})(?:\s+|$)")
+_TIME_PREFIX_RE = re.compile(r"^(\d{2}:\d{2})(?:\s+|$)")
+_GIT_STATIC_PREFIX_RE = re.compile(r"^(?:Last Git Sync|Git):\s*(\d+)(?:\s+|$)")
+_GIT_UPDATE_PREFIX_RE = re.compile(
+    r"^(?:From last sync|From last Git sync|From git):\s*(\d+(?:[mh])?)(?:\s+|$)"
+)
 _SECONDS_TICK_INTERVAL = 1.0
 _GIT_FAST_TICK_INTERVAL = 2.0
 _DEFAULT_TICK_INTERVAL = 60.0
@@ -58,44 +67,50 @@ class Status(AbstractModule):
 
     @staticmethod
     def _split_status_prefix(stem: str) -> tuple[dict[str, str], str]:
-        text = stem.strip()
-        parts = text.split(" | ")
         tokens: dict[str, str] = {}
+        text = stem.strip().replace(" | ", " ")
+        matched_count = 0
 
-        index = 0
-        while index < len(parts):
-            part = parts[index].strip()
-            if _DATE_TOKEN_RE.fullmatch(part):
-                tokens["d"] = part
-                index += 1
+        while text:
+            date_match = _DATE_PREFIX_RE.match(text)
+            if date_match:
+                tokens["d"] = date_match.group(1)
+                matched_count += 1
+                text = text[date_match.end() :].lstrip()
                 continue
 
-            if _TIME_TOKEN_RE.fullmatch(part):
-                tokens["t"] = part
-                index += 1
+            time_seconds_match = _TIME_SECONDS_PREFIX_RE.match(text)
+            if time_seconds_match:
+                tokens["ts"] = time_seconds_match.group(1)
+                matched_count += 1
+                text = text[time_seconds_match.end() :].lstrip()
                 continue
 
-            if _TIME_SECONDS_TOKEN_RE.fullmatch(part):
-                tokens["ts"] = part
-                index += 1
+            time_match = _TIME_PREFIX_RE.match(text)
+            if time_match:
+                tokens["t"] = time_match.group(1)
+                matched_count += 1
+                text = text[time_match.end() :].lstrip()
                 continue
 
-            static_match = _GIT_STATIC_RE.fullmatch(part)
+            static_match = _GIT_STATIC_PREFIX_RE.match(text)
             if static_match:
                 tokens["g_sync"] = static_match.group(1)
-                index += 1
+                matched_count += 1
+                text = text[static_match.end() :].lstrip()
                 continue
 
-            update_match = _GIT_UPDATE_RE.fullmatch(part)
+            update_match = _GIT_UPDATE_PREFIX_RE.match(text)
             if update_match:
                 tokens["g_update"] = update_match.group(1)
-                index += 1
+                matched_count += 1
+                text = text[update_match.end() :].lstrip()
                 continue
 
             break
 
-        if index > 0:
-            clean = " | ".join(parts[index:]).strip() or stem.strip()
+        if matched_count > 0:
+            clean = text.strip() or stem.strip()
             return tokens, clean
 
         # Backward compatibility: migrate old [d:..] [t:..] [g:..] names.
@@ -241,7 +256,7 @@ class Status(AbstractModule):
                 tokens.append(now.strftime("%H:%M:%S"))
                 continue
             if part == "git_update":
-                tokens.append(f"From last Git sync: {self._git_age_label(path)}")
+                tokens.append(f"From last sync: {self._git_age_label(path)}")
                 continue
             if part == "git_static":
                 if existing_git_sync_token:
@@ -440,7 +455,7 @@ class Status(AbstractModule):
             if not tokens:
                 return None
 
-            new_name = " | ".join(tokens).strip()
+            new_name = " ".join(tokens).strip()
             new_path = os.path.abspath(os.path.join(os.path.dirname(old_path), new_name))
 
             if new_path == old_path:
