@@ -37,7 +37,8 @@ _SECONDS_TICK_INTERVAL = 1.0
 _GIT_FAST_TICK_INTERVAL = 2.0
 _DEFAULT_TICK_INTERVAL = 60.0
 _GIT_FAST_TICK_WINDOW_SECONDS = 120.0
-_DEFAULT_BANNER_SPEED_SECONDS = 1
+_DEFAULT_BANNER_SPEED_MS = 1000
+_DEFAULT_BANNER_MAX_CHARS = 0
 
 
 class Status(AbstractModule):
@@ -56,7 +57,14 @@ class Status(AbstractModule):
             "--status-banner",
             str,
             [],
-            "Animated filename banner. Syntax: --status-banner \"Work sentence\" 2 (speed in seconds).",
+            "Animated filename banner. Syntax: --status-banner \"Work sentence\" 2000 16 (speed in milliseconds, optional max characters).",
+            False,
+        ),
+        (
+            "--status-dot",
+            bool,
+            False,
+            "Prefix filename with '. ' before status content.",
             False,
         ),
     ]
@@ -64,7 +72,8 @@ class Status(AbstractModule):
     def __init__(self) -> None:
         super().__init__()
         self._tracked_paths: dict[str, list[str]] = {}
-        self._tracked_banners: dict[str, tuple[str, int]] = {}
+        self._tracked_banners: dict[str, tuple[str, int, int]] = {}
+        self._tracked_dots: dict[str, bool] = {}
         self._banner_offsets: dict[str, int] = {}
         self._banner_last_slots: dict[str, int] = {}
         self._track_lock = threading.Lock()
@@ -80,6 +89,8 @@ class Status(AbstractModule):
     def _split_status_prefix(stem: str) -> tuple[dict[str, str], str]:
         tokens: dict[str, str] = {}
         text = stem.strip().replace(" | ", " ")
+        if text.startswith(". "):
+            text = text[2:].lstrip()
         matched_count = 0
 
         while text:
@@ -199,25 +210,37 @@ class Status(AbstractModule):
 
         return parts
 
-    def _parse_status_banner(self, values: list[str]) -> tuple[str | None, int]:
+    def _parse_status_banner(self, values: list[str]) -> tuple[str | None, int, int]:
         cleaned = [str(value).strip() for value in values if str(value).strip()]
         if not cleaned:
-            return None, _DEFAULT_BANNER_SPEED_SECONDS
+            return None, _DEFAULT_BANNER_SPEED_MS, _DEFAULT_BANNER_MAX_CHARS
 
-        speed = _DEFAULT_BANNER_SPEED_SECONDS
+        speed_ms = _DEFAULT_BANNER_SPEED_MS
+        max_chars = _DEFAULT_BANNER_MAX_CHARS
         text_tokens = list(cleaned)
-        maybe_speed = cleaned[-1]
-        if maybe_speed.isdigit():
-            parsed_speed = int(maybe_speed)
+
+        has_speed_and_max = (
+            len(cleaned) >= 3 and cleaned[-1].isdigit() and cleaned[-2].isdigit()
+        )
+        if has_speed_and_max:
+            parsed_speed = int(cleaned[-2])
+            parsed_max = int(cleaned[-1])
             if parsed_speed > 0:
-                speed = parsed_speed
-                if len(cleaned) > 1:
-                    text_tokens = cleaned[:-1]
+                speed_ms = parsed_speed
+            if parsed_max > 0:
+                max_chars = parsed_max
+            text_tokens = cleaned[:-2]
+        elif cleaned[-1].isdigit():
+            parsed_speed = int(cleaned[-1])
+            if parsed_speed > 0:
+                speed_ms = parsed_speed
+            if len(cleaned) > 1:
+                text_tokens = cleaned[:-1]
 
         banner_text = " ".join(text_tokens).strip()
         if not banner_text:
-            return None, speed
-        return banner_text, speed
+            return None, speed_ms, max_chars
+        return banner_text, speed_ms, max_chars
 
     @staticmethod
     def _rotate_banner_text(text: str, offset: int) -> str:
@@ -229,6 +252,12 @@ class Status(AbstractModule):
         if safe_offset == 0:
             return text
         return text[safe_offset:] + text[:safe_offset]
+
+    @staticmethod
+    def _limit_banner_text(text: str, max_chars: int) -> str:
+        if max_chars <= 0:
+            return text
+        return text[:max_chars]
 
     def _git_last_commit_timestamp(self, path: str) -> Optional[float]:
         repo_root = find_parent_with(path, ".git")
@@ -282,6 +311,8 @@ class Status(AbstractModule):
         existing_git_sync_token: str | None,
         banner_text: str | None,
         banner_offset: int,
+        banner_max_chars: int,
+        status_dot: bool,
     ) -> list[str]:
         if not parts and not banner_text:
             return []
@@ -309,7 +340,11 @@ class Status(AbstractModule):
                     tokens.append(f"Last Git Sync: {self._git_sync_time_label(path)}")
 
         if banner_text:
-            tokens.append(self._rotate_banner_text(banner_text, banner_offset))
+            rotated = self._rotate_banner_text(banner_text, banner_offset)
+            tokens.append(self._limit_banner_text(rotated, banner_max_chars))
+
+        if status_dot and tokens:
+            tokens[0] = f". {tokens[0]}"
 
         return tokens
 
@@ -327,16 +362,20 @@ class Status(AbstractModule):
         path: str,
         parts: list[str],
         banner_text: str | None = None,
-        banner_speed: int = _DEFAULT_BANNER_SPEED_SECONDS,
+        banner_speed_ms: int = _DEFAULT_BANNER_SPEED_MS,
+        banner_max_chars: int = _DEFAULT_BANNER_MAX_CHARS,
+        status_dot: bool = False,
     ) -> None:
         abs_path = os.path.abspath(path)
         with self._track_lock:
             if self._needs_background_updates(parts, banner_text):
                 self._tracked_paths[abs_path] = list(parts)
+                self._tracked_dots[abs_path] = bool(status_dot)
                 if banner_text:
-                    safe_speed = max(_DEFAULT_BANNER_SPEED_SECONDS, int(banner_speed))
+                    safe_speed_ms = max(1, int(banner_speed_ms))
+                    safe_max_chars = max(0, int(banner_max_chars))
                     previous_banner = self._tracked_banners.get(abs_path)
-                    next_banner = (banner_text, safe_speed)
+                    next_banner = (banner_text, safe_speed_ms, safe_max_chars)
                     if previous_banner != next_banner:
                         self._banner_offsets[abs_path] = 0
                         self._banner_last_slots.pop(abs_path, None)
@@ -354,6 +393,7 @@ class Status(AbstractModule):
                 return
             self._tracked_paths.pop(abs_path, None)
             self._tracked_banners.pop(abs_path, None)
+            self._tracked_dots.pop(abs_path, None)
             self._banner_offsets.pop(abs_path, None)
             self._banner_last_slots.pop(abs_path, None)
 
@@ -376,6 +416,9 @@ class Status(AbstractModule):
             banner = self._tracked_banners.pop(old_abs, None)
             if banner:
                 self._tracked_banners[new_abs] = banner
+            dot_state = self._tracked_dots.pop(old_abs, None)
+            if dot_state is not None:
+                self._tracked_dots[new_abs] = dot_state
             offset = self._banner_offsets.pop(old_abs, None)
             if offset is not None:
                 self._banner_offsets[new_abs] = offset
@@ -393,31 +436,39 @@ class Status(AbstractModule):
                 with self._track_lock:
                     self._tracked_paths.pop(path, None)
                     self._tracked_banners.pop(path, None)
+                    self._tracked_dots.pop(path, None)
                     self._banner_offsets.pop(path, None)
                     self._banner_last_slots.pop(path, None)
                 continue
 
             banner_text: str | None = None
             banner_offset = 0
+            banner_max_chars = _DEFAULT_BANNER_MAX_CHARS
+            status_dot = False
             with self._track_lock:
                 banner_state = self._tracked_banners.get(path)
                 if banner_state:
-                    banner_text, banner_speed = banner_state
-                    current_slot = int(now_ts // max(_DEFAULT_BANNER_SPEED_SECONDS, banner_speed))
+                    banner_text, banner_speed_ms, banner_max_chars = banner_state
+                    speed_seconds = max(1, banner_speed_ms) / 1000.0
+                    current_slot = int(now_ts // speed_seconds)
                     last_slot = self._banner_last_slots.get(path)
                     if last_slot is None:
                         self._banner_last_slots[path] = current_slot
                     elif current_slot != last_slot:
+                        step_count = max(1, current_slot - last_slot)
                         self._banner_last_slots[path] = current_slot
-                        next_offset = self._banner_offsets.get(path, 0) + 1
+                        next_offset = self._banner_offsets.get(path, 0) + step_count
                         self._banner_offsets[path] = next_offset
                     banner_offset = self._banner_offsets.get(path, 0)
+                status_dot = self._tracked_dots.get(path, False)
 
             self._apply(
                 path=path,
                 parts=parts,
                 banner_text=banner_text,
                 banner_offset=banner_offset,
+                banner_max_chars=banner_max_chars,
+                status_dot=status_dot,
             )
 
     def _ticker_interval_seconds(self) -> float:
@@ -436,8 +487,7 @@ class Status(AbstractModule):
             interval = min(interval, _GIT_FAST_TICK_INTERVAL)
         if tracked_banners:
             min_banner_speed = min(
-                max(_DEFAULT_BANNER_SPEED_SECONDS, speed)
-                for _text, speed in tracked_banners
+                max(1, speed_ms) / 1000.0 for _text, speed_ms, _max_chars in tracked_banners
             )
             interval = min(interval, float(min_banner_speed))
         return interval
@@ -486,20 +536,25 @@ class Status(AbstractModule):
 
         return result
 
-    def _status_from_file(self, path: str) -> tuple[list[str], str | None, int]:
+    def _status_from_file(self, path: str) -> tuple[list[str], str | None, int, int, bool]:
         try:
             with open(path, "r", encoding="utf-8") as handle:
                 lines = handle.readlines()
         except (OSError, UnicodeDecodeError):
-            return [], None, _DEFAULT_BANNER_SPEED_SECONDS
+            return [], None, _DEFAULT_BANNER_SPEED_MS, _DEFAULT_BANNER_MAX_CHARS, False
 
         status_values: list[str] = []
         banner_values: list[str] = []
+        status_dot = False
         for line in lines:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
-            if "--status" not in stripped and "--status-banner" not in stripped:
+            if (
+                "--status" not in stripped
+                and "--status-banner" not in stripped
+                and "--status-dot" not in stripped
+            ):
                 continue
             try:
                 tokens = shlex.split(stripped, comments=False, posix=True)
@@ -509,7 +564,12 @@ class Status(AbstractModule):
             i = 0
             while i < len(tokens):
                 token_head = tokens[i]
-                if token_head not in ("--status", "--status-banner"):
+                if token_head not in ("--status", "--status-banner", "--status-dot"):
+                    i += 1
+                    continue
+
+                if token_head == "--status-dot":
+                    status_dot = True
                     i += 1
                     continue
 
@@ -526,8 +586,10 @@ class Status(AbstractModule):
                 i = j
 
         parts = self._parse_status_parts(status_values)
-        banner_text, banner_speed = self._parse_status_banner(banner_values)
-        return parts, banner_text, banner_speed
+        banner_text, banner_speed_ms, banner_max_chars = self._parse_status_banner(
+            banner_values
+        )
+        return parts, banner_text, banner_speed_ms, banner_max_chars, status_dot
 
     def _bootstrap_from_status_dirs(self, event_path: str) -> Optional[IgnoreMap]:
         status_dirs = self._discover_status_dirs_from_path(event_path)
@@ -539,15 +601,23 @@ class Status(AbstractModule):
             for root, _dirs, files in os.walk(status_dir):
                 for file_name in files:
                     file_path = os.path.abspath(os.path.join(root, file_name))
-                    parts, banner_text, banner_speed = self._status_from_file(file_path)
-                    if not parts and not banner_text:
+                    (
+                        parts,
+                        banner_text,
+                        banner_speed_ms,
+                        banner_max_chars,
+                        status_dot,
+                    ) = self._status_from_file(file_path)
+                    if not parts and not banner_text and not status_dot:
                         self._set_tracked_parts(path=file_path, parts=[], banner_text=None)
                         continue
                     self._set_tracked_parts(
                         path=file_path,
                         parts=parts,
                         banner_text=banner_text,
-                        banner_speed=banner_speed,
+                        banner_speed_ms=banner_speed_ms,
+                        banner_max_chars=banner_max_chars,
+                        status_dot=status_dot,
                     )
                     with self._track_lock:
                         banner_offset = self._banner_offsets.get(file_path, 0)
@@ -556,6 +626,8 @@ class Status(AbstractModule):
                         parts=parts,
                         banner_text=banner_text,
                         banner_offset=banner_offset,
+                        banner_max_chars=banner_max_chars,
+                        status_dot=status_dot,
                     )
                     merged = self._merge_ignore_maps(merged, changed)
         return merged
@@ -576,6 +648,8 @@ class Status(AbstractModule):
         parts: list[str],
         banner_text: str | None = None,
         banner_offset: int = 0,
+        banner_max_chars: int = _DEFAULT_BANNER_MAX_CHARS,
+        status_dot: bool | None = None,
     ) -> Optional[IgnoreMap]:
         with self._rename_lock:
             old_path = os.path.abspath(path)
@@ -590,7 +664,11 @@ class Status(AbstractModule):
                     banner_state = self._tracked_banners.get(old_path)
                     if banner_state:
                         banner_text = banner_state[0]
+                        banner_max_chars = banner_state[2]
                         banner_offset = self._banner_offsets.get(old_path, 0)
+            if status_dot is None:
+                with self._track_lock:
+                    status_dot = self._tracked_dots.get(old_path, False)
 
             tokens = self._build_tokens(
                 path=old_path,
@@ -598,6 +676,8 @@ class Status(AbstractModule):
                 existing_git_sync_token=existing_tokens.get("g_sync"),
                 banner_text=banner_text,
                 banner_offset=banner_offset,
+                banner_max_chars=banner_max_chars,
+                status_dot=bool(status_dot),
             )
             if not tokens:
                 return None
@@ -622,14 +702,17 @@ class Status(AbstractModule):
     def _handle_event(self, ctx: Context) -> Optional[IgnoreMap]:
         bootstrap_changed = self._bootstrap_once(ctx.path)
         parts = self._parse_status_parts(list(ctx.config.get("status", [])))
-        banner_text, banner_speed = self._parse_status_banner(
+        banner_text, banner_speed_ms, banner_max_chars = self._parse_status_banner(
             list(ctx.config.get("status_banner", []))
         )
+        status_dot = bool(ctx.config.get("status_dot", False))
         self._set_tracked_parts(
             path=ctx.path,
             parts=parts,
             banner_text=banner_text,
-            banner_speed=banner_speed,
+            banner_speed_ms=banner_speed_ms,
+            banner_max_chars=banner_max_chars,
+            status_dot=status_dot,
         )
         with self._track_lock:
             banner_offset = self._banner_offsets.get(os.path.abspath(ctx.path), 0)
@@ -638,6 +721,8 @@ class Status(AbstractModule):
             parts=parts,
             banner_text=banner_text,
             banner_offset=banner_offset,
+            banner_max_chars=banner_max_chars,
+            status_dot=status_dot,
         )
         return self._merge_ignore_maps(bootstrap_changed, current_changed)
 
