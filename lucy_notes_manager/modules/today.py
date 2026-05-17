@@ -188,13 +188,13 @@ class Today(AbstractModule):
             return False
         return True
 
-    def _archive_if_needed(self, ctx: Context) -> Optional[IgnoreMap]:
+    def _archive_if_needed(self, ctx: Context, force: bool = False) -> Optional[IgnoreMap]:
         resolved = self._resolve_paths(ctx)
         if not resolved:
             return None
         now_path, past_path = resolved
 
-        if not self._is_stale(ctx, now_path, ctx.config["today_idle_hours"]):
+        if not force and not self._is_stale(ctx, now_path, ctx.config["today_idle_hours"]):
             return None
 
         try:
@@ -221,14 +221,17 @@ class Today(AbstractModule):
 
         return {now_path: 1, past_path: 1}
 
+    def archive_now_to_past(self, ctx: Context, force: bool = False) -> Optional[IgnoreMap]:
+        return self._archive_if_needed(ctx, force=force)
+
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_if_needed(ctx)
+        return self._archive_if_needed(ctx, force=False)
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_if_needed(ctx)
+        return self._archive_if_needed(ctx, force=False)
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_if_needed(ctx)
+        return self._archive_if_needed(ctx, force=False)
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_if_needed(ctx)
+        return self._archive_if_needed(ctx, force=False)

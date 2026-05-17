@@ -103,6 +103,7 @@ def test_main_schedules_observer_and_modules(
         "renamer",
         "status",
         "linker",
+        "dropdir",
         "formatter",
         "today",
         "sys",

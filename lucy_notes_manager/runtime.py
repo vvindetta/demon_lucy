@@ -7,6 +7,7 @@ from typing import List
 from lucy_notes_manager.lib.args import Template
 from lucy_notes_manager.modules.abstract_module import AbstractModule
 from lucy_notes_manager.modules.banner import Banner
+from lucy_notes_manager.modules.dropdir import DropDir
 from lucy_notes_manager.modules.formatter import Formatter
 from lucy_notes_manager.modules.git import Git
 from lucy_notes_manager.modules.linker import Linker
@@ -125,6 +126,7 @@ def select_lucy_modules(
         Renamer(),
         Status(),
         Linker(),
+        DropDir(),
         Formatter(),
         Today(),
         Sys(),

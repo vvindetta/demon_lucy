@@ -359,8 +359,8 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
     now_state["value"] = 22.1
     module._tick_once()  # 17-05 g
     now_state["value"] = 24.1
-    module._tick_once()  # fully disappeared banner
-    disappeared_path = tmp_path / "17-05"
+    module._tick_once()  # fully disappeared banner into spaces
+    disappeared_path = tmp_path / "17-05     "
     assert disappeared_path.exists()
 
     now_state["value"] = 26.1

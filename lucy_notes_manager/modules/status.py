@@ -261,13 +261,12 @@ class Status(AbstractModule):
             return Status._rotate_banner_text(text, offset)
 
         width = max(1, int(max_chars))
-        # Scroll left until text fully disappears, then restart.
-        # Example (text=Working, width=4): Work -> orki -> rkin -> king -> ing -> ng -> g -> "" -> ...
-        cycle_len = len(text) + width
+        # Scroll left until text fully disappears into spaces, then restart.
+        # Example (text=Working, width=4): Work -> orki -> rkin -> king -> ing  -> ng   -> g    -> "    " -> ...
+        stream = text + (" " * width)
+        cycle_len = len(stream)
         step = offset % cycle_len
-        if step < len(text):
-            return text[step : step + width]
-        return ""
+        return stream[step : step + width].ljust(width)
 
     def _git_last_commit_timestamp(self, path: str) -> Optional[float]:
         repo_root = find_parent_with(path, ".git")
@@ -698,7 +697,8 @@ class Status(AbstractModule):
             if not tokens:
                 return None
 
-            new_name = " ".join(tokens).strip()
+            # Keep trailing spaces for banner frames where text fully disappears.
+            new_name = " ".join(tokens)
             new_path = os.path.abspath(os.path.join(os.path.dirname(old_path), new_name))
 
             if new_path == old_path:
