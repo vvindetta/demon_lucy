@@ -152,7 +152,7 @@ def test_status_banner_renames_and_rotates_with_speed(tmp_path: Path, monkeypatc
         ),
         system,
     )
-    first_path = tmp_path / _inv("Work sentence")
+    first_path = tmp_path / _inv(".Work sentence")
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
@@ -161,7 +161,7 @@ def test_status_banner_renames_and_rotates_with_speed(tmp_path: Path, monkeypatc
 
     now_state["value"] = 12.1
     module._tick_once()
-    second_path = tmp_path / _inv("ork sentenceW")
+    second_path = tmp_path / _inv(".ork sentenceW")
     assert second_path.exists()
     assert not first_path.exists()
 
@@ -186,7 +186,28 @@ def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) 
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / _inv("17-05 08:09 Focus now")
+    new_path = tmp_path / _inv(".17-05 08:09 Focus now")
+    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert new_path.exists()
+    assert not path.exists()
+
+
+def test_status_banner_preserves_multi_spaces(tmp_path: Path) -> None:
+    path = tmp_path / "note.md"
+    banner_text = "s               Lucy is a demon octopus controlling puppet-files from the depth"
+    path.write_text(
+        f'--status-banner "{banner_text}"\n',
+        encoding="utf-8",
+    )
+
+    module = Status()
+    system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
+
+    changed = module.modified(
+        _ctx_for(path, status_banner_text=banner_text),
+        system,
+    )
+    new_path = tmp_path / f".{banner_text}"
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -336,7 +357,7 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
         ),
         system,
     )
-    first_path = tmp_path / _inv("Work")
+    first_path = tmp_path / _inv(".Work")
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
@@ -345,7 +366,7 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
 
     now_state["value"] = 12.1
     module._tick_once()
-    second_path = tmp_path / _inv("orki")
+    second_path = tmp_path / _inv(".orki")
     assert second_path.exists()
     assert not first_path.exists()
 
@@ -373,7 +394,7 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
         ),
         system,
     )
-    first_path = tmp_path / _inv("17-05 Work")
+    first_path = tmp_path / _inv(".17-05 Work")
     assert changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
@@ -392,7 +413,7 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
     module._tick_once()  # 17-05 g
     now_state["value"] = 24.1
     module._tick_once()  # fully disappeared banner into spaces
-    disappeared_path = tmp_path / _inv("17-05     ")
+    disappeared_path = tmp_path / _inv(".17-05     ")
     assert disappeared_path.exists()
 
     now_state["value"] = 26.1
@@ -400,7 +421,7 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
     assert disappeared_path.exists()
     now_state["value"] = 32.1
     module._tick_once()  # restart after full blank tail
-    restarted_path = tmp_path / _inv("17-05 Work")
+    restarted_path = tmp_path / _inv(".17-05 Work")
     assert restarted_path.exists()
     assert not disappeared_path.exists()
 

@@ -223,7 +223,7 @@ class Status(AbstractModule):
         speed_ms_value: object,
         max_chars_value: object,
     ) -> tuple[str | None, int, int]:
-        banner_text = str(text_value or "").strip()
+        banner_text = "" if text_value is None else str(text_value)
         try:
             speed_ms = int(speed_ms_value)
         except (TypeError, ValueError):
@@ -235,7 +235,7 @@ class Status(AbstractModule):
 
         safe_speed_ms = max(1, speed_ms)
         safe_max_chars = max(0, max_chars)
-        if not banner_text:
+        if banner_text == "":
             return None, safe_speed_ms, safe_max_chars
         return banner_text, safe_speed_ms, safe_max_chars
 
@@ -638,6 +638,8 @@ class Status(AbstractModule):
             banner_speed_value,
             banner_max_chars_value,
         )
+        if banner_text and not status_prefix:
+            status_prefix = "."
         return parts, banner_text, banner_speed_ms, banner_max_chars, status_prefix
 
     def _bootstrap_from_status_dirs(self, event_path: str) -> Optional[IgnoreMap]:
@@ -763,6 +765,8 @@ class Status(AbstractModule):
             ctx.config.get("status_banner_max_chars", _DEFAULT_BANNER_MAX_CHARS),
         )
         status_prefix = str(ctx.config.get("status_prefix", ""))
+        if banner_text and not status_prefix:
+            status_prefix = "."
         self._set_tracked_parts(
             path=ctx.path,
             parts=parts,
