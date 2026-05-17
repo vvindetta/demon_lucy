@@ -9,6 +9,14 @@ from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.sys import Sys
 
 
+class _StatusLikeModule:
+    name = "status"
+    template = [
+        ("--status", str, [], "status args", False),
+        ("--status-banner", str, "", "status banner", False),
+    ]
+
+
 def _base_config() -> dict[str, object]:
     return {
         "mods": False,
@@ -20,7 +28,7 @@ def _base_config() -> dict[str, object]:
     }
 
 
-def test_man_lines_list_and_specific_name():
+def test_man_lines_specific_name_and_flag():
     module = Sys()
     system = System(
         event=FileModifiedEvent("/tmp/x"),
@@ -31,11 +39,30 @@ def test_man_lines_list_and_specific_name():
         modules=[],
     )
 
-    list_lines = module._man_lines(system, ["list"])
+    flag_lines = module._man_lines(system, ["--mods"])
     one_lines = module._man_lines(system, ["formatter_todo"])
 
-    assert any("--mods" in line for line in list_lines)
+    assert any("--mods:" in line for line in flag_lines)
     assert any("--formatter-todo:" in line for line in one_lines)
+
+
+def test_man_lines_module_name_expands_to_module_flags():
+    module = Sys()
+    system = System(
+        event=FileModifiedEvent("/tmp/x"),
+        global_template=[
+            ("--status", str, [], "status args", False),
+            ("--status-banner", str, "", "status banner", False),
+            ("--mods", bool, False, "mods help", False),
+        ],
+        modules=[_StatusLikeModule()],
+    )
+
+    lines = module._man_lines(system, ["status"])
+
+    assert any("--status:" in line for line in lines)
+    assert any("--status-banner:" in line for line in lines)
+    assert all("--mods:" not in line for line in lines)
 
 
 @pytest.mark.parametrize(
@@ -92,11 +119,11 @@ def test_apply_inserts_block_for_first_line_flags(
 
 def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
     note = tmp_path / "note.md"
-    note.write_text("head\n--man list\n", encoding="utf-8")
+    note.write_text("head\n--man man\n", encoding="utf-8")
 
     module = Sys()
     config = _base_config()
-    config["man"] = ["list"]
+    config["man"] = ["man"]
     ctx = Context(
         path=str(note),
         config=config,
@@ -113,4 +140,4 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
 
     assert changed == {str(note): 1}
     assert "--- man ---\n" in content
-    assert "* --man type=str default=None\n" in content
+    assert "* --man: manual (type=str, default=None)\n" in content

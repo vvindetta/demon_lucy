@@ -51,9 +51,7 @@ You can provide flags in three places:
 ```
 * --mods: print loaded modules and their priorities
 * --config: print config values that differ from defaults
-* --man list: print all arguments (no descriptions)
-* --man full: print all arguments with descriptions
-* --man <name>: print one argument with description (example: --man mods)
+* --man <name>: print one argument with description (example: --man mods or --man --mods)
 ```
 
 
@@ -67,14 +65,12 @@ You can provide flags in three places:
 * cmd (50)
 ```
 
-```--man list``` for list all flag arguments.
-
 `--man flag_arg_here` for help with any flag argument.
 
 ```--man man``` :
 
 ```
-* --man: Argument manual. Use: --man list OR --man full OR --man <name> (example: --man mods). (type=str, default=None)
+* --man: Argument manual. Use: --man <module name> or --man --flag (example: --man sys or --man --mods). (type=str, default=None)
 ```
 
 ## Install

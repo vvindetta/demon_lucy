@@ -76,10 +76,10 @@ class Status(AbstractModule):
             False,
         ),
         (
-            "--status-dot",
-            bool,
-            False,
-            "Prefix filename with '. ' before status content.",
+            "--status-prefix",
+            str,
+            "",
+            "Prefix text inserted at the very beginning of the filename status. Example: --status-prefix 'Inbox: '",
             False,
         ),
     ]
@@ -88,7 +88,7 @@ class Status(AbstractModule):
         super().__init__()
         self._tracked_paths: dict[str, list[str]] = {}
         self._tracked_banners: dict[str, tuple[str, int, int]] = {}
-        self._tracked_dots: dict[str, bool] = {}
+        self._tracked_prefixes: dict[str, str] = {}
         self._banner_offsets: dict[str, int] = {}
         self._banner_last_slots: dict[str, int] = {}
         self._track_lock = threading.Lock()
@@ -101,11 +101,15 @@ class Status(AbstractModule):
         self._ticker_thread: threading.Thread | None = None
 
     @staticmethod
-    def _split_status_prefix(stem: str) -> tuple[dict[str, str], str]:
+    def _split_status_prefix(
+        stem: str,
+        status_prefix: str = "",
+    ) -> tuple[dict[str, str], str]:
         tokens: dict[str, str] = {}
         text = stem.replace(_INVISIBLE_SPACE, " ").strip().replace(" | ", " ")
-        if text.startswith(". "):
-            text = text[2:].lstrip()
+        normalized_prefix = str(status_prefix or "")
+        if normalized_prefix and text.startswith(normalized_prefix):
+            text = text[len(normalized_prefix) :].lstrip()
         matched_count = 0
 
         while text:
@@ -326,7 +330,7 @@ class Status(AbstractModule):
         banner_text: str | None,
         banner_offset: int,
         banner_max_chars: int,
-        status_dot: bool,
+        status_prefix: str,
     ) -> list[str]:
         if not parts and not banner_text:
             return []
@@ -362,8 +366,9 @@ class Status(AbstractModule):
             if banner_frame:
                 tokens.append(banner_frame)
 
-        if status_dot and tokens:
-            tokens[0] = f". {tokens[0]}"
+        prefix_text = str(status_prefix or "")
+        if prefix_text and tokens:
+            tokens[0] = f"{prefix_text}{tokens[0]}"
 
         return tokens
 
@@ -383,13 +388,13 @@ class Status(AbstractModule):
         banner_text: str | None = None,
         banner_speed_ms: int = _DEFAULT_BANNER_SPEED_MS,
         banner_max_chars: int = _DEFAULT_BANNER_MAX_CHARS,
-        status_dot: bool = False,
+        status_prefix: str = "",
     ) -> None:
         abs_path = os.path.abspath(path)
         with self._track_lock:
             if self._needs_background_updates(parts, banner_text):
                 self._tracked_paths[abs_path] = list(parts)
-                self._tracked_dots[abs_path] = bool(status_dot)
+                self._tracked_prefixes[abs_path] = str(status_prefix or "")
                 if banner_text:
                     safe_speed_ms = max(1, int(banner_speed_ms))
                     safe_max_chars = max(0, int(banner_max_chars))
@@ -412,7 +417,7 @@ class Status(AbstractModule):
                 return
             self._tracked_paths.pop(abs_path, None)
             self._tracked_banners.pop(abs_path, None)
-            self._tracked_dots.pop(abs_path, None)
+            self._tracked_prefixes.pop(abs_path, None)
             self._banner_offsets.pop(abs_path, None)
             self._banner_last_slots.pop(abs_path, None)
 
@@ -435,9 +440,9 @@ class Status(AbstractModule):
             banner = self._tracked_banners.pop(old_abs, None)
             if banner:
                 self._tracked_banners[new_abs] = banner
-            dot_state = self._tracked_dots.pop(old_abs, None)
-            if dot_state is not None:
-                self._tracked_dots[new_abs] = dot_state
+            prefix_text = self._tracked_prefixes.pop(old_abs, None)
+            if prefix_text is not None:
+                self._tracked_prefixes[new_abs] = prefix_text
             offset = self._banner_offsets.pop(old_abs, None)
             if offset is not None:
                 self._banner_offsets[new_abs] = offset
@@ -455,7 +460,7 @@ class Status(AbstractModule):
                 with self._track_lock:
                     self._tracked_paths.pop(path, None)
                     self._tracked_banners.pop(path, None)
-                    self._tracked_dots.pop(path, None)
+                    self._tracked_prefixes.pop(path, None)
                     self._banner_offsets.pop(path, None)
                     self._banner_last_slots.pop(path, None)
                 continue
@@ -463,7 +468,7 @@ class Status(AbstractModule):
             banner_text: str | None = None
             banner_offset = 0
             banner_max_chars = _DEFAULT_BANNER_MAX_CHARS
-            status_dot = False
+            status_prefix = ""
             with self._track_lock:
                 banner_state = self._tracked_banners.get(path)
                 if banner_state:
@@ -479,7 +484,7 @@ class Status(AbstractModule):
                         next_offset = self._banner_offsets.get(path, 0) + step_count
                         self._banner_offsets[path] = next_offset
                     banner_offset = self._banner_offsets.get(path, 0)
-                status_dot = self._tracked_dots.get(path, False)
+                status_prefix = self._tracked_prefixes.get(path, "")
 
             self._apply(
                 path=path,
@@ -487,7 +492,7 @@ class Status(AbstractModule):
                 banner_text=banner_text,
                 banner_offset=banner_offset,
                 banner_max_chars=banner_max_chars,
-                status_dot=status_dot,
+                status_prefix=status_prefix,
             )
 
     def _ticker_interval_seconds(self) -> float:
@@ -556,18 +561,18 @@ class Status(AbstractModule):
 
         return result
 
-    def _status_from_file(self, path: str) -> tuple[list[str], str | None, int, int, bool]:
+    def _status_from_file(self, path: str) -> tuple[list[str], str | None, int, int, str]:
         try:
             with open(path, "r", encoding="utf-8") as handle:
                 lines = handle.readlines()
         except (OSError, UnicodeDecodeError):
-            return [], None, _DEFAULT_BANNER_SPEED_MS, _DEFAULT_BANNER_MAX_CHARS, False
+            return [], None, _DEFAULT_BANNER_SPEED_MS, _DEFAULT_BANNER_MAX_CHARS, ""
 
         status_values: list[str] = []
         banner_text_value: object = ""
         banner_speed_value: object = _DEFAULT_BANNER_SPEED_MS
         banner_max_chars_value: object = _DEFAULT_BANNER_MAX_CHARS
-        status_dot = False
+        status_prefix = ""
         for line in lines:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
@@ -577,7 +582,7 @@ class Status(AbstractModule):
                 and "--status-banner" not in stripped
                 and "--status-banner-speed-ms" not in stripped
                 and "--status-banner-max-chars" not in stripped
-                and "--status-dot" not in stripped
+                and "--status-prefix" not in stripped
             ):
                 continue
             try:
@@ -593,14 +598,17 @@ class Status(AbstractModule):
                     "--status-banner",
                     "--status-banner-speed-ms",
                     "--status-banner-max-chars",
-                    "--status-dot",
+                    "--status-prefix",
                 ):
                     i += 1
                     continue
 
-                if token_head == "--status-dot":
-                    status_dot = True
-                    i += 1
+                if token_head == "--status-prefix":
+                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                        status_prefix = tokens[i + 1]
+                        i += 2
+                    else:
+                        i += 1
                     continue
 
                 if token_head == "--status-banner":
@@ -642,7 +650,7 @@ class Status(AbstractModule):
             banner_speed_value,
             banner_max_chars_value,
         )
-        return parts, banner_text, banner_speed_ms, banner_max_chars, status_dot
+        return parts, banner_text, banner_speed_ms, banner_max_chars, status_prefix
 
     def _bootstrap_from_status_dirs(self, event_path: str) -> Optional[IgnoreMap]:
         status_dirs = self._discover_status_dirs_from_path(event_path)
@@ -659,9 +667,9 @@ class Status(AbstractModule):
                         banner_text,
                         banner_speed_ms,
                         banner_max_chars,
-                        status_dot,
+                        status_prefix,
                     ) = self._status_from_file(file_path)
-                    if not parts and not banner_text and not status_dot:
+                    if not parts and not banner_text and not status_prefix:
                         self._set_tracked_parts(path=file_path, parts=[], banner_text=None)
                         continue
                     self._set_tracked_parts(
@@ -670,7 +678,7 @@ class Status(AbstractModule):
                         banner_text=banner_text,
                         banner_speed_ms=banner_speed_ms,
                         banner_max_chars=banner_max_chars,
-                        status_dot=status_dot,
+                        status_prefix=status_prefix,
                     )
                     with self._track_lock:
                         banner_offset = self._banner_offsets.get(file_path, 0)
@@ -680,7 +688,7 @@ class Status(AbstractModule):
                         banner_text=banner_text,
                         banner_offset=banner_offset,
                         banner_max_chars=banner_max_chars,
-                        status_dot=status_dot,
+                        status_prefix=status_prefix,
                     )
                     merged = self._merge_ignore_maps(merged, changed)
         return merged
@@ -702,7 +710,7 @@ class Status(AbstractModule):
         banner_text: str | None = None,
         banner_offset: int = 0,
         banner_max_chars: int = _DEFAULT_BANNER_MAX_CHARS,
-        status_dot: bool | None = None,
+        status_prefix: str | None = None,
     ) -> Optional[IgnoreMap]:
         with self._rename_lock:
             old_path = os.path.abspath(path)
@@ -711,7 +719,10 @@ class Status(AbstractModule):
 
             base_name = os.path.basename(old_path)
             stem, _ext = os.path.splitext(base_name)
-            existing_tokens, _clean_stem = self._split_status_prefix(stem)
+            existing_tokens, _clean_stem = self._split_status_prefix(
+                stem=stem,
+                status_prefix=str(status_prefix or ""),
+            )
             if banner_text is None:
                 with self._track_lock:
                     banner_state = self._tracked_banners.get(old_path)
@@ -719,9 +730,9 @@ class Status(AbstractModule):
                         banner_text = banner_state[0]
                         banner_max_chars = banner_state[2]
                         banner_offset = self._banner_offsets.get(old_path, 0)
-            if status_dot is None:
+            if status_prefix is None:
                 with self._track_lock:
-                    status_dot = self._tracked_dots.get(old_path, False)
+                    status_prefix = self._tracked_prefixes.get(old_path, "")
 
             tokens = self._build_tokens(
                 path=old_path,
@@ -730,7 +741,7 @@ class Status(AbstractModule):
                 banner_text=banner_text,
                 banner_offset=banner_offset,
                 banner_max_chars=banner_max_chars,
-                status_dot=bool(status_dot),
+                status_prefix=str(status_prefix or ""),
             )
             if not tokens:
                 return None
@@ -761,14 +772,14 @@ class Status(AbstractModule):
             ctx.config.get("status_banner_speed_ms", _DEFAULT_BANNER_SPEED_MS),
             ctx.config.get("status_banner_max_chars", _DEFAULT_BANNER_MAX_CHARS),
         )
-        status_dot = bool(ctx.config.get("status_dot", False))
+        status_prefix = str(ctx.config.get("status_prefix", ""))
         self._set_tracked_parts(
             path=ctx.path,
             parts=parts,
             banner_text=banner_text,
             banner_speed_ms=banner_speed_ms,
             banner_max_chars=banner_max_chars,
-            status_dot=status_dot,
+            status_prefix=status_prefix,
         )
         with self._track_lock:
             banner_offset = self._banner_offsets.get(os.path.abspath(ctx.path), 0)
@@ -778,7 +789,7 @@ class Status(AbstractModule):
             banner_text=banner_text,
             banner_offset=banner_offset,
             banner_max_chars=banner_max_chars,
-            status_dot=status_dot,
+            status_prefix=status_prefix,
         )
         return self._merge_ignore_maps(bootstrap_changed, current_changed)
 

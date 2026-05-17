@@ -34,7 +34,7 @@ class Sys(AbstractModule):
             "--man",
             str,
             [],
-            "Argument manual. Use: --man list OR --man full OR --man <name> (example: --man mods).",
+            "Argument manual. Use: --man <name> or --man --flag (example: --man mods or --man --mods).",
             False,
         ),
         (
@@ -64,9 +64,7 @@ class Sys(AbstractModule):
             "* --mods: print loaded modules and their priorities\n",
             "* --ping: rewrite command line to ++pong!\n",
             "* --config: print config values that differ from defaults\n",
-            "* --man list: print all arguments (no descriptions)\n",
-            "* --man full: print all arguments with descriptions\n",
-            "* --man <name>: print one argument with description (example: --man mods)\n",
+            "* --man <name>: print one argument with description (example: --man mods or --man --mods)\n",
         ]
 
     @staticmethod
@@ -87,32 +85,47 @@ class Sys(AbstractModule):
             return ""
         return text.lstrip("-").strip().lower()
 
-    def _man_list_lines(self, system: System) -> List[str]:
-        lines: List[str] = []
-        for item in system.global_template:
-            flag, typ, default, _desc, _required = parse_template_item(item)
-            type_name = self._type_name(typ)
-            lines.append(f"* {flag} type={type_name} default={default}\n")
-        return lines or ["* (no args)\n"]
+    def _expand_man_requests(self, requested_names: List[str]) -> List[str]:
+        expanded: List[str] = []
+        for raw in requested_names or []:
+            for chunk in str(raw).split("/"):
+                normalized = self._normalize_arg_name(chunk)
+                if normalized:
+                    expanded.append(normalized)
+        return expanded
 
-    def _man_full_lines(self, system: System) -> List[str]:
-        lines: List[str] = []
-        for item in system.global_template:
-            flag, typ, default, desc, _required = parse_template_item(item)
-            type_name = self._type_name(typ)
-            description = (desc or "").strip()
-            lines.append(
-                f"* {flag}: {description} (type={type_name}, default={default})\n"
-            )
-        return lines or ["* (no args)\n"]
+    def _module_flags_by_request_name(self, system: System) -> dict[str, set[str]]:
+        mapping: dict[str, set[str]] = {}
+
+        for module in system.modules:
+            module_name = self._normalize_arg_name(getattr(module, "name", ""))
+            if not module_name:
+                continue
+
+            module_keys = {module_name, module_name.replace("_", "-")}
+            module_flags: set[str] = set()
+
+            for template_item in getattr(module, "template", []) or []:
+                flag, _typ, _default, _desc, _required = parse_template_item(
+                    template_item
+                )
+                module_flags.add(self._normalize_arg_name(flag.lstrip("-")))
+                module_flags.add(self._normalize_arg_name(flag_to_dest(flag)))
+
+            for key in module_keys:
+                mapping.setdefault(key, set()).update(module_flags)
+
+        return mapping
 
     def _man_one_lines(self, system: System, requested_names: List[str]) -> List[str]:
-        requested = [self._normalize_arg_name(item) for item in (requested_names or [])]
-        requested = [item for item in requested if item]
+        requested = self._expand_man_requests(requested_names)
         if not requested:
-            return ["* (missing name)\n"]
+            return ["* (missing name: use --man <name> or --man --flag)\n"]
 
         requested_set = set(requested)
+        module_flags_map = self._module_flags_by_request_name(system)
+        for request_name in list(requested_set):
+            requested_set.update(module_flags_map.get(request_name, set()))
         matched: List[str] = []
 
         for item in system.global_template:
@@ -132,21 +145,7 @@ class Sys(AbstractModule):
         return [f"* (unknown arg: {', '.join(requested)})\n"]
 
     def _man_lines(self, system: System, requests: List[str]) -> List[str]:
-        normalized_requests = [
-            self._normalize_arg_name(item) for item in (requests or [])
-        ]
-        normalized_requests = [item for item in normalized_requests if item]
-
-        if not normalized_requests:
-            return ["* (missing man mode: list/full/name)\n"]
-
-        if normalized_requests[0] == "list":
-            return self._man_list_lines(system)
-
-        if normalized_requests[0] == "full":
-            return self._man_full_lines(system)
-
-        return self._man_one_lines(system, normalized_requests)
+        return self._man_one_lines(system, requests)
 
     def _build_block(
         self,

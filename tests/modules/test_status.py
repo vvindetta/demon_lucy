@@ -44,7 +44,7 @@ def _ctx_for(
     status_banner_text: str = "",
     status_banner_speed_ms: int = status_mod._DEFAULT_BANNER_SPEED_MS,
     status_banner_max_chars: int = status_mod._DEFAULT_BANNER_MAX_CHARS,
-    status_dot: bool = False,
+    status_prefix: str = "",
 ) -> Context:
     return Context(
         path=str(path),
@@ -53,7 +53,7 @@ def _ctx_for(
             "status_banner": status_banner_text,
             "status_banner_speed_ms": status_banner_speed_ms,
             "status_banner_max_chars": status_banner_max_chars,
-            "status_dot": bool(status_dot),
+            "status_prefix": status_prefix,
         },
         arg_lines={},
     )
@@ -297,18 +297,18 @@ def test_status_ticker_interval_uses_banner_speed(monkeypatch) -> None:
     assert module._ticker_interval_seconds() == 5.0
 
 
-def test_status_dot_prefixes_status_output(tmp_path: Path, monkeypatch) -> None:
+def test_status_prefix_prepends_status_output(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
 
     path = tmp_path / "note.md"
-    path.write_text("--status date time\n--status-dot\n", encoding="utf-8")
+    path.write_text('--status date time\n--status-prefix "Work: "\n', encoding="utf-8")
 
     module = Status()
-    ctx = _ctx_for(path, status_values=["date", "time"], status_dot=True)
+    ctx = _ctx_for(path, status_values=["date", "time"], status_prefix="Work: ")
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     changed = module.modified(ctx, system)
-    new_path = tmp_path / _inv(". 17-05 08:09")
+    new_path = tmp_path / _inv("Work: 17-05 08:09")
 
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
