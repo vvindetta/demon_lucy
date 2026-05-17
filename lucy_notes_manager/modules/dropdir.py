@@ -61,6 +61,48 @@ class DropDir(AbstractModule):
         return False
 
     @staticmethod
+    def _merge_ignore_maps(
+        left: Optional[IgnoreMap],
+        right: Optional[IgnoreMap],
+    ) -> Optional[IgnoreMap]:
+        if not left and not right:
+            return None
+        merged: IgnoreMap = {}
+        for source in (left or {}, right or {}):
+            for path_value, times in source.items():
+                if not times:
+                    continue
+                merged[path_value] = merged.get(path_value, 0) + int(times)
+        return merged or None
+
+    @staticmethod
+    def _move_back_to_source(
+        system: System,
+        destination_path: str,
+    ) -> tuple[str, Optional[IgnoreMap]]:
+        src_raw = str(getattr(system.event, "src_path", "") or "").strip()
+        if not src_raw:
+            return destination_path, None
+
+        src_path = canonical_path(src_raw)
+        dest_path = canonical_path(destination_path)
+        if src_path == dest_path:
+            return dest_path, None
+
+        if not os.path.exists(dest_path):
+            return dest_path, None
+
+        if os.path.exists(src_path):
+            return dest_path, None
+
+        try:
+            os.rename(dest_path, src_path)
+        except OSError:
+            return dest_path, None
+
+        return src_path, {dest_path: 1, src_path: 1}
+
+    @staticmethod
     def _find_today_module(system: System) -> Optional[Today]:
         for module in system.modules:
             if isinstance(module, Today):
@@ -76,16 +118,27 @@ class DropDir(AbstractModule):
         if not self._path_in_drop_targets(file_path=file_path, selectors=selectors):
             return None
 
+        action_path, move_back_changed = self._move_back_to_source(
+            system=system,
+            destination_path=file_path,
+        )
+
         today_module = self._find_today_module(system)
         if today_module is None:
-            return None
+            return move_back_changed
 
-        resolved = today_module._resolve_paths(ctx)
+        action_ctx = Context(
+            path=action_path,
+            config=ctx.config,
+            arg_lines=ctx.arg_lines,
+        )
+        resolved = today_module._resolve_paths(action_ctx)
         if not resolved:
-            return None
+            return move_back_changed
         now_path, _past_path = resolved
 
-        if canonical_path(now_path) != file_path:
-            return None
+        if canonical_path(now_path) != canonical_path(action_path):
+            return move_back_changed
 
-        return today_module.archive_now_to_past(ctx, force=True)
+        today_changed = today_module.archive_now_to_past(action_ctx, force=True)
+        return self._merge_ignore_maps(move_back_changed, today_changed)

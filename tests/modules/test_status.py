@@ -12,6 +12,10 @@ from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.status import Status
 
 
+def _inv(text: str) -> str:
+    return text.replace(" ", status_mod._INVISIBLE_SPACE)
+
+
 @pytest.fixture(autouse=True)
 def _disable_status_ticker(monkeypatch):
     class _DummyThread:
@@ -37,14 +41,18 @@ def _ctx_for(
     path: Path,
     *,
     status_values: list[str] | None = None,
-    status_banner_values: list[str] | None = None,
+    status_banner_text: str = "",
+    status_banner_speed_ms: int = status_mod._DEFAULT_BANNER_SPEED_MS,
+    status_banner_max_chars: int = status_mod._DEFAULT_BANNER_MAX_CHARS,
     status_dot: bool = False,
 ) -> Context:
     return Context(
         path=str(path),
         config={
             "status": list(status_values or []),
-            "status_banner": list(status_banner_values or []),
+            "status_banner": status_banner_text,
+            "status_banner_speed_ms": status_banner_speed_ms,
+            "status_banner_max_chars": status_banner_max_chars,
             "status_dot": bool(status_dot),
         },
         arg_lines={},
@@ -81,7 +89,7 @@ def test_status_date_time_order(tmp_path: Path, monkeypatch) -> None:
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "17-05 08:09"
+    new_path = tmp_path / _inv("17-05 08:09")
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -99,7 +107,7 @@ def test_status_time_date_order(tmp_path: Path, monkeypatch) -> None:
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "08:09 17-05"
+    new_path = tmp_path / _inv("08:09 17-05")
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -117,7 +125,7 @@ def test_status_time_with_seconds_order(tmp_path: Path, monkeypatch) -> None:
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "17-05 08:09:00"
+    new_path = tmp_path / _inv("17-05 08:09:00")
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -128,16 +136,23 @@ def test_status_banner_renames_and_rotates_with_speed(tmp_path: Path, monkeypatc
     monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
 
     path = tmp_path / "note.md"
-    path.write_text('--status-banner "Work sentence" 2000\n', encoding="utf-8")
+    path.write_text(
+        '--status-banner "Work sentence"\n--status-banner-speed-ms 2000\n',
+        encoding="utf-8",
+    )
 
     module = Status()
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     first_changed = module.modified(
-        _ctx_for(path, status_banner_values=["Work sentence", "2000"]),
+        _ctx_for(
+            path,
+            status_banner_text="Work sentence",
+            status_banner_speed_ms=2000,
+        ),
         system,
     )
-    first_path = tmp_path / "Work sentence"
+    first_path = tmp_path / _inv("Work sentence")
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
@@ -146,7 +161,7 @@ def test_status_banner_renames_and_rotates_with_speed(tmp_path: Path, monkeypatc
 
     now_state["value"] = 12.1
     module._tick_once()
-    second_path = tmp_path / "ork sentenceW"
+    second_path = tmp_path / _inv("ork sentenceW")
     assert second_path.exists()
     assert not first_path.exists()
 
@@ -155,19 +170,23 @@ def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
 
     path = tmp_path / "note.md"
-    path.write_text('--status date time\n--status-banner "Focus now" 3000\n', encoding="utf-8")
+    path.write_text(
+        '--status date time\n--status-banner "Focus now"\n--status-banner-speed-ms 3000\n',
+        encoding="utf-8",
+    )
 
     module = Status()
     ctx = _ctx_for(
         path,
         status_values=["date", "time"],
-        status_banner_values=["Focus now", "3000"],
+        status_banner_text="Focus now",
+        status_banner_speed_ms=3000,
     )
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / "17-05 08:09 Focus now"
+    new_path = tmp_path / _inv("17-05 08:09 Focus now")
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
@@ -195,7 +214,7 @@ def test_status_git_writes_sync_timestamp_once(tmp_path: Path, monkeypatch) -> N
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     first_changed = module.modified(_ctx_for(path, status_values=["git"]), system)
-    first_path = tmp_path / "Last Git Sync: 1800000000"
+    first_path = tmp_path / _inv("Last Git Sync: 1800000000")
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
@@ -227,8 +246,8 @@ def test_status_git_update_uses_compact_units_and_ticks(tmp_path: Path, monkeypa
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     first_changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
-    first_path = tmp_path / "Last sync: 3h"
-    second_path = tmp_path / "Last sync: 4h"
+    first_path = tmp_path / _inv("Last sync: 3h")
+    second_path = tmp_path / _inv("Last sync: 4h")
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
@@ -289,7 +308,7 @@ def test_status_dot_prefixes_status_output(tmp_path: Path, monkeypatch) -> None:
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
     changed = module.modified(ctx, system)
-    new_path = tmp_path / ". 17-05 08:09"
+    new_path = tmp_path / _inv(". 17-05 08:09")
 
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
@@ -301,15 +320,23 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
 
     path = tmp_path / "note.md"
-    path.write_text('--status-banner "Working hard" 2000 4\n', encoding="utf-8")
+    path.write_text(
+        '--status-banner "Working hard"\n--status-banner-speed-ms 2000\n--status-banner-max-chars 4\n',
+        encoding="utf-8",
+    )
 
     module = Status()
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
     first_changed = module.modified(
-        _ctx_for(path, status_banner_values=["Working hard", "2000", "4"]),
+        _ctx_for(
+            path,
+            status_banner_text="Working hard",
+            status_banner_speed_ms=2000,
+            status_banner_max_chars=4,
+        ),
         system,
     )
-    first_path = tmp_path / "Work"
+    first_path = tmp_path / _inv("Work")
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
@@ -318,7 +345,7 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
 
     now_state["value"] = 12.1
     module._tick_once()
-    second_path = tmp_path / "orki"
+    second_path = tmp_path / _inv("orki")
     assert second_path.exists()
     assert not first_path.exists()
 
@@ -329,7 +356,10 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
     monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
 
     path = tmp_path / "note.md"
-    path.write_text('--status date\n--status-banner "Working" 2000 4\n', encoding="utf-8")
+    path.write_text(
+        '--status date\n--status-banner "Working"\n--status-banner-speed-ms 2000\n--status-banner-max-chars 4\n',
+        encoding="utf-8",
+    )
 
     module = Status()
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
@@ -337,11 +367,13 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
         _ctx_for(
             path,
             status_values=["date"],
-            status_banner_values=["Working", "2000", "4"],
+            status_banner_text="Working",
+            status_banner_speed_ms=2000,
+            status_banner_max_chars=4,
         ),
         system,
     )
-    first_path = tmp_path / "17-05 Work"
+    first_path = tmp_path / _inv("17-05 Work")
     assert changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
@@ -360,7 +392,7 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
     module._tick_once()  # 17-05 g
     now_state["value"] = 24.1
     module._tick_once()  # fully disappeared banner into spaces
-    disappeared_path = tmp_path / "17-05     "
+    disappeared_path = tmp_path / _inv("17-05     ")
     assert disappeared_path.exists()
 
     now_state["value"] = 26.1
@@ -368,7 +400,7 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
     assert disappeared_path.exists()
     now_state["value"] = 32.1
     module._tick_once()  # restart after full blank tail
-    restarted_path = tmp_path / "17-05 Work"
+    restarted_path = tmp_path / _inv("17-05 Work")
     assert restarted_path.exists()
     assert not disappeared_path.exists()
 

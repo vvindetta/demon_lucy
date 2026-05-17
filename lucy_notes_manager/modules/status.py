@@ -37,8 +37,9 @@ _SECONDS_TICK_INTERVAL = 1.0
 _GIT_FAST_TICK_INTERVAL = 2.0
 _DEFAULT_TICK_INTERVAL = 60.0
 _GIT_FAST_TICK_WINDOW_SECONDS = 120.0
-_DEFAULT_BANNER_SPEED_MS = 1000
+_DEFAULT_BANNER_SPEED_MS = 500
 _DEFAULT_BANNER_MAX_CHARS = 0
+_INVISIBLE_SPACE = "\u200b"
 
 
 class Status(AbstractModule):
@@ -56,8 +57,22 @@ class Status(AbstractModule):
         (
             "--status-banner",
             str,
-            [],
-            "Animated filename banner. Syntax: --status-banner \"Work sentence\" 2000 16 (speed in milliseconds, optional max characters).",
+            "",
+            "Animated filename banner text. Example: --status-banner \"Work sentence\"",
+            False,
+        ),
+        (
+            "--status-banner-speed-ms",
+            int,
+            _DEFAULT_BANNER_SPEED_MS,
+            "Animated banner speed in milliseconds per step. Default: 500",
+            False,
+        ),
+        (
+            "--status-banner-max-chars",
+            int,
+            _DEFAULT_BANNER_MAX_CHARS,
+            "Max visible banner width. 0 = unlimited. Default: 0",
             False,
         ),
         (
@@ -88,7 +103,7 @@ class Status(AbstractModule):
     @staticmethod
     def _split_status_prefix(stem: str) -> tuple[dict[str, str], str]:
         tokens: dict[str, str] = {}
-        text = stem.strip().replace(" | ", " ")
+        text = stem.replace(_INVISIBLE_SPACE, " ").strip().replace(" | ", " ")
         if text.startswith(". "):
             text = text[2:].lstrip()
         matched_count = 0
@@ -210,37 +225,27 @@ class Status(AbstractModule):
 
         return parts
 
-    def _parse_status_banner(self, values: list[str]) -> tuple[str | None, int, int]:
-        cleaned = [str(value).strip() for value in values if str(value).strip()]
-        if not cleaned:
-            return None, _DEFAULT_BANNER_SPEED_MS, _DEFAULT_BANNER_MAX_CHARS
+    def _normalize_banner_settings(
+        self,
+        text_value: object,
+        speed_ms_value: object,
+        max_chars_value: object,
+    ) -> tuple[str | None, int, int]:
+        banner_text = str(text_value or "").strip()
+        try:
+            speed_ms = int(speed_ms_value)
+        except (TypeError, ValueError):
+            speed_ms = _DEFAULT_BANNER_SPEED_MS
+        try:
+            max_chars = int(max_chars_value)
+        except (TypeError, ValueError):
+            max_chars = _DEFAULT_BANNER_MAX_CHARS
 
-        speed_ms = _DEFAULT_BANNER_SPEED_MS
-        max_chars = _DEFAULT_BANNER_MAX_CHARS
-        text_tokens = list(cleaned)
-
-        has_speed_and_max = (
-            len(cleaned) >= 3 and cleaned[-1].isdigit() and cleaned[-2].isdigit()
-        )
-        if has_speed_and_max:
-            parsed_speed = int(cleaned[-2])
-            parsed_max = int(cleaned[-1])
-            if parsed_speed > 0:
-                speed_ms = parsed_speed
-            if parsed_max > 0:
-                max_chars = parsed_max
-            text_tokens = cleaned[:-2]
-        elif cleaned[-1].isdigit():
-            parsed_speed = int(cleaned[-1])
-            if parsed_speed > 0:
-                speed_ms = parsed_speed
-            if len(cleaned) > 1:
-                text_tokens = cleaned[:-1]
-
-        banner_text = " ".join(text_tokens).strip()
+        safe_speed_ms = max(1, speed_ms)
+        safe_max_chars = max(0, max_chars)
         if not banner_text:
-            return None, speed_ms, max_chars
-        return banner_text, speed_ms, max_chars
+            return None, safe_speed_ms, safe_max_chars
+        return banner_text, safe_speed_ms, safe_max_chars
 
     @staticmethod
     def _rotate_banner_text(text: str, offset: int) -> str:
@@ -559,7 +564,9 @@ class Status(AbstractModule):
             return [], None, _DEFAULT_BANNER_SPEED_MS, _DEFAULT_BANNER_MAX_CHARS, False
 
         status_values: list[str] = []
-        banner_values: list[str] = []
+        banner_text_value: object = ""
+        banner_speed_value: object = _DEFAULT_BANNER_SPEED_MS
+        banner_max_chars_value: object = _DEFAULT_BANNER_MAX_CHARS
         status_dot = False
         for line in lines:
             stripped = line.strip()
@@ -568,6 +575,8 @@ class Status(AbstractModule):
             if (
                 "--status" not in stripped
                 and "--status-banner" not in stripped
+                and "--status-banner-speed-ms" not in stripped
+                and "--status-banner-max-chars" not in stripped
                 and "--status-dot" not in stripped
             ):
                 continue
@@ -579,7 +588,13 @@ class Status(AbstractModule):
             i = 0
             while i < len(tokens):
                 token_head = tokens[i]
-                if token_head not in ("--status", "--status-banner", "--status-dot"):
+                if token_head not in (
+                    "--status",
+                    "--status-banner",
+                    "--status-banner-speed-ms",
+                    "--status-banner-max-chars",
+                    "--status-dot",
+                ):
                     i += 1
                     continue
 
@@ -588,21 +603,44 @@ class Status(AbstractModule):
                     i += 1
                     continue
 
+                if token_head == "--status-banner":
+                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                        banner_text_value = tokens[i + 1]
+                        i += 2
+                    else:
+                        i += 1
+                    continue
+
+                if token_head == "--status-banner-speed-ms":
+                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                        banner_speed_value = tokens[i + 1]
+                        i += 2
+                    else:
+                        i += 1
+                    continue
+
+                if token_head == "--status-banner-max-chars":
+                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                        banner_max_chars_value = tokens[i + 1]
+                        i += 2
+                    else:
+                        i += 1
+                    continue
+
                 j = i + 1
                 while j < len(tokens):
                     token = tokens[j]
                     if token.startswith("--"):
                         break
-                    if token_head == "--status":
-                        status_values.append(token)
-                    else:
-                        banner_values.append(token)
+                    status_values.append(token)
                     j += 1
                 i = j
 
         parts = self._parse_status_parts(status_values)
-        banner_text, banner_speed_ms, banner_max_chars = self._parse_status_banner(
-            banner_values
+        banner_text, banner_speed_ms, banner_max_chars = self._normalize_banner_settings(
+            banner_text_value,
+            banner_speed_value,
+            banner_max_chars_value,
         )
         return parts, banner_text, banner_speed_ms, banner_max_chars, status_dot
 
@@ -698,7 +736,7 @@ class Status(AbstractModule):
                 return None
 
             # Keep trailing spaces for banner frames where text fully disappears.
-            new_name = " ".join(tokens)
+            new_name = " ".join(tokens).replace(" ", _INVISIBLE_SPACE)
             new_path = os.path.abspath(os.path.join(os.path.dirname(old_path), new_name))
 
             if new_path == old_path:
@@ -718,8 +756,10 @@ class Status(AbstractModule):
     def _handle_event(self, ctx: Context) -> Optional[IgnoreMap]:
         bootstrap_changed = self._bootstrap_once(ctx.path)
         parts = self._parse_status_parts(list(ctx.config.get("status", [])))
-        banner_text, banner_speed_ms, banner_max_chars = self._parse_status_banner(
-            list(ctx.config.get("status_banner", []))
+        banner_text, banner_speed_ms, banner_max_chars = self._normalize_banner_settings(
+            ctx.config.get("status_banner", ""),
+            ctx.config.get("status_banner_speed_ms", _DEFAULT_BANNER_SPEED_MS),
+            ctx.config.get("status_banner_max_chars", _DEFAULT_BANNER_MAX_CHARS),
         )
         status_dot = bool(ctx.config.get("status_dot", False))
         self._set_tracked_parts(

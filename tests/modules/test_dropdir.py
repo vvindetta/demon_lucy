@@ -46,7 +46,6 @@ def test_dropdir_forces_today_archive_when_now_moved_into_cleanup(
 
     src_path = tmp_path / "inbox" / "now.md"
     src_path.parent.mkdir(parents=True, exist_ok=True)
-    src_path.write_text("x\n", encoding="utf-8")
 
     dropdir = DropDir()
     today = Today()
@@ -55,9 +54,14 @@ def test_dropdir_forces_today_archive_when_now_moved_into_cleanup(
 
     changed = dropdir.moved(_ctx(now_path, "cleanup"), system)
 
-    past_path = cleanup_dir / "past.md"
-    assert changed == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
-    assert now_path.read_text(encoding="utf-8") == ""
+    past_path = src_path.parent / "past.md"
+    assert changed == {
+        str(now_path.resolve()): 1,
+        str(src_path.resolve()): 2,
+        str(past_path.resolve()): 1,
+    }
+    assert not now_path.exists()
+    assert src_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "-- 03.05\nclean this now\n"
 
 
@@ -71,7 +75,6 @@ def test_dropdir_ignores_non_today_filename(tmp_path: Path, monkeypatch) -> None
 
     src_path = tmp_path / "inbox" / "other.md"
     src_path.parent.mkdir(parents=True, exist_ok=True)
-    src_path.write_text("x\n", encoding="utf-8")
 
     dropdir = DropDir()
     today = Today()
@@ -80,6 +83,7 @@ def test_dropdir_ignores_non_today_filename(tmp_path: Path, monkeypatch) -> None
 
     changed = dropdir.moved(_ctx(file_path, "cleanup"), system)
 
-    assert changed is None
-    assert file_path.read_text(encoding="utf-8") == "keep\n"
-    assert not (cleanup_dir / "past.md").exists()
+    assert changed == {str(file_path.resolve()): 1, str(src_path.resolve()): 1}
+    assert not file_path.exists()
+    assert src_path.read_text(encoding="utf-8") == "keep\n"
+    assert not (src_path.parent / "past.md").exists()
