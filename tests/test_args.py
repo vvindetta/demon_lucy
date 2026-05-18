@@ -17,16 +17,16 @@ from lucy_notes_manager.lib.args import (
 
 def test_parse_args_handles_bool_and_nargs():
     template = [
-        ("--formatter-todo", bool, False, "", False),
-        ("--formatter-blank", str, [], "", False),
+        ("--fmt-todo", bool, False, "", False),
+        ("--fmt-blank", str, [], "", False),
         ("--name", str, None, "", False),
         ("--tags", str, [], "", False),
     ]
 
     known, unknown = parse_args(
         args=[
-            "--formatter-todo",
-            "--formatter-blank",
+            "--fmt-todo",
+            "--fmt-blank",
             "up",
             "down",
             "--name",
@@ -39,8 +39,8 @@ def test_parse_args_handles_bool_and_nargs():
         template=template,
     )
 
-    assert known["formatter_todo"] is True
-    assert known["formatter_blank"] == ["up", "down"]
+    assert known["fmt_todo"] is True
+    assert known["fmt_blank"] == ["up", "down"]
     assert known["name"] == "alice"
     assert known["tags"] == ["x", "y"]
     assert unknown == ["--unknown"]
@@ -89,10 +89,10 @@ def test_merge_known_args_overwrites_only_when_value_is_meaningful():
 @pytest.mark.parametrize(
     ("line", "args", "expected"),
     [
-        # ('--banner "Hello world" body --formatter-todo --x=1 tail\n', ["--banner", "--formatter-todo", "--x"], "body tail\n"),
+        # ('--banner "Hello world" body --fmt-todo --x=1 tail\n', ["--banner", "--fmt-todo", "--x"], "body tail\n"),
         (
-            "prefix --formatter-todo one --formatter-todo two\n",
-            ["--formatter-todo"],
+            "prefix --fmt-todo one --fmt-todo two\n",
+            ["--fmt-todo"],
             "prefix\n",
         ),
     ],
@@ -122,14 +122,14 @@ def test_setup_config_and_cli_args_keeps_config_values_when_cli_uses_defaults(
 ):
     cfg = tmp_path / "daemon.cfg"
     cfg.write_text(
-        '--sys-notes-dirs "/notes/a" "/notes/b"\n--sys-logging-lvl debug\n',
+        '--sys-watch-paths "/notes/a" "/notes/b"\n--sys-log-level debug\n',
         encoding="utf-8",
     )
 
     template = [
         ("--sys-config-path", str, "config.txt", "", False),
-        ("--sys-notes-dirs", str, [], "", False),
-        ("--sys-logging-lvl", str, "info", "", False),
+        ("--sys-watch-paths", str, [], "", False),
+        ("--sys-log-level", str, "info", "", False),
     ]
 
     monkeypatch.setattr(
@@ -141,5 +141,5 @@ def test_setup_config_and_cli_args_keeps_config_values_when_cli_uses_defaults(
     known, unknown = setup_config_and_cli_args(template=template)
 
     assert unknown == []
-    assert known["sys_notes_dirs"] == ["/notes/a", "/notes/b"]
-    assert known["sys_logging_lvl"] == "debug"
+    assert known["sys_watch_paths"] == ["/notes/a", "/notes/b"]
+    assert known["sys_log_level"] == "debug"

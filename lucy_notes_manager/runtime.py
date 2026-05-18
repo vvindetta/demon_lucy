@@ -26,52 +26,59 @@ LUCY_STARTUP_TEMPLATE: Template = [
         False,
     ),
     (
-        "--sys-logging-lvl",
+        "--sys-log-level",
         str,
         "info",
         "Logging level: debug, info, warning, error, critical. Default: info.",
         False,
     ),
     (
-        "--sys-logging-format",
+        "--sys-log-format",
         str,
         "%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d: %(message)s",
         "Python logging format string. Default includes time, level, file, line, message.",
         False,
     ),
     (
-        "--sys-notes-dirs",
+        "--sys-watch-paths",
         str,
         [],
-        "One or more directories to watch recursively. Example: --sys-notes_dirs ~/notes ~/work/notes",
+        "One or more directories to watch recursively. Example: --sys-watch-paths ~/notes ~/work/notes",
         False,
     ),
     (
-        "--sys-on-open-cooldown",
+        "--sys-opened-event-cooldown-seconds",
         int,
         30,
         "Cooldown for 'opened' events per file, in seconds. Prevents editor spam. Default: 30 seconds).",
         False,
     ),
     (
-        "--sys-notify-provider",
+        "--sys-disable-opened-events",
+        bool,
+        False,
+        "Ignore filesystem 'opened' events. Useful on Termux to reduce background wakeups.",
+        False,
+    ),
+    (
+        "--sys-notification-provider",
         str,
         "termuxapi",
         "Notification provider. Supported: termuxapi, desktop, disable. Default: termuxapi.",
         False,
     ),
     (
-        "--sys-notify-min-interval-sec",
+        "--sys-notification-min-interval-seconds",
         float,
         10.0,
         "Minimum seconds between repeated notifications with the same key. Default: 10.0.",
         False,
     ),
     (
-        "--sys-blacklist-paths",
+        "--sys-ignore-paths",
         str,
         [],
-        "Skip module execution for files inside these paths. Example: --sys-blacklist-paths ~/.cache ~/Notes/private",
+        "Skip module execution for files inside these paths. Example: --sys-ignore-paths ~/.cache ~/Notes/private",
         False,
     ),
 ]
@@ -90,16 +97,16 @@ def resolve_logging_level(raw_level: str) -> int:
     if normalized not in by_name:
         allowed = ", ".join(["debug", "info", "warning", "error", "critical"])
         raise ValueError(
-            f"Unsupported --sys-logging-lvl '{raw_level}'. Use: {allowed}."
+            f"Unsupported --sys-log-level '{raw_level}'. Use: {allowed}."
         )
     return by_name[normalized]
 
 
 def configure_logging(config: dict) -> None:
-    log_level = resolve_logging_level(config["sys_logging_lvl"])
+    log_level = resolve_logging_level(config["sys_log_level"])
     logging.basicConfig(
         level=log_level,
-        format=config["sys_logging_format"],
+        format=config["sys_log_format"],
         datefmt="%Y-%m-%d %H:%M:%S",
         force=True,
     )

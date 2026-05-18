@@ -18,7 +18,7 @@ def should_force_flush_batch(batch: _RepoBatch, now_timestamp: float) -> bool:
 def update_periodic_pull_state(
     self, repo_root: str, config_snapshot: dict, now_timestamp: float
 ) -> None:
-    interval_seconds = config_snapshot["git_auto_pull_every_hours"] * 3600.0
+    interval_seconds = config_snapshot["git_pull_interval_hours"] * 3600.0
 
     if interval_seconds <= 0.0:
         self._periodic_pull_next_at.pop(repo_root, None)

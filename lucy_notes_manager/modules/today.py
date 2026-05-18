@@ -43,7 +43,7 @@ class Today(AbstractModule):
             False,
         ),
         (
-            "--today-force-fs",
+            "--today-force-filesystem-mtime",
             bool,
             False,
             "Force OS filesystem mtime checks even inside Git repositories.",
@@ -148,7 +148,7 @@ class Today(AbstractModule):
             return None
 
     def _last_activity_timestamp(self, ctx: Context, now_path: str) -> Optional[float]:
-        if not ctx.config["today_force_fs"]:
+        if not ctx.config["today_force_filesystem_mtime"]:
             git_timestamp = self._git_last_activity_timestamp(now_path)
             if git_timestamp is not None:
                 return git_timestamp

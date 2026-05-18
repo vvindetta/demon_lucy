@@ -24,54 +24,54 @@ class ModuleManager:
         self.modules = modules
         self.template: Template = [
             (
-                "--force",
+                "--modules-force-enable",
                 str,
                 [],
                 "Force-enable modules by name even if they are excluded. "
-                "Example: --force git todo",
+                "Example: --modules-force-enable git todo",
                 False,
             ),
             (
-                "--exclude",
+                "--modules-disable",
                 str,
                 [],
-                "Disable modules by name. Can be overridden per module via --force. "
-                "Example: --exclude git todo",
+                "Disable modules by name. Can be overridden per module via --modules-force-enable. "
+                "Example: --modules-disable git todo",
                 False,
             ),
             (
-                "--sys-priority",
+                "--modules-priority",
                 str,
                 [],
                 "Override module execution order (lower runs first). "
-                "Format: name=int. Example: --sys-priority banner=5 renamer=20 todo=30",
+                "Format: name=int. Example: --modules-priority banner=5 renamer=20 todo=30",
                 False,
             ),
             (
-                "--sys-use_only_first_line",
+                "--sys-parse-note-first-line-only",
                 bool,
                 False,
                 "If true, parse module arguments only from the first line of the file (faster, but ignores flags below).",
                 False,
             ),
             (
-                "--sys-notify-provider",
+                "--sys-notification-provider",
                 str,
-                system_config["sys_notify_provider"],
+                system_config["sys_notification_provider"],
                 "Notification provider for modules: termuxapi, desktop, disable.",
                 False,
             ),
             (
-                "--sys-notify-min-interval-sec",
+                "--sys-notification-min-interval-seconds",
                 float,
-                system_config["sys_notify_min_interval_sec"],
+                system_config["sys_notification_min_interval_seconds"],
                 "Minimum interval between repeated notifications (seconds).",
                 False,
             ),
             (
-                "--sys-blacklist-paths",
+                "--sys-ignore-paths",
                 str,
-                system_config["sys_blacklist_paths"],
+                system_config["sys_ignore_paths"],
                 "Skip module execution for files under these paths.",
                 False,
             ),
@@ -82,7 +82,7 @@ class ModuleManager:
 
         self.config, _ = parse_args(args=args, template=self.template)
 
-        priority_dict = self._parse_priority_list(self.config["sys_priority"])
+        priority_dict = self._parse_priority_list(self.config["modules_priority"])
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))
 
     def _is_blacklisted_path(self, path: str, values: list[str]) -> bool:
@@ -121,7 +121,7 @@ class ModuleManager:
         return missing_flags
 
     def run(self, path: str, event: FileSystemEvent) -> Dict[str, int] | None:
-        if self._is_blacklisted_path(path, self.config["sys_blacklist_paths"]):
+        if self._is_blacklisted_path(path, self.config["sys_ignore_paths"]):
             logger.debug("SKIPPED BLACKLISTED PATH: %s", path)
             return None
 
@@ -129,7 +129,7 @@ class ModuleManager:
             known_args, _, arg_lines = get_args_from_file(
                 path=path,
                 template=self.template,
-                only_first_line=self.config["sys_use_only_first_line"],
+                only_first_line=self.config["sys_parse_note_first_line_only"],
             )
             merged_known_args = merge_known_args(
                 args=self.config, overwrite_args=known_args
@@ -142,8 +142,8 @@ class ModuleManager:
 
         for module in self.modules:
             if (
-                module.name in self.config["exclude"]
-                and module.name not in self.config["force"]
+                module.name in self.config["modules_disable"]
+                and module.name not in self.config["modules_force_enable"]
             ):
                 continue
 
@@ -205,7 +205,7 @@ class ModuleManager:
         for item in values:
             if "=" not in item:
                 raise ValueError(
-                    "Invalid --priority arg. Example: --priority banner=5 renamer=20 todo=30"
+                    "Invalid --modules-priority arg. Example: --modules-priority banner=5 renamer=20 todo=30"
                 )
 
             name, raw = item.split("=", 1)

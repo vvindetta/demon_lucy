@@ -10,9 +10,9 @@ import main_oneshot as oneshot_mod
 def _base_config(tmp_path: Path) -> dict:
     return {
         "oneshot_event": "modified",
-        "oneshot_path": [str(tmp_path / "note.md")],
-        "oneshot_src_path": "",
-        "oneshot_dest_path": "",
+        "oneshot_paths": [str(tmp_path / "note.md")],
+        "oneshot_move_src_path": "",
+        "oneshot_move_dest_path": "",
     }
 
 
@@ -37,8 +37,7 @@ def test_build_event_plan_rejects_multiple_event_values(tmp_path: Path):
 def test_build_event_plan_requires_paths_for_non_moved_event(tmp_path: Path):
     config = _base_config(tmp_path)
     config["oneshot_event"] = "deleted"
-    config["oneshot_path"] = []
+    config["oneshot_paths"] = []
 
-    with pytest.raises(ValueError, match="requires --oneshot-path"):
+    with pytest.raises(ValueError, match="requires --oneshot-paths"):
         oneshot_mod._build_event_plan(config)
-

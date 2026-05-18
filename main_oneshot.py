@@ -32,31 +32,31 @@ ONESHOT_STARTUP_TEMPLATE: Template = LUCY_STARTUP_TEMPLATE + [
         False,
     ),
     (
-        "--oneshot-path",
+        "--oneshot-paths",
         str,
         [],
         "One or more file or directory paths to process in one-shot mode.",
         False,
     ),
     (
-        "--oneshot-src-path",
+        "--oneshot-move-src-path",
         str,
         "",
         "Source path for moved event.",
         False,
     ),
     (
-        "--oneshot-dest-path",
+        "--oneshot-move-dest-path",
         str,
         "",
         "Destination path for moved event.",
         False,
     ),
     (
-        "--oneshot-include-modules",
+        "--oneshot-modules",
         str,
         [],
-        "Run only these modules by name. Example: --oneshot-include-modules git sys",
+        "Run only these modules by name. Example: --oneshot-modules git sys",
         False,
     ),
 ]
@@ -66,7 +66,7 @@ _ALLOWED_EVENTS = {"created", "modified", "moved", "deleted", "opened"}
 
 def _select_modules(config: dict):
     modules = select_lucy_modules(
-        include_names=config["oneshot_include_modules"],
+        include_names=config["oneshot_modules"],
     )
 
     return modules
@@ -97,14 +97,14 @@ def _build_event_plan(config: dict) -> list[tuple[str, FileSystemEvent]]:
     if event_name not in _ALLOWED_EVENTS:
         raise ValueError(f"Unsupported --oneshot-event value: {event_name}")
 
-    target_paths = [abs_expand_path(path_item) for path_item in config["oneshot_path"]]
-    moved_src = str(config["oneshot_src_path"]).strip()
-    moved_dest = str(config["oneshot_dest_path"]).strip()
+    target_paths = [abs_expand_path(path_item) for path_item in config["oneshot_paths"]]
+    moved_src = str(config["oneshot_move_src_path"]).strip()
+    moved_dest = str(config["oneshot_move_dest_path"]).strip()
 
     if event_name == "moved":
         if not moved_src or not moved_dest:
             raise ValueError(
-                "Moved event requires both --oneshot-src-path and --oneshot-dest-path."
+                "Moved event requires both --oneshot-move-src-path and --oneshot-move-dest-path."
             )
         moved_src_abs = abs_expand_path(moved_src)
         moved_dest_abs = abs_expand_path(moved_dest)
@@ -121,7 +121,7 @@ def _build_event_plan(config: dict) -> list[tuple[str, FileSystemEvent]]:
 
     if not target_paths:
         raise ValueError(
-            "One-shot event requires --oneshot-path unless using moved event."
+            "One-shot event requires --oneshot-paths unless using moved event."
         )
 
     plan: list[tuple[str, FileSystemEvent]] = []

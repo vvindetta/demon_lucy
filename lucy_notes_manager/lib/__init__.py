@@ -70,7 +70,7 @@ def safe_notify(
     - If called again within configured min interval, it does nothing.
     - Otherwise calls lucy_notes_manager.lib.notify(message=...).
     """
-    min_interval_seconds = config["sys_notify_min_interval_sec"]
+    min_interval_seconds = config["sys_notification_min_interval_seconds"]
     now = time.time()
     last = _NOTIFY_LAST.get(name)
     if last is not None and (now - last) < min_interval_seconds:
@@ -89,7 +89,7 @@ def notify(
     Send a notification via configured provider.
     Fails silently if notify-py (or its backend) is unavailable.
     """
-    provider = config["sys_notify_provider"]
+    provider = config["sys_notification_provider"]
 
     try:
         if provider == "desktop":

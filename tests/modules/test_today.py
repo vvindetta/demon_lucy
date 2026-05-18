@@ -25,10 +25,10 @@ def _ctx_for(
         "today_now_path": now_path,
         "today_past_path": past_path,
         "today_idle_hours": 12.0,
-        "today_force_fs": False,
+        "today_force_filesystem_mtime": False,
     }
     if force_fs:
-        config["today_force_fs"] = True
+        config["today_force_filesystem_mtime"] = True
 
     return Context(
         path=str(path),
@@ -172,7 +172,7 @@ def test_keeps_first_line_with_lucy_flags_when_archiving(
 
     now_path = tmp_path / "now.md"
     now_path.write_text(
-        "--formatter-blank up --formatter-todo\nalpha\nbeta\n",
+        "--fmt-blank up --fmt-todo\nalpha\nbeta\n",
         encoding="utf-8",
     )
     _make_stale(now_path, 14.0)
@@ -188,7 +188,7 @@ def test_keeps_first_line_with_lucy_flags_when_archiving(
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
-        == "-- 01.05\n--formatter-blank up --formatter-todo\nalpha\nbeta\n"
+        == "-- 01.05\n--fmt-blank up --fmt-todo\nalpha\nbeta\n"
     )
 
 
@@ -244,7 +244,7 @@ def test_force_fs_flag_skips_git_even_in_repo(tmp_path: Path, monkeypatch) -> No
         today_mod.subprocess,
         "run",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("git must not be called when --today-force-fs is enabled")
+            AssertionError("git must not be called when --today-force-filesystem-mtime is enabled")
         ),
     )
 

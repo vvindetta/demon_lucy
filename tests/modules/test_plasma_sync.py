@@ -10,8 +10,8 @@ from lucy_notes_manager.modules.plasma_sync.mirror_mapper import _bold_items_to_
 from lucy_notes_manager.modules.plasma_sync import DocLine, PlasmaSync
 
 _NOTIFY_CFG = {
-    "sys_notify_provider": "termuxapi",
-    "sys_notify_min_interval_sec": 10.0,
+    "sys_notification_provider": "termuxapi",
+    "sys_notification_min_interval_seconds": 10.0,
 }
 
 

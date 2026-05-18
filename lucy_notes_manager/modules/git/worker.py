@@ -36,8 +36,8 @@ _PULL_ONLY_EVENT_TYPES = {"opened", "scheduled_pull"}
 
 def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
     return {
-        "sys_notify_provider": batch.notify_provider,
-        "sys_notify_min_interval_sec": batch.notify_min_interval_sec,
+        "sys_notification_provider": batch.notify_provider,
+        "sys_notification_min_interval_seconds": batch.notify_min_interval_sec,
     }
 
 

@@ -23,7 +23,7 @@ def _base_config() -> dict[str, object]:
         "ping": False,
         "help": False,
         "config": False,
-        "sys_event": False,
+        "event": False,
         "man": [],
     }
 
@@ -34,16 +34,16 @@ def test_man_lines_specific_name_and_flag():
         event=FileModifiedEvent("/tmp/x"),
         global_template=[
             ("--mods", bool, False, "mods help", False),
-            ("--formatter-todo", bool, False, "formatter todo help", False),
+            ("--fmt-todo", bool, False, "formatter todo help", False),
         ],
         modules=[],
     )
 
     flag_lines = module._man_lines(system, ["--mods"])
-    one_lines = module._man_lines(system, ["formatter_todo"])
+    one_lines = module._man_lines(system, ["fmt_todo"])
 
     assert any("--mods:" in line for line in flag_lines)
-    assert any("--formatter-todo:" in line for line in one_lines)
+    assert any("--fmt-todo:" in line for line in one_lines)
 
 
 def test_man_lines_module_name_expands_to_module_flags():

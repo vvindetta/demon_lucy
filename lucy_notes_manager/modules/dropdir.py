@@ -29,11 +29,11 @@ class DropDir(AbstractModule):
             False,
         ),
         (
-            "--dropdir-today-clean-delay-ms",
+            "--dropdir-today-clean-delay-milliseconds",
             int,
             0,
             "Delay before triggering today clean after instant move-back (milliseconds). "
-            "Example: --dropdir-today-clean-delay-ms 1200",
+            "Example: --dropdir-today-clean-delay-milliseconds 1200",
             False,
         ),
     ]
@@ -120,7 +120,7 @@ class DropDir(AbstractModule):
 
     @staticmethod
     def _delay_seconds_from_config(ctx: Context) -> float:
-        raw_value = ctx.config.get("dropdir_today_clean_delay_ms", 0)
+        raw_value = ctx.config.get("dropdir_today_clean_delay_milliseconds", 0)
         try:
             delay_ms = int(raw_value)
         except (TypeError, ValueError):

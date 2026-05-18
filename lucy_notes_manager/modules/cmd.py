@@ -24,8 +24,8 @@ class Cmd(AbstractModule):
     """
     File usage:
 
-        --c ls
-        --c echo hello
+        --cmd ls
+        --cmd echo hello
 
     Output format:
 
@@ -35,8 +35,8 @@ class Cmd(AbstractModule):
     Notes:
     - Uses already-parsed tokens from ctx.config + ctx.arg_lines (no manual parsing).
     - Executes with shell=False.
-    - Replaces the original line containing --c with an output block.
-    - Removes the --c ... part from the original line; if anything else remains on that line,
+    - Replaces the original line containing --cmd with an output block.
+    - Removes the --cmd ... part from the original line; if anything else remains on that line,
       it is kept after the block.
     """
 
@@ -45,46 +45,45 @@ class Cmd(AbstractModule):
 
     template = [
         (
-            "--c",
+            "--cmd",
             str,
             [],
-            "Command tokens to execute (nargs='+'). Example: --c ls -la",
+            "Command tokens to execute (nargs='+'). Example: --cmd ls -la",
             False,
         ),
-        ("--cmd-timeout", int, 5, "Timeout in seconds for each command run.", False),
         (
-            "--cmd-max-bytes",
+            "--cmd-timeout-seconds",
+            int,
+            5,
+            "Timeout in seconds for each command run.",
+            False,
+        ),
+        (
+            "--cmd-output-max-bytes",
             int,
             20000,
             "Maximum bytes of stdout/stderr written into the file (output is clipped).",
             False,
         ),
         (
-            "--cmd-show-stderr",
-            bool,
-            True,
-            "Include stderr in the output block.",
-            False,
-        ),
-        (
-            "--cmd-show-stdout",
-            bool,
-            True,
-            "Include stdout in the output block.",
+            "--cmd-stream",
+            str,
+            "both",
+            "Output streams to include: both, stdout, stderr, none.",
             False,
         ),
     ]
 
-    # Collect command runs by line using ctx.arg_lines["c"]
+    # Collect command runs by line using ctx.arg_lines["cmd"]
     def _collect_runs(self, ctx: Context) -> List[CmdRun]:
-        line_nums = ctx.arg_lines.get("c")
+        line_nums = ctx.arg_lines.get("cmd")
 
-        if not ctx.config["c"] or not line_nums:
+        if not ctx.config["cmd"] or not line_nums:
             return []
 
         # Group tokens by their source line number
         by_line: Dict[int, List[str]] = {}
-        for tok, ln in zip(ctx.config["c"], line_nums):
+        for tok, ln in zip(ctx.config["cmd"], line_nums):
             by_line.setdefault(int(ln), []).append(str(tok))
 
         runs: List[CmdRun] = []
@@ -176,6 +175,17 @@ class Cmd(AbstractModule):
         out.append("\n")
         return out
 
+    @staticmethod
+    def _stream_flags(raw_stream: object) -> tuple[bool, bool]:
+        stream = str(raw_stream or "both").strip().lower()
+        if stream == "stdout":
+            return True, False
+        if stream == "stderr":
+            return False, True
+        if stream == "none":
+            return False, False
+        return True, True
+
     # Apply (replace lines)
     def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
         runs = self._collect_runs(ctx)
@@ -197,28 +207,29 @@ class Cmd(AbstractModule):
         for run in sorted(runs, key=lambda r: r.lineno_1based, reverse=True):
             idx = max(0, min(len(lines) - 1, run.lineno_1based - 1))
 
-            # Remove only the --c ... segment from the original line
-            cleaned = delete_args_from_string(lines[idx], ["--c"])
+            # Remove only the --cmd ... segment from the original line
+            cleaned = delete_args_from_string(lines[idx], ["--cmd"])
 
             _code, out_s, err_s = self._run_cmd(
                 cmd_tokens=run.cmd_tokens,
                 cwd=cwd,
-                timeout=ctx.config["cmd_timeout"],
+                timeout=ctx.config["cmd_timeout_seconds"],
             )
+            show_stdout, show_stderr = self._stream_flags(ctx.config["cmd_stream"])
 
             block = self._build_block(
                 cmd_tokens=run.cmd_tokens,
                 stdout=out_s,
                 stderr=err_s,
-                show_stdout=ctx.config["cmd_show_stdout"],
-                show_stderr=ctx.config["cmd_show_stderr"],
-                max_bytes=ctx.config["cmd_max_bytes"],
+                show_stdout=show_stdout,
+                show_stderr=show_stderr,
+                max_bytes=ctx.config["cmd_output_max_bytes"],
             )
 
             # Replace the line with the block
             lines[idx : idx + 1] = block
 
-            # If there is other content on that line (besides --c ...), keep it after the block
+            # If there is other content on that line (besides --cmd ...), keep it after the block
             if cleaned.strip():
                 lines[idx + len(block) : idx + len(block)] = [cleaned]
 

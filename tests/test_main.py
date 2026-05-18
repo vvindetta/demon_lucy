@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-import runpy
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pytest
-import watchdog.observers as observers_mod
 
-import lucy_notes_manager.file_handler as file_handler_mod
-import lucy_notes_manager.lib.args as args_mod
-import lucy_notes_manager.module_manager as module_manager_mod
-
-
-def _main_path() -> str:
-    return str((Path(__file__).resolve().parents[1] / "main_daemon.py"))
+import main_daemon
 
 
 @dataclass
@@ -45,9 +36,15 @@ def _run_main_with_flag(
             state.joined = True
 
     class FakeFileHandler:
-        def __init__(self, modules, open_cooldown_seconds):
+        def __init__(
+            self,
+            modules,
+            open_cooldown_seconds,
+            process_opened_events=True,
+        ):
             self.modules = modules
             self.open_cooldown_seconds = open_cooldown_seconds
+            self.process_opened_events = process_opened_events
 
     class FakeModuleManager:
         def __init__(self, modules, args, system_config=None):
@@ -55,29 +52,34 @@ def _run_main_with_flag(
             self.args = args
             self.system_config = system_config
 
-    monkeypatch.setattr(observers_mod, "Observer", FakeObserver)
-    monkeypatch.setattr(file_handler_mod, "FileHandler", FakeFileHandler)
-    monkeypatch.setattr(module_manager_mod, "ModuleManager", FakeModuleManager)
+    def fake_wait_until_interrupted():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(main_daemon, "Observer", FakeObserver)
+    monkeypatch.setattr(main_daemon, "FileHandler", FakeFileHandler)
+    monkeypatch.setattr(main_daemon, "ModuleManager", FakeModuleManager)
     monkeypatch.setattr(
-        args_mod,
+        main_daemon,
+        "_wait_until_interrupted",
+        fake_wait_until_interrupted,
+    )
+    monkeypatch.setattr(
+        main_daemon,
         "setup_config_and_cli_args",
         lambda template: (
             {
-                "sys_logging_lvl": "info",
-                "sys_logging_format": "%(message)s",
-                "sys_notes_dirs": [str(tmp_path)],
-                "sys_on_open_cooldown": 20,
-                "sys_notify_provider": "auto",
-                "sys_notify_min_interval_sec": 10.0,
+                "sys_log_level": "info",
+                "sys_log_format": "%(message)s",
+                "sys_watch_paths": [str(tmp_path)],
+                "sys_opened_event_cooldown_seconds": 20,
+                "sys_disable_opened_events": True,
+                "sys_notification_provider": "auto",
+                "sys_notification_min_interval_seconds": 10.0,
             },
             [],
         ),
     )
-    monkeypatch.setattr(
-        time, "sleep", lambda _sec: (_ for _ in ()).throw(KeyboardInterrupt())
-    )
-
-    runpy.run_path(_main_path(), run_name="__main__")
+    main_daemon.main()
     return state
 
 
@@ -98,6 +100,7 @@ def test_main_schedules_observer_and_modules(
     assert scheduled_path == str(tmp_path)
     assert recursive is True
     assert handler.open_cooldown_seconds == 20
+    assert handler.process_opened_events is False
     assert [m.name for m in handler.modules.modules] == [
         "banner",
         "renamer",
@@ -114,20 +117,21 @@ def test_main_schedules_observer_and_modules(
 
 def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
     monkeypatch.setattr(
-        args_mod,
+        main_daemon,
         "setup_config_and_cli_args",
         lambda template: (
             {
-                "sys_logging_lvl": "info",
-                "sys_logging_format": "%(message)s",
-                "sys_notes_dirs": None,
-                "sys_on_open_cooldown": 20,
-                "sys_notify_provider": "auto",
-                "sys_notify_min_interval_sec": 10.0,
+                "sys_log_level": "info",
+                "sys_log_format": "%(message)s",
+                "sys_watch_paths": None,
+                "sys_opened_event_cooldown_seconds": 20,
+                "sys_disable_opened_events": False,
+                "sys_notification_provider": "auto",
+                "sys_notification_min_interval_seconds": 10.0,
             },
             [],
         ),
     )
 
     with pytest.raises(ValueError):
-        runpy.run_path(_main_path(), run_name="__main__")
+        main_daemon.main()

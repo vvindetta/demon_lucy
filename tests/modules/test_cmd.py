@@ -22,17 +22,30 @@ def test_collect_runs_groups_tokens_by_line(
     module = Cmd()
     ctx = Context(
         path="/tmp/x.md",
-        config={"c": tokens},
-        arg_lines={"c": lines},
+        config={"cmd": tokens},
+        arg_lines={"cmd": lines},
     )
 
     runs = module._collect_runs(ctx)
     assert [(run.lineno_1based, run.cmd_tokens) for run in runs] == expected
 
 
+@pytest.mark.parametrize(
+    ("raw_stream", "expected"),
+    [
+        ("both", (True, True)),
+        ("stdout", (True, False)),
+        ("stderr", (False, True)),
+        ("none", (False, False)),
+    ],
+)
+def test_stream_flags(raw_stream: str, expected: tuple[bool, bool]):
+    assert Cmd._stream_flags(raw_stream) == expected
+
+
 def test_apply_replaces_command_line_with_output_block(tmp_path: Path, monkeypatch):
     note = tmp_path / "note.md"
-    note.write_text("--c echo hello tail\n", encoding="utf-8")
+    note.write_text("--cmd echo hello tail\n", encoding="utf-8")
 
     module = Cmd()
     monkeypatch.setattr(module, "_run_cmd", lambda **_kwargs: (0, "OUT\n", ""))
@@ -40,13 +53,12 @@ def test_apply_replaces_command_line_with_output_block(tmp_path: Path, monkeypat
     ctx = Context(
         path=str(note),
         config={
-            "c": ["echo", "hello"],
-            "cmd_timeout": 5,
-            "cmd_max_bytes": 1000,
-            "cmd_show_stdout": True,
-            "cmd_show_stderr": True,
+            "cmd": ["echo", "hello"],
+            "cmd_timeout_seconds": 5,
+            "cmd_output_max_bytes": 1000,
+            "cmd_stream": "both",
         },
-        arg_lines={"c": [1, 1]},
+        arg_lines={"cmd": [1, 1]},
     )
     system = System(
         event=FileModifiedEvent(str(note)),

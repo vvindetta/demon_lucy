@@ -17,9 +17,11 @@ class FileHandler(FileSystemEventHandler):
         self,
         modules: ModuleManager,
         open_cooldown_seconds: int,
+        process_opened_events: bool = True,
     ):
         self._ignore_paths: Dict[str, int] = {}
         self.modules = modules
+        self._process_opened_events = process_opened_events
 
         # on_opened throttle (per file)
         self._open_cooldown_seconds = float(open_cooldown_seconds)
@@ -127,6 +129,9 @@ class FileHandler(FileSystemEventHandler):
         self._process_file(event=event)
 
     def on_opened(self, event):
+        if not self._process_opened_events:
+            return
+
         src_path = os.fsdecode(event.src_path)
 
         if event.is_directory or os.path.basename(src_path).startswith("."):

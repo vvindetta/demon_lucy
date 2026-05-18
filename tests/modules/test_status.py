@@ -42,8 +42,8 @@ def _ctx_for(
     *,
     status_values: list[str] | None = None,
     status_banner_text: str = "",
-    status_banner_speed_ms: int = status_mod._DEFAULT_BANNER_SPEED_MS,
-    status_banner_max_chars: int = status_mod._DEFAULT_BANNER_MAX_CHARS,
+    status_banner_speed_milliseconds: int = status_mod._DEFAULT_BANNER_SPEED_MS,
+    status_banner_max_characters: int = status_mod._DEFAULT_BANNER_MAX_CHARS,
     status_prefix: str = "",
 ) -> Context:
     return Context(
@@ -51,8 +51,8 @@ def _ctx_for(
         config={
             "status": list(status_values or []),
             "status_banner": status_banner_text,
-            "status_banner_speed_ms": status_banner_speed_ms,
-            "status_banner_max_chars": status_banner_max_chars,
+            "status_banner_speed_milliseconds": status_banner_speed_milliseconds,
+            "status_banner_max_characters": status_banner_max_characters,
             "status_prefix": status_prefix,
         },
         arg_lines={},
@@ -137,7 +137,7 @@ def test_status_banner_renames_and_rotates_with_speed(tmp_path: Path, monkeypatc
 
     path = tmp_path / "note.md"
     path.write_text(
-        '--status-banner "Work sentence"\n--status-banner-speed-ms 2000\n',
+        '--status-banner "Work sentence"\n--status-banner-speed-milliseconds 2000\n',
         encoding="utf-8",
     )
 
@@ -148,7 +148,7 @@ def test_status_banner_renames_and_rotates_with_speed(tmp_path: Path, monkeypatc
         _ctx_for(
             path,
             status_banner_text="Work sentence",
-            status_banner_speed_ms=2000,
+            status_banner_speed_milliseconds=2000,
         ),
         system,
     )
@@ -171,7 +171,7 @@ def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) 
 
     path = tmp_path / "note.md"
     path.write_text(
-        '--status date time\n--status-banner "Focus now"\n--status-banner-speed-ms 3000\n',
+        '--status date time\n--status-banner "Focus now"\n--status-banner-speed-milliseconds 3000\n',
         encoding="utf-8",
     )
 
@@ -180,7 +180,7 @@ def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) 
         path,
         status_values=["date", "time"],
         status_banner_text="Focus now",
-        status_banner_speed_ms=3000,
+        status_banner_speed_milliseconds=3000,
     )
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
 
@@ -342,7 +342,7 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
 
     path = tmp_path / "note.md"
     path.write_text(
-        '--status-banner "Working hard"\n--status-banner-speed-ms 2000\n--status-banner-max-chars 4\n',
+        '--status-banner "Working hard"\n--status-banner-speed-milliseconds 2000\n--status-banner-max-characters 4\n',
         encoding="utf-8",
     )
 
@@ -352,8 +352,8 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
         _ctx_for(
             path,
             status_banner_text="Working hard",
-            status_banner_speed_ms=2000,
-            status_banner_max_chars=4,
+            status_banner_speed_milliseconds=2000,
+            status_banner_max_characters=4,
         ),
         system,
     )
@@ -378,7 +378,7 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
 
     path = tmp_path / "note.md"
     path.write_text(
-        '--status date\n--status-banner "Working"\n--status-banner-speed-ms 2000\n--status-banner-max-chars 4\n',
+        '--status date\n--status-banner "Working"\n--status-banner-speed-milliseconds 2000\n--status-banner-max-characters 4\n',
         encoding="utf-8",
     )
 
@@ -389,8 +389,8 @@ def test_status_banner_fully_disappears_before_restart(tmp_path: Path, monkeypat
             path,
             status_values=["date"],
             status_banner_text="Working",
-            status_banner_speed_ms=2000,
-            status_banner_max_chars=4,
+            status_banner_speed_milliseconds=2000,
+            status_banner_max_characters=4,
         ),
         system,
     )

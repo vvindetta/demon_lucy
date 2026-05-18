@@ -10,9 +10,9 @@ from lucy_notes_manager.module_manager import ModuleManager
 from lucy_notes_manager.modules.abstract_module import AbstractModule, Context, System
 
 _SYSTEM_CONFIG = {
-    "sys_notify_provider": "termuxapi",
-    "sys_notify_min_interval_sec": 0.0,
-    "sys_blacklist_paths": [],
+    "sys_notification_provider": "termuxapi",
+    "sys_notification_min_interval_seconds": 0.0,
+    "sys_ignore_paths": [],
 }
 
 
@@ -74,7 +74,7 @@ def test_init_sorts_modules_by_priority_override():
     a, c = _ModA(), _ModC()
     manager = ModuleManager(
         modules=[c, a],
-        args=["--sys-priority", "c=1", "a=9"],
+        args=["--modules-priority", "c=1", "a=9"],
         system_config=_SYSTEM_CONFIG,
     )
     assert [m.name for m in manager.modules] == ["c", "a"]
@@ -88,7 +88,7 @@ def test_run_respects_exclude_and_force_and_event_implementation(tmp_path: Path)
     a, b, c = _ModA(), _ModB(), _ModC()
     manager = ModuleManager(
         modules=[a, b, c],
-        args=["--exclude", "a"],
+        args=["--modules-disable", "a"],
         system_config=_SYSTEM_CONFIG,
     )
     ignore_paths = manager.run(str(note), event)
@@ -100,7 +100,7 @@ def test_run_respects_exclude_and_force_and_event_implementation(tmp_path: Path)
     a2, c2 = _ModA(), _ModC()
     manager_force = ModuleManager(
         modules=[a2, c2],
-        args=["--exclude", "a", "--force", "a"],
+        args=["--modules-disable", "a", "--modules-force-enable", "a"],
         system_config=_SYSTEM_CONFIG,
     )
     ignore_paths_force = manager_force.run(str(note), event)
@@ -159,7 +159,7 @@ def test_run_skips_all_modules_for_blacklisted_paths(tmp_path: Path):
         args=[],
         system_config={
             **_SYSTEM_CONFIG,
-            "sys_blacklist_paths": [str(blacklisted_dir)],
+            "sys_ignore_paths": [str(blacklisted_dir)],
         },
     )
 

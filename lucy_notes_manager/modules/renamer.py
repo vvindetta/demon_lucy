@@ -16,9 +16,9 @@ class Renamer(AbstractModule):
     priority: int = 20
 
     template: Template = [
-        ("--r", str, None, "Rename file. Example: --r new_name.md.", False),
+        ("--rename", str, None, "Rename file. Example: --rename new_name.md.", False),
         (
-            "--auto-rename",
+            "--rename-auto",
             bool,
             False,  # IMPORTANT: for your argparse bool handling, default is a bool, not [False]
             "On create: t|txt -> DD-MM.txt, m|md -> DD-MM.md. If exists -> HHMM-DD-MM.ext",
@@ -27,7 +27,7 @@ class Renamer(AbstractModule):
     ]
 
     def _apply_manual(self, *, path: str, config: dict) -> Optional[IgnoreMap]:
-        if not config["r"] or not config["r"].strip():
+        if not config["rename"] or not config["rename"].strip():
             return None
 
         old_path = path
@@ -35,7 +35,7 @@ class Renamer(AbstractModule):
             return None
 
         dir_path = os.path.dirname(old_path)
-        new_path = os.path.abspath(os.path.join(dir_path, config["r"].strip()))
+        new_path = os.path.abspath(os.path.join(dir_path, config["rename"].strip()))
 
         if old_path == new_path:
             return None
@@ -49,7 +49,7 @@ class Renamer(AbstractModule):
             return None
 
     def _apply_auto_on_create(self, *, path: str, config: dict) -> Optional[IgnoreMap]:
-        if not config["auto_rename"]:
+        if not config["rename_auto"]:
             return None
 
         old_path = path

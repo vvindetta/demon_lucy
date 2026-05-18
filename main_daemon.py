@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import time
+import threading
 
 from watchdog.observers import Observer
 
@@ -14,17 +14,21 @@ from lucy_notes_manager.runtime import (
 )
 
 
+def _wait_until_interrupted() -> None:
+    threading.Event().wait()
+
+
 def main() -> int:
     config, unknown_args = setup_config_and_cli_args(template=LUCY_STARTUP_TEMPLATE)
 
     configure_logging(config)
 
-    notes_dirs = config["sys_notes_dirs"]
+    notes_dirs = config["sys_watch_paths"]
     if not notes_dirs:
-        raise ValueError("No --sys-notes-dirs was setuped")
+        raise ValueError("No --sys-watch-paths was setuped")
     if "/path/to/note/dir" in notes_dirs:
         raise ValueError(
-            "--sys-notes-dirs: '/path/to/note/dir' is not a valid path. Please edit your config."
+            "--sys-watch-paths: '/path/to/note/dir' is not a valid path. Please edit your config."
         )
 
     modules = ModuleManager(
@@ -38,7 +42,8 @@ def main() -> int:
         observer.schedule(
             FileHandler(
                 modules=modules,
-                open_cooldown_seconds=config["sys_on_open_cooldown"],
+                open_cooldown_seconds=config["sys_opened_event_cooldown_seconds"],
+                process_opened_events=not config["sys_disable_opened_events"],
             ),
             path=path,
             recursive=True,
@@ -46,8 +51,7 @@ def main() -> int:
 
     observer.start()
     try:
-        while True:
-            time.sleep(1)
+        _wait_until_interrupted()
     except KeyboardInterrupt:
         observer.stop()
     finally:

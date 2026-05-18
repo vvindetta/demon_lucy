@@ -18,12 +18,12 @@ def test_apply_creates_link_in_repo_root(tmp_path: Path):
     nested = repo / "notes" / "work"
     nested.mkdir(parents=True)
     note = nested / "daily.md"
-    note.write_text("hello\n--linker-top\n", encoding="utf-8")
+    note.write_text("hello\n--link-root\n", encoding="utf-8")
 
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"linker_top": True, "linker_auto_clean_up": False},
+        config={"link_root": True, "link_clean_root_symlinks": False},
     )
 
     link_path = repo / "daily.md"
@@ -41,7 +41,7 @@ def test_apply_returns_none_when_flag_is_disabled(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"linker_top": False, "linker_auto_clean_up": False},
+        config={"link_root": False, "link_clean_root_symlinks": False},
     )
 
     assert changed is None
@@ -56,7 +56,7 @@ def test_apply_returns_none_when_file_is_already_in_repo_root(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"linker_top": True, "linker_auto_clean_up": False},
+        config={"link_root": True, "link_clean_root_symlinks": False},
     )
 
     assert changed is None
@@ -74,7 +74,7 @@ def test_apply_returns_none_when_target_exists_as_file(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"linker_top": True, "linker_auto_clean_up": False},
+        config={"link_root": True, "link_clean_root_symlinks": False},
     )
 
     assert changed is None
@@ -93,7 +93,7 @@ def test_apply_returns_none_when_same_symlink_already_exists(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"linker_top": True, "linker_auto_clean_up": False},
+        config={"link_root": True, "link_clean_root_symlinks": False},
     )
 
     assert changed is None
@@ -108,7 +108,7 @@ def test_apply_returns_none_outside_repo(tmp_path: Path, monkeypatch):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"linker_top": True, "linker_auto_clean_up": False},
+        config={"link_root": True, "link_clean_root_symlinks": False},
     )
 
     assert changed is None
@@ -133,7 +133,7 @@ def test_auto_cleanup_removes_symlinks_from_repo_root(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"linker_top": False, "linker_auto_clean_up": True},
+        config={"link_root": False, "link_clean_root_symlinks": True},
     )
 
     assert changed is not None
@@ -156,7 +156,7 @@ def test_auto_cleanup_skipped_when_link_top_is_set(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"linker_top": True, "linker_auto_clean_up": True},
+        config={"link_root": True, "link_clean_root_symlinks": True},
     )
 
     assert changed == {str((repo / "x.md").absolute()): 1}
@@ -172,7 +172,7 @@ def test_auto_cleanup_returns_none_when_no_links(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"linker_top": False, "linker_auto_clean_up": True},
+        config={"link_root": False, "link_clean_root_symlinks": True},
     )
 
     assert changed is None

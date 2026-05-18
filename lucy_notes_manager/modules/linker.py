@@ -19,17 +19,17 @@ class Linker(AbstractModule):
 
     template: Template = [
         (
-            "--linker-top",
+            "--link-root",
             bool,
             False,
             "Create symlink in repository root with the same filename as current note.",
             False,
         ),
         (
-            "--linker-auto-clean-up",
+            "--link-clean-root-symlinks",
             bool,
             False,
-            "If enabled and --linker-top is not set, delete all symlinks from repository root.",
+            "If enabled and --link-root is not set, delete all symlinks from repository root.",
             False,
         ),
     ]
@@ -83,8 +83,8 @@ class Linker(AbstractModule):
         return deleted or None
 
     def _apply(self, *, path: str, config: dict) -> Optional[IgnoreMap]:
-        use_link_top = bool(config.get("linker_top"))
-        auto_cleanup = bool(config.get("linker_auto_clean_up"))
+        use_link_top = bool(config.get("link_root"))
+        auto_cleanup = bool(config.get("link_clean_root_symlinks"))
 
         if not use_link_top and not auto_cleanup:
             return None

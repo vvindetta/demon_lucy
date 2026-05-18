@@ -1,0 +1,54 @@
+
+
+## Argument Style
+
+Use one consistent format:
+
+```text
+--module-action-detail value
+```
+
+Frequently used note flags should be short and readable:
+
+- `--rename`
+- `--fmt-todo`
+- `--fmt-blank`
+- `--cmd`
+- `--banner`
+- `--status`
+
+Rare config/startup flags should be more explicit so their meaning is clear
+without reading the manual:
+
+- `--sys-opened-event-cooldown-seconds`
+- `--sys-notification-min-interval-seconds`
+- `--git-network-probe-timeout-seconds`
+- `--git-pull-interval-hours`
+
+## Hard Rules
+
+- Do not add subcommands like `--git pull hours 2`.
+- One flag must have one concrete type: `bool`, `str`, `int`, `float`, or a real
+  `str[]`.
+- Do not shorten words just to save a few letters: write `hours`.
+- `src` and `dest` may be kept for move/source/destination paths.
+- `bool` currently works as `store_true`; `true`/`false` values after the flag
+  are not supported.
+
+## When Renaming Args
+
+When renaming a flag, update all related places at once:
+
+- module/runtime template;
+- every `config[...]` access;
+- manual/help text;
+- README examples;
+- tests;
+
+After editing, check:
+
+```text
+rg "old_flag_or_dest"
+pytest
+git diff --check
+```

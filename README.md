@@ -16,11 +16,11 @@ If `README.md` is one of your notes, you can write command flags directly inside
 
 Rename `README.md` to `DONOTreadme.md`:
 
-```--r DONOTreadme.md```
+```--rename DONOTreadme.md```
 
 Execute the terminal command (output will be written directly to the file):
 
-```--c neofetch```
+```--cmd neofetch```
 
 
 Then press ```CTRL+S``` - Lucy will detect the change and run the modules.
@@ -87,7 +87,7 @@ git clone https://codeberg.org/Vindetta/lucy_notes_daemon && cd lucy_notes_daemo
 pip install -r requirements.txt
 ```
 
-3. Setup ```--sys-notes-dirs``` in ```config.txt```
+3. Setup ```--sys-watch-paths``` in ```config.txt```
 
 **Turn on file auto-update in your text editor!**
 
@@ -96,14 +96,19 @@ pip install -r requirements.txt
 python3 main_daemon.py
 ```
 
+On Termux or other noisy file systems, opened events can be ignored:
+```
+python3 main_daemon.py --sys-disable-opened-events
+```
+
 ### One-shot mode (single run)
 `main_oneshot.py` is an alternative runner: it triggers selected modules once for a specific event/path. Useful for scripts, shortcuts, and Termux tasks.
 
 ```
 python3 main_oneshot.py \
   --oneshot-event modified \
-  --oneshot-path ~/Notes \
-  --oneshot-include-modules git
+  --oneshot-paths ~/Notes \
+  --oneshot-modules git
 ```
 
 
@@ -117,11 +122,11 @@ Hot reload and install/uninstall commands are in the roadmap.
 **Basic:**
 - `sys`: runtime information, man(ual) messages
 - `formatter`: formatting module for
-  `--formatter-todo`: `- point` → `- [ ] point`
+  `--fmt-todo`: `- point` → `- [ ] point`
 - `banner`: prints an ASCII banner with the current date or custom text
-- `renamer`: renames a file using `--r name`
+- `renamer`: renames a file using `--rename name`
 - `today`: archives stale `now.md` into `past.md`
-- `cmd`: run a terminal command with `--c command`. Disabled in code by default.  
+- `cmd`: run a terminal command with `--cmd command`. Disabled in code by default.
   Cmd module may cause security issues when used with the `git`.
 
 **Integrations:**

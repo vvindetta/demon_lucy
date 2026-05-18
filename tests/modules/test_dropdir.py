@@ -26,11 +26,11 @@ def _ctx(path: Path, cleanup_selector: str, *, delay_ms: int = 0) -> Context:
         path=str(path),
         config={
             "dropdir_today_clean_paths": [cleanup_selector],
-            "dropdir_today_clean_delay_ms": delay_ms,
+            "dropdir_today_clean_delay_milliseconds": delay_ms,
             "today_now_path": "now.md",
             "today_past_path": "past.md",
             "today_idle_hours": 12.0,
-            "today_force_fs": False,
+            "today_force_filesystem_mtime": False,
         },
         arg_lines={},
     )

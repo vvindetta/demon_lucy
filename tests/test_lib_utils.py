@@ -5,8 +5,8 @@ from pathlib import Path
 import lucy_notes_manager.lib as lib_mod
 
 _TERMUX_CONFIG = {
-    "sys_notify_provider": "termuxapi",
-    "sys_notify_min_interval_sec": 10.0,
+    "sys_notification_provider": "termuxapi",
+    "sys_notification_min_interval_seconds": 10.0,
 }
 
 
@@ -68,7 +68,7 @@ def test_notify_disable_provider_skips_termux_call(monkeypatch):
     monkeypatch.setattr(lib_mod, "_notify_termux", _mark)
     lib_mod.notify(
         "disabled",
-        config={"sys_notify_provider": "disable", "sys_notify_min_interval_sec": 10.0},
+        config={"sys_notification_provider": "disable", "sys_notification_min_interval_seconds": 10.0},
     )
     assert called["value"] is False
 
@@ -96,7 +96,7 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
     lib_mod.notify(
         "desktop notification",
         title="Lucy",
-        config={"sys_notify_provider": "desktop", "sys_notify_min_interval_sec": 10.0},
+        config={"sys_notification_provider": "desktop", "sys_notification_min_interval_seconds": 10.0},
     )
 
     assert dummy.sent is True

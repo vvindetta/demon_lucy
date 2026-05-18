@@ -129,7 +129,7 @@ class Git(AbstractModule):
         if not repo_root:
             return None
 
-        if not ctx.config["git_auto_pull"]:
+        if not ctx.config["git_pull_on_opened_event"]:
             return None
 
         enqueue(

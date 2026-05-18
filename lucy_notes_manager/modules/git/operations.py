@@ -139,7 +139,7 @@ def git_environment(self, config: dict) -> Dict[str, str]:
     environment["LANG"] = "C"
     environment["LANGUAGE"] = "C"
 
-    key_path_raw = config["git_key"].strip()
+    key_path_raw = config["git_ssh_key_path"].strip()
     if not key_path_raw:
         return environment
 

@@ -26,7 +26,7 @@ def test_apply_manual_rename_behaviour(
         new_path.write_text("y\n", encoding="utf-8")
 
     module = Renamer()
-    changed = module._apply_manual(path=str(old_path), config={"r": "new.md"})
+    changed = module._apply_manual(path=str(old_path), config={"rename": "new.md"})
 
     assert (changed is not None) is expected_changed
     assert new_path.exists()
@@ -50,7 +50,7 @@ def test_apply_auto_on_create_uses_date_name(tmp_path: Path, monkeypatch):
     module = Renamer()
     changed = module._apply_auto_on_create(
         path=str(old_path),
-        config={"auto_rename": True},
+        config={"rename_auto": True},
     )
 
     assert changed is not None

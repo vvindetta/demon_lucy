@@ -37,10 +37,15 @@ def _moved_event(src: str, dest: str) -> FileMovedEvent:
     return FileMovedEvent(src, dest)
 
 
-def _mk_handler(modules: object, cooldown: int = 20) -> FileHandler:
+def _mk_handler(
+    modules: object,
+    cooldown: int = 20,
+    process_opened_events: bool = True,
+) -> FileHandler:
     return FileHandler(
         modules=cast(ModuleManager, modules),
         open_cooldown_seconds=cooldown,
+        process_opened_events=process_opened_events,
     )
 
 
@@ -100,6 +105,25 @@ def test_opened_event_respects_cooldown(tmp_path: Path, monkeypatch) -> None:
     handler.on_opened(ev)
 
     assert modules.calls == 2
+
+
+def test_opened_event_can_be_disabled(tmp_path: Path, monkeypatch) -> None:
+    file_path = tmp_path / "b.md"
+    file_path.write_text("x\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "lucy_notes_manager.file_handler.time.monotonic",
+        lambda: 0.0,
+    )
+
+    modules = _FakeModules()
+    handler = _mk_handler(modules, process_opened_events=False)
+
+    handler.on_opened(_opened_event(str(file_path)))
+
+    assert modules.calls == 0
+    assert handler._last_open_ts == {}
+    assert handler._last_open_dir_ts == {}
 
 
 def test_opened_event_respects_cooldown_for_same_directory(

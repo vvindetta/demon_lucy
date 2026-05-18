@@ -47,8 +47,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
     changed = module._apply(
         path=str(note),
         config={
-            "formatter_todo": enabled,
-            "formatter_blank": [],
+            "fmt_todo": enabled,
+            "fmt_blank": [],
         },
         arg_lines={},
     )
@@ -62,8 +62,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
     [
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["down"],
+                "fmt_todo": False,
+                "fmt_blank": ["down"],
             },
             "title\nbody\n\n",
             0,
@@ -71,8 +71,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["up"],
+                "fmt_todo": False,
+                "fmt_blank": ["up"],
             },
             "\n  \ntitle\nbody\n",
             30,
@@ -80,8 +80,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["up", "down"],
+                "fmt_todo": False,
+                "fmt_blank": ["up", "down"],
             },
             "\n\ntitle\nbody\n\n",
             30,
@@ -89,8 +89,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["up", "20"],
+                "fmt_todo": False,
+                "fmt_blank": ["up", "20"],
             },
             "\n\ntitle\nbody\n\n",
             20,
@@ -98,8 +98,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["down", "7"],
+                "fmt_todo": False,
+                "fmt_blank": ["down", "7"],
             },
             "title\nbody\n\n",
             0,
@@ -107,8 +107,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["both", "12"],
+                "fmt_todo": False,
+                "fmt_blank": ["both", "12"],
             },
             "\n\ntitle\nbody\n\n",
             12,
@@ -142,8 +142,8 @@ def test_apply_is_idempotent_on_second_run(tmp_path: Path):
 
     module = Formatter()
     config = {
-        "formatter_todo": False,
-        "formatter_blank": ["up", "down"],
+        "fmt_todo": False,
+        "fmt_blank": ["up", "down"],
     }
 
     first = module._apply(path=str(note), config=config, arg_lines={})
@@ -161,8 +161,8 @@ def test_apply_returns_none_for_blank_only_file(tmp_path: Path):
     changed = module._apply(
         path=str(note),
         config={
-            "formatter_todo": False,
-            "formatter_blank": ["up", "down"],
+            "fmt_todo": False,
+            "fmt_blank": ["up", "down"],
         },
         arg_lines={},
     )
@@ -173,14 +173,14 @@ def test_apply_returns_none_for_blank_only_file(tmp_path: Path):
 
 def test_blank_up_keeps_first_line_with_flags_in_place(tmp_path: Path):
     note = tmp_path / "note.md"
-    note.write_text("--formatter-todo\nalpha\n", encoding="utf-8")
+    note.write_text("--fmt-todo\nalpha\n", encoding="utf-8")
 
     module = Formatter()
     changed = module._apply(
         path=str(note),
         config={
-            "formatter_todo": False,
-            "formatter_blank": ["up"],
+            "fmt_todo": False,
+            "fmt_blank": ["up"],
         },
         arg_lines={},
         global_template=module.template,
@@ -189,7 +189,7 @@ def test_blank_up_keeps_first_line_with_flags_in_place(tmp_path: Path):
     assert changed == {str(note.resolve()): 1}
 
     lines = note.read_text(encoding="utf-8").splitlines()
-    assert lines[0] == "--formatter-todo"
+    assert lines[0] == "--fmt-todo"
     assert lines[1:31] == [""] * 30
     assert lines[31] == "alpha"
 
@@ -222,8 +222,8 @@ def test_event_methods_delegate_to_apply(
     ctx = Context(
         path=str(note),
         config={
-            "formatter_todo": False,
-            "formatter_blank": ["down"],
+            "fmt_todo": False,
+            "fmt_blank": ["down"],
         },
         arg_lines={},
     )

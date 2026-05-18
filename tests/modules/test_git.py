@@ -17,8 +17,8 @@ from lucy_notes_manager.modules.git import Git, _RepoBatch
 from lucy_notes_manager.modules.git.worker import should_force_flush_batch
 
 _NOTIFY_CFG = {
-    "sys_notify_provider": "termuxapi",
-    "sys_notify_min_interval_sec": 10.0,
+    "sys_notification_provider": "termuxapi",
+    "sys_notification_min_interval_seconds": 10.0,
 }
 
 
@@ -82,7 +82,7 @@ def test_git_environment_forces_c_locale_and_disables_prompt(git_module, monkeyp
     monkeypatch.setenv("LC_ALL", "ru_RU.UTF-8")
     monkeypatch.setenv("LANGUAGE", "ru_RU:en_US")
 
-    environment = git_ops.git_environment(git_module, {"git_key": ""})
+    environment = git_ops.git_environment(git_module, {"git_ssh_key_path": ""})
 
     assert environment["GIT_TERMINAL_PROMPT"] == "0"
     assert environment["LC_ALL"] == "C"
@@ -133,7 +133,7 @@ def test_update_periodic_pull_state_default_disabled(git_module):
     git_worker.update_periodic_pull_state(
         git_module,
         repo_root="/repo",
-        config_snapshot={"git_auto_pull_every_hours": 0.0},
+        config_snapshot={"git_pull_interval_hours": 0.0},
         now_timestamp=100.0,
     )
     assert "/repo" not in git_module._periodic_pull_next_at
@@ -145,7 +145,7 @@ def test_update_periodic_pull_state_enables_and_emits_due_event(git_module):
     git_worker.update_periodic_pull_state(
         git_module,
         repo_root="/repo",
-        config_snapshot={"git_auto_pull_every_hours": 2.0},
+        config_snapshot={"git_pull_interval_hours": 2.0},
         now_timestamp=100.0,
     )
 
@@ -159,7 +159,7 @@ def test_update_periodic_pull_state_enables_and_emits_due_event(git_module):
 
     events = git_worker.collect_due_periodic_pull_events(git_module, now_timestamp=7300.0)
     assert events == [
-        ("/repo", "scheduled_pull", [], {"git_auto_pull_every_hours": 2.0}, True)
+        ("/repo", "scheduled_pull", [], {"git_pull_interval_hours": 2.0}, True)
     ]
     assert git_module._periodic_pull_next_at["/repo"] == 14500.0
 
@@ -168,13 +168,13 @@ def test_update_periodic_pull_state_turns_off_existing_schedule(git_module):
     git_worker.update_periodic_pull_state(
         git_module,
         repo_root="/repo",
-        config_snapshot={"git_auto_pull_every_hours": 1.0},
+        config_snapshot={"git_pull_interval_hours": 1.0},
         now_timestamp=100.0,
     )
     git_worker.update_periodic_pull_state(
         git_module,
         repo_root="/repo",
-        config_snapshot={"git_auto_pull_every_hours": 0.0},
+        config_snapshot={"git_pull_interval_hours": 0.0},
         now_timestamp=200.0,
     )
 
@@ -244,7 +244,7 @@ def test_opened_enqueues_when_repo_exists(git_module, monkeypatch):
         lambda _self, **kwargs: recorded.update(kwargs),
     )
 
-    ctx = Context(path="/repo/note.md", config={"git_auto_pull": True}, arg_lines={})
+    ctx = Context(path="/repo/note.md", config={"git_pull_on_opened_event": True}, arg_lines={})
     system = System(
         event=FileOpenedEvent("/repo/note.md"),
         global_template=[],

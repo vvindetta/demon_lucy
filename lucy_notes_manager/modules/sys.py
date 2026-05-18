@@ -44,7 +44,7 @@ class Sys(AbstractModule):
             "Print SysInfo commands help: --mods, --man, --config.",
             False,
         ),
-        ("--sys-event", bool, False, "Print current filesystem event details.", False),
+        ("--event", bool, False, "Print current filesystem event details.", False),
     ]
 
     @staticmethod
@@ -65,6 +65,7 @@ class Sys(AbstractModule):
             "* --ping: rewrite command line to ++pong!\n",
             "* --config: print config values that differ from defaults\n",
             "* --man <name>: print one argument with description (example: --man mods or --man --mods)\n",
+            "* --event: print current filesystem event details\n",
         ]
 
     @staticmethod
@@ -246,9 +247,9 @@ class Sys(AbstractModule):
             for lineno_1based in ctx.arg_lines.get("help") or []:
                 add_option(int(lineno_1based), "help", "--help")
 
-        if ctx.config["sys_event"]:
-            for lineno_1based in ctx.arg_lines.get("sys_event") or []:
-                add_option(int(lineno_1based), "event", "--sys-event")
+        if ctx.config["event"]:
+            for lineno_1based in ctx.arg_lines.get("event") or []:
+                add_option(int(lineno_1based), "event", "--event")
 
         man_lines = ctx.arg_lines.get("man") or []
         for man_value, lineno_1based in zip(ctx.config["man"], man_lines):

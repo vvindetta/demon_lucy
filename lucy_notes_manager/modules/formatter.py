@@ -21,17 +21,17 @@ class Formatter(AbstractModule):
 
     template: Template = [
         (
-            "--formatter-todo",
+            "--fmt-todo",
             bool,
             False,
             "Enable TODO formatting: converts list items like '- task' into unchecked checkboxes '- [ ] task' in the current file.",
             False,
         ),
         (
-            "--formatter-blank",
+            "--fmt-blank",
             str,
             [],
-            "Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
+            "Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --fmt-blank both 20",
             False,
         ),
     ]
@@ -104,7 +104,7 @@ class Formatter(AbstractModule):
     def _collect_blank_tokens(config: dict) -> list[str]:
         tokens: list[str] = []
 
-        blank_values = config.get("formatter_blank")
+        blank_values = config.get("fmt_blank")
         if isinstance(blank_values, list):
             tokens.extend(str(item) for item in blank_values)
 
@@ -155,11 +155,11 @@ class Formatter(AbstractModule):
         arg_lines: dict,
         global_template: Template | None = None,
     ) -> Optional[IgnoreMap]:
-        use_formatter_todo = bool(config.get("formatter_todo"))
+        use_fmt_todo = bool(config.get("fmt_todo"))
         blank_modes, blank_lines_count = self._blank_config(config)
         use_down = "down" in blank_modes
         use_up = "up" in blank_modes
-        if not use_formatter_todo and not use_down and not use_up:
+        if not use_fmt_todo and not use_down and not use_up:
             return None
 
         if not os.path.isfile(path):
@@ -178,7 +178,7 @@ class Formatter(AbstractModule):
         new_lines = lines[:]
         changed = False
 
-        if use_formatter_todo:
+        if use_fmt_todo:
             new_lines, todo_changed = self._format_todo_lines(new_lines)
             changed = changed or todo_changed
 

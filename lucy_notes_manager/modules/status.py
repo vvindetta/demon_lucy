@@ -6,7 +6,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from lucy_notes_manager.lib.args import Template
 from lucy_notes_manager.lib.path import find_parent_with
@@ -45,14 +45,14 @@ class Status(AbstractModule):
             False,
         ),
         (
-            "--status-banner-speed-ms",
+            "--status-banner-speed-milliseconds",
             int,
             _DEFAULT_BANNER_SPEED_MS,
             "Animated banner speed in milliseconds per step. Default: 500",
             False,
         ),
         (
-            "--status-banner-max-chars",
+            "--status-banner-max-characters",
             int,
             _DEFAULT_BANNER_MAX_CHARS,
             "Max visible banner width. 0 = unlimited. Default: 0",
@@ -219,9 +219,9 @@ class Status(AbstractModule):
 
     def _normalize_banner_settings(
         self,
-        text_value: object,
-        speed_ms_value: object,
-        max_chars_value: object,
+        text_value: Any,
+        speed_ms_value: Any,
+        max_chars_value: Any,
     ) -> tuple[str | None, int, int]:
         banner_text = "" if text_value is None else str(text_value)
         try:
@@ -557,9 +557,9 @@ class Status(AbstractModule):
             return [], None, _DEFAULT_BANNER_SPEED_MS, _DEFAULT_BANNER_MAX_CHARS, ""
 
         status_values: list[str] = []
-        banner_text_value: object = ""
-        banner_speed_value: object = _DEFAULT_BANNER_SPEED_MS
-        banner_max_chars_value: object = _DEFAULT_BANNER_MAX_CHARS
+        banner_text_value: Any = ""
+        banner_speed_value: Any = _DEFAULT_BANNER_SPEED_MS
+        banner_max_chars_value: Any = _DEFAULT_BANNER_MAX_CHARS
         status_prefix = ""
         for line in lines:
             stripped = line.strip()
@@ -568,8 +568,8 @@ class Status(AbstractModule):
             if (
                 "--status" not in stripped
                 and "--status-banner" not in stripped
-                and "--status-banner-speed-ms" not in stripped
-                and "--status-banner-max-chars" not in stripped
+                and "--status-banner-speed-milliseconds" not in stripped
+                and "--status-banner-max-characters" not in stripped
                 and "--status-prefix" not in stripped
             ):
                 continue
@@ -584,8 +584,8 @@ class Status(AbstractModule):
                 if token_head not in (
                     "--status",
                     "--status-banner",
-                    "--status-banner-speed-ms",
-                    "--status-banner-max-chars",
+                    "--status-banner-speed-milliseconds",
+                    "--status-banner-max-characters",
                     "--status-prefix",
                 ):
                     i += 1
@@ -607,7 +607,7 @@ class Status(AbstractModule):
                         i += 1
                     continue
 
-                if token_head == "--status-banner-speed-ms":
+                if token_head == "--status-banner-speed-milliseconds":
                     if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
                         banner_speed_value = tokens[i + 1]
                         i += 2
@@ -615,7 +615,7 @@ class Status(AbstractModule):
                         i += 1
                     continue
 
-                if token_head == "--status-banner-max-chars":
+                if token_head == "--status-banner-max-characters":
                     if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
                         banner_max_chars_value = tokens[i + 1]
                         i += 2
@@ -761,8 +761,8 @@ class Status(AbstractModule):
         parts = self._parse_status_parts(list(ctx.config.get("status", [])))
         banner_text, banner_speed_ms, banner_max_chars = self._normalize_banner_settings(
             ctx.config.get("status_banner", ""),
-            ctx.config.get("status_banner_speed_ms", _DEFAULT_BANNER_SPEED_MS),
-            ctx.config.get("status_banner_max_chars", _DEFAULT_BANNER_MAX_CHARS),
+            ctx.config.get("status_banner_speed_milliseconds", _DEFAULT_BANNER_SPEED_MS),
+            ctx.config.get("status_banner_max_characters", _DEFAULT_BANNER_MAX_CHARS),
         )
         status_prefix = str(ctx.config.get("status_prefix", ""))
         if banner_text and not status_prefix:
