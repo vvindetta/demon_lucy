@@ -40,3 +40,4 @@ def test_context_and_system_dataclasses_keep_values():
     assert system.event is event
     assert system.global_template == template
     assert system.modules == [module]
+    assert system.run_mode == "daemon"

@@ -142,6 +142,7 @@ def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
         modules=modules,
         args=list(unknown_args),
         system_config=config,
+        run_mode="oneshot",
     )
 
     plan = _build_event_plan(config)

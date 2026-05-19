@@ -35,6 +35,7 @@ def main() -> int:
         modules=select_lucy_modules(),
         args=list(unknown_args),
         system_config=config,
+        run_mode="daemon",
     )
 
     observer = Observer()

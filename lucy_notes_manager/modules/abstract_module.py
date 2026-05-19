@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from watchdog.events import FileSystemEvent
 
 from lucy_notes_manager.lib.args import Template
 
 IgnoreMap = Dict[str, int]
+RunMode = Literal["daemon", "oneshot"]
 
 
 @dataclass(frozen=True)
@@ -19,11 +20,13 @@ class System:
     - event: watchdog event that triggered the run
     - global_template: full args template used by ModuleManager
     - modules: ordered module instances in the pipeline
+    - run_mode: runtime mode ("daemon" or "oneshot")
     """
 
     event: FileSystemEvent
     global_template: Template
     modules: List["AbstractModule"]
+    run_mode: RunMode = "daemon"
 
 
 @dataclass(frozen=True)

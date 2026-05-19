@@ -55,9 +55,8 @@ class Git(AbstractModule):
         return message_text
 
     @staticmethod
-    def _should_run_in_background(config: dict) -> bool:
-        # One-shot runner should stay synchronous so the process exits after Git sync is done.
-        return "oneshot_event" not in config
+    def _should_run_in_background(system: System) -> bool:
+        return system.run_mode != "oneshot"
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         ctx_path = abs_expand_path(to_str(ctx.path)) if getattr(ctx, "path", None) else ""
@@ -78,7 +77,7 @@ class Git(AbstractModule):
             paths=[to_str(ctx.path)],
             config_snapshot=ctx.config,
             wants_pull=True,
-            run_in_background=self._should_run_in_background(ctx.config),
+            run_in_background=self._should_run_in_background(system),
         )
         return None
 
@@ -139,6 +138,6 @@ class Git(AbstractModule):
             paths=paths_to_hint,
             config_snapshot=ctx.config,
             wants_pull=False,
-            run_in_background=self._should_run_in_background(ctx.config),
+            run_in_background=self._should_run_in_background(system),
         )
         return None

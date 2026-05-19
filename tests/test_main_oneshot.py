@@ -41,3 +41,26 @@ def test_build_event_plan_requires_paths_for_non_moved_event(tmp_path: Path):
 
     with pytest.raises(ValueError, match="requires --oneshot-paths"):
         oneshot_mod._build_event_plan(config)
+
+
+def test_run_oneshot_passes_oneshot_run_mode(tmp_path: Path, monkeypatch):
+    captured: dict[str, str] = {}
+
+    class _FakeManager:
+        def __init__(self, modules, args, system_config, run_mode="daemon"):
+            _ = (modules, args, system_config)
+            captured["run_mode"] = run_mode
+
+        def run(self, path, event):
+            _ = (path, event)
+            return None
+
+    monkeypatch.setattr(oneshot_mod, "configure_logging", lambda _config: None)
+    monkeypatch.setattr(oneshot_mod, "_select_modules", lambda _config: [])
+    monkeypatch.setattr(oneshot_mod, "ModuleManager", _FakeManager)
+
+    config = _base_config(tmp_path)
+    exit_code = oneshot_mod.run_oneshot(config=config, unknown_args=[])
+
+    assert exit_code == 0
+    assert captured["run_mode"] == "oneshot"

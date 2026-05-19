@@ -160,13 +160,14 @@ def test_opened_runs_sync_in_oneshot_mode(git_module, monkeypatch):
 
     ctx = Context(
         path="/repo/note.md",
-        config={"git_pull_on_opened_event": True, "oneshot_event": "modified"},
+        config={"git_pull_on_opened_event": True},
         arg_lines={},
     )
     system = System(
         event=FileOpenedEvent("/repo/note.md"),
         global_template=[],
         modules=[git_module],
+        run_mode="oneshot",
     )
     git_module.opened(ctx, system)
 

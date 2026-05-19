@@ -22,9 +22,11 @@ class _ModA(AbstractModule):
 
     def __init__(self):
         self.calls = 0
+        self.last_run_mode = None
 
     def modified(self, ctx: Context, system: System):
         self.calls += 1
+        self.last_run_mode = system.run_mode
         return {ctx.path: 1}
 
 
@@ -167,3 +169,22 @@ def test_run_skips_all_modules_for_blacklisted_paths(tmp_path: Path):
     assert a.calls == 0
     assert c.calls == 0
     assert ignore_paths is None
+
+
+def test_run_passes_oneshot_run_mode_to_system(tmp_path: Path):
+    note = tmp_path / "n.md"
+    note.write_text("hello\n", encoding="utf-8")
+    event = FileModifiedEvent(str(note))
+    a = _ModA()
+
+    manager = ModuleManager(
+        modules=[a],
+        args=[],
+        system_config=_SYSTEM_CONFIG,
+        run_mode="oneshot",
+    )
+
+    manager.run(str(note), event)
+
+    assert a.calls == 1
+    assert a.last_run_mode == "oneshot"

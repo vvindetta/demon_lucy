@@ -14,14 +14,26 @@ from lucy_notes_manager.lib.args import (
     parse_args,
 )
 from lucy_notes_manager.lib.path import canonical_path
-from lucy_notes_manager.modules.abstract_module import AbstractModule, Context, System
+from lucy_notes_manager.modules.abstract_module import (
+    AbstractModule,
+    Context,
+    RunMode,
+    System,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class ModuleManager:
-    def __init__(self, modules: List[AbstractModule], args, system_config: dict):
+    def __init__(
+        self,
+        modules: List[AbstractModule],
+        args,
+        system_config: dict,
+        run_mode: RunMode = "daemon",
+    ):
         self.modules = modules
+        self.run_mode: RunMode = run_mode
         self.template: Template = [
             (
                 "--modules-force-enable",
@@ -193,6 +205,7 @@ class ModuleManager:
                     event=event,
                     global_template=self.template,
                     modules=self.modules,
+                    run_mode=self.run_mode,
                 ),
             )
             logger.info(f"END: {module.name}")
