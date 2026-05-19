@@ -5,7 +5,7 @@ Description=Run Lucy Notes oneshot periodically
 OnBootSec=5s
 OnUnitActiveSec=1h
 Persistent=true
-Unit=lucy-notes-oneshot.service
+Unit=lucy-oneshot.service
 
 [Install]
 WantedBy=timers.target

@@ -89,35 +89,62 @@ git clone https://codeberg.org/Vindetta/lucy_notes_daemon && cd lucy_notes_daemo
 pip install -r requirements.txt
 ```
 
-3. Setup ```--sys-watch-paths``` in ```config.txt```
+3. Create a notes config file and set at least `--sys-watch-paths "/home/user/Notes"`.
 
-**Turn on file auto-update in your text editor!**
+**Turn on file auto-update in your text editor.**
 
-### Daemon mode
-```
+### Manual run
+
+Run the daemon:
+```text
 python3 main_daemon.py
 ```
 
-On Termux or other noisy file systems, opened events can be ignored:
-```
-python3 main_daemon.py --sys-disable-opened-events
-```
-
-### One-shot mode (single run)
-`main_oneshot.py` is an alternative runner: it triggers selected modules once for a specific event/path. Useful for scripts, shortcuts, and Termux tasks.
-
-```
+Run oneshot tasks manually (useful for scripts, scheduled runs, and Termux/Tasker):
+```text
 python3 main_oneshot.py \
-  --oneshot-event modified \
-  --oneshot-paths ~/Notes \
+  --oneshot-event opened \
+  --oneshot-paths "/home/user/Notes/file.md" \
   --oneshot-modules git
+```
+
+### Systemd setup
+
+The repo includes three units in `systemd-services/`:
+- [lucy-daemon.service](systemd-services/lucy-daemon.service): always-running watcher for real-time note events.
+- [lucy-oneshot.service](systemd-services/lucy-oneshot.service): single-run job (runs once and exits), used for periodic/manual tasks.
+- [lucy-oneshot.timer](systemd-services/lucy-oneshot.timer): schedule that starts `lucy-oneshot.service`.
+
+Edit the service files and set your real repo path, config path, and oneshot target note.
+
+Link the units:
+```text
+mkdir -p ~/.config/systemd/user
+ln -sf "$PWD/systemd-services/lucy-daemon.service" ~/.config/systemd/user/lucy-daemon.service
+ln -sf "$PWD/systemd-services/lucy-oneshot.service" ~/.config/systemd/user/lucy-oneshot.service
+ln -sf "$PWD/systemd-services/lucy-oneshot.timer" ~/.config/systemd/user/lucy-oneshot.timer
+```
+
+Reload and enable:
+```text
+systemctl --user daemon-reload
+systemctl --user enable --now lucy-daemon.service
+systemctl --user enable --now lucy-oneshot.timer
+```
+
+Useful checks:
+```text
+systemctl --user status lucy-daemon.service
+systemctl --user status lucy-oneshot.timer
+systemctl --user start lucy-oneshot.service
+journalctl --user -u lucy-daemon.service -f
 ```
 
 
 ## Modules
 
 To add new modules, edit `lucy_notes_manager/runtime.py` (`build_lucy_modules`).
-Hot reload and install/uninstall commands are in the roadmap.
+Hot reload and module install/uninstall commands are not implemented yet; restart `lucy-daemon.service` after module/runtime changes.
 
 ### List of available modules
 
