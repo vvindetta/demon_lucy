@@ -12,7 +12,6 @@ from urllib.parse import urlparse
 
 from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.modules.git.executor import GitExecutor, combined_output
-from lucy_notes_manager.lib.path import abs_expand_path
 from lucy_notes_manager.modules.git.helpers import union_resolve_text
 
 logger = logging.getLogger(__name__)
@@ -138,18 +137,6 @@ def git_environment(self, config: dict) -> Dict[str, str]:
     environment["LC_ALL"] = "C"
     environment["LANG"] = "C"
     environment["LANGUAGE"] = "C"
-
-    key_path_raw = config["git_ssh_key_path"].strip()
-    if not key_path_raw:
-        return environment
-
-    key_path = abs_expand_path(key_path_raw)
-    environment["GIT_SSH_COMMAND"] = (
-        f'ssh -i "{key_path}" '
-        f"-o IdentitiesOnly=yes "
-        f"-o BatchMode=yes "
-        f"-o StrictHostKeyChecking=accept-new"
-    )
     return environment
 
 

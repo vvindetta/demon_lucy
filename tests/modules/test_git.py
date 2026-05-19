@@ -76,7 +76,7 @@ def test_git_environment_forces_c_locale_and_disables_prompt(git_module, monkeyp
     monkeypatch.setenv("LC_ALL", "ru_RU.UTF-8")
     monkeypatch.setenv("LANGUAGE", "ru_RU:en_US")
 
-    environment = git_ops.git_environment(git_module, {"git_ssh_key_path": ""})
+    environment = git_ops.git_environment(git_module, {})
 
     assert environment["GIT_TERMINAL_PROMPT"] == "0"
     assert environment["LC_ALL"] == "C"
@@ -597,7 +597,6 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
             "git_push_auto_merge": True,
             "git_upstream_auto_set": True,
             "git_merge_autoresolve": "union",
-            "git_ssh_key_path": "",
         },
         wants_pull=False,
         run_in_background=False,

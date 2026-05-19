@@ -25,13 +25,6 @@ GIT_TEMPLATE: Template = [
         False,
     ),
     (
-        "--git-ssh-key-path",
-        str,
-        "",
-        "Path to SSH private key for Git operations (no .pub). Used via GIT_SSH_COMMAND. Example: --git-ssh-key-path ~/.ssh/id_ed25519.",
-        False,
-    ),
-    (
         "--git-pull-on-opened-event",
         bool,
         True,
