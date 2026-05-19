@@ -118,11 +118,11 @@ def test_auto_resolve_markers_stages_conflicts_and_commits(git_module, monkeypat
     def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
         _ = timeout_seconds
         calls.append(list(arguments))
-        if arguments == ["diff", "--name-only", "--diff-filter=U"]:
+        if arguments == ["diff", "--name-only", "-z", "--diff-filter=U"]:
             return subprocess.CompletedProcess(
                 args=["git"] + arguments,
                 returncode=0,
-                stdout="now.md\nnext.md\n",
+                stdout="now.md\x00next.md\x00",
                 stderr="",
             )
         if arguments[:2] == ["add", "-A"]:
@@ -155,6 +155,30 @@ def test_auto_resolve_markers_stages_conflicts_and_commits(git_module, monkeypat
     assert ["add", "-A", "--", "now.md"] in calls
     assert ["add", "-A", "--", "next.md"] in calls
     assert ["commit", "--no-edit"] in calls
+
+
+def test_conflicted_files_parses_nul_separated_paths(git_module, monkeypatch):
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments == ["diff", "--name-only", "-z", "--diff-filter=U"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout='→ now.md\x00folder/"quoted".md\x00',
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_ops, "run_git", _run_git)
+
+    files = git_ops.conflicted_files(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        timeout_seconds=5.0,
+    )
+
+    assert files == ['→ now.md', 'folder/"quoted".md']
 
 
 def test_git_environment_forces_c_locale_and_disables_prompt(git_module, monkeypatch):
@@ -694,11 +718,11 @@ def test_safe_pull_merge_conflict_markers_mode_commits_and_returns_true(
                 stdout="",
                 stderr="pull conflict",
             )
-        if arguments == ["diff", "--name-only", "--diff-filter=U"]:
+        if arguments == ["diff", "--name-only", "-z", "--diff-filter=U"]:
             return subprocess.CompletedProcess(
                 args=["git"] + arguments,
                 returncode=0,
-                stdout="now.md\n",
+                stdout="now.md\x00",
                 stderr="",
             )
         if arguments[:2] == ["add", "-A"]:

@@ -71,16 +71,17 @@ def conflicted_files(
     result = run_git_fn(
         self_obj,
         repo_root,
-        ["diff", "--name-only", "--diff-filter=U"],
+        ["diff", "--name-only", "-z", "--diff-filter=U"],
         environment,
         timeout_seconds,
     )
     if result.returncode != 0:
         return []
+    raw_output = result.stdout or ""
     return [
-        line_text.strip()
-        for line_text in (result.stdout or "").splitlines()
-        if line_text.strip()
+        item
+        for item in raw_output.split("\x00")
+        if item
     ]
 
 
