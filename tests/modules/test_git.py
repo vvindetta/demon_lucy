@@ -510,7 +510,7 @@ def test_run_git_retries_after_stale_index_lock(git_module, monkeypatch, tmp_pat
     assert not lock_path.exists()
 
 
-def test_run_git_does_not_remove_recent_index_lock(git_module, monkeypatch, tmp_path):
+def test_run_git_removes_recent_index_lock(git_module, monkeypatch, tmp_path):
     repo_root = tmp_path / "repo"
     git_dir = repo_root / ".git"
     git_dir.mkdir(parents=True)
@@ -552,8 +552,8 @@ def test_run_git_does_not_remove_recent_index_lock(git_module, monkeypatch, tmp_
     )
 
     assert result.returncode != 0
-    assert attempts["count"] == 4
-    assert lock_path.exists()
+    assert attempts["count"] == 2
+    assert not lock_path.exists()
 
 
 def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(

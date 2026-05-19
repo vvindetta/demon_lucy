@@ -19,37 +19,23 @@ def clear_stale_index_lock(
     min_stale_age_seconds: float,
     logger,
 ) -> bool:
+    _ = min_stale_age_seconds
     lock_path = index_lock_path(repo_root)
-
-    try:
-        lock_mtime_seconds = os.path.getmtime(lock_path)
-    except FileNotFoundError:
-        return False
-    except OSError:
-        logger.exception("failed to inspect git index.lock | repo=%s", repo_root)
-        return False
-
-    lock_age_seconds = time.time() - lock_mtime_seconds
-    if lock_age_seconds < min_stale_age_seconds:
-        logger.warning(
-            "git index.lock is recent; skip auto-remove | repo=%s | age_seconds=%.1f",
-            repo_root,
-            lock_age_seconds,
-        )
-        return False
 
     try:
         os.remove(lock_path)
     except FileNotFoundError:
-        return True
+        return False
+    except IsADirectoryError:
+        logger.error("git index.lock path is a directory; cannot remove | repo=%s", repo_root)
+        return False
     except OSError:
-        logger.exception("failed to remove stale git index.lock | repo=%s", repo_root)
+        logger.exception("failed to remove git index.lock | repo=%s", repo_root)
         return False
 
     logger.warning(
-        "removed stale git index.lock before retrying pull | repo=%s | age_seconds=%.1f",
+        "removed git index.lock before retrying command | repo=%s",
         repo_root,
-        lock_age_seconds,
     )
     return True
 
@@ -97,7 +83,7 @@ def run_git(
 
         if clear_stale_index_lock_fn(repo_root):
             logger.warning(
-                "retrying git command after stale index.lock cleanup | repo=%s | args=%s",
+                "retrying git command after index.lock cleanup | repo=%s | args=%s",
                 repo_root,
                 " ".join(arguments[:4]),
             )
