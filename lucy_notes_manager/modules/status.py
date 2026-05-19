@@ -295,8 +295,40 @@ class Status(AbstractModule):
         except ValueError:
             return None
 
+    def _git_last_synced_timestamp(self, path: str) -> Optional[float]:
+        repo_root = find_parent_with(path, ".git")
+        if not repo_root:
+            return None
+
+        for revision in ("@{u}", "HEAD"):
+            try:
+                result = subprocess.run(
+                    ["git", "log", "-1", "--format=%ct", revision],
+                    cwd=repo_root,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                    timeout=2.0,
+                )
+            except (OSError, subprocess.SubprocessError):
+                return None
+
+            if result.returncode != 0:
+                continue
+
+            raw_timestamp = (result.stdout or "").strip()
+            if not raw_timestamp:
+                continue
+
+            try:
+                return float(raw_timestamp)
+            except ValueError:
+                continue
+        return None
+
     def _git_age_label(self, path: str) -> str:
-        last_commit_ts = self._git_last_commit_timestamp(path)
+        last_commit_ts = self._git_last_synced_timestamp(path)
         if last_commit_ts is None:
             return "0m"
         age_minutes = int(max(0.0, time.time() - last_commit_ts) // 60.0)

@@ -618,6 +618,25 @@ class _PullPlan:
     remote_name: Optional[str]
 
 
+def _notify_pull_waiting_for_network(
+    repo_root: str,
+    remote_name: Optional[str],
+    reason: str,
+    notify_config: Mapping[str, Any],
+) -> None:
+    remote_label = remote_name or "unknown"
+    safe_notify(
+        name=f"pullwait:{repo_root}",
+        message=(
+            f"Repository:\n{repo_root}\n\n"
+            f"Remote:\n{remote_label}\n\n"
+            f"Pull waiting for network.\n\n"
+            f"Reason:\n{reason[:600]}"
+        ),
+        config=notify_config,
+    )
+
+
 def _remote_is_reachable_or_wait(
     self,
     repo_root: str,
@@ -658,6 +677,12 @@ def _resolve_pull_plan(
             operation_timeout_seconds=operation_timeout_seconds,
             network_probe_timeout_seconds=network_probe_timeout_seconds,
         ):
+            _notify_pull_waiting_for_network(
+                repo_root=repo_root,
+                remote_name=remote_name,
+                reason="Remote endpoint is unreachable.",
+                notify_config=notify_config,
+            )
             return None
         return _PullPlan(
             command=["pull", "--no-rebase", "--no-edit"],
@@ -690,6 +715,12 @@ def _resolve_pull_plan(
         operation_timeout_seconds=operation_timeout_seconds,
         network_probe_timeout_seconds=network_probe_timeout_seconds,
     ):
+        _notify_pull_waiting_for_network(
+            repo_root=repo_root,
+            remote_name=remote_name,
+            reason="Remote endpoint is unreachable.",
+            notify_config=notify_config,
+        )
         return None
 
     remote_branch_exists_value = remote_branch_exists(
@@ -756,6 +787,12 @@ def _handle_pull_timeout(
         logger.info(
             "git pull timed out while network is offline; waiting for network | repo=%s",
             repo_root,
+        )
+        _notify_pull_waiting_for_network(
+            repo_root=repo_root,
+            remote_name=remote_name,
+            reason="git pull timed out and remote looks offline.",
+            notify_config=notify_config,
         )
         return False
 
@@ -837,6 +874,12 @@ def _handle_pull_failure(
         logger.info(
             "git pull failed because network is offline; waiting for network | repo=%s",
             repo_root,
+        )
+        _notify_pull_waiting_for_network(
+            repo_root=repo_root,
+            remote_name=None,
+            reason=f"git pull failed with offline marker.\n{pull_error[:600]}",
+            notify_config=notify_config,
         )
         return False
 

@@ -280,6 +280,80 @@ def test_status_git_update_uses_compact_units_and_ticks(tmp_path: Path, monkeypa
     assert not first_path.exists()
 
 
+def test_status_git_update_prefers_upstream_timestamp(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+
+    def _run(cmd, **_kwargs):
+        if cmd[-1] == "@{u}":
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=f"{int(200000.0 - (5.2 * 3600.0))}\n",
+                stderr="",
+            )
+        if cmd[-1] == "HEAD":
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=f"{int(200000.0 - 60.0)}\n",
+                stderr="",
+            )
+        raise AssertionError(f"unexpected git command: {cmd}")
+
+    monkeypatch.setattr(status_mod.subprocess, "run", _run)
+
+    module = Status()
+    system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
+    changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
+
+    new_path = tmp_path / _inv("5h")
+    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert new_path.exists()
+
+
+def test_status_git_update_falls_back_to_head_when_upstream_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+
+    def _run(cmd, **_kwargs):
+        if cmd[-1] == "@{u}":
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=128,
+                stdout="",
+                stderr="fatal: no upstream configured",
+            )
+        if cmd[-1] == "HEAD":
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=f"{int(200000.0 - (2.3 * 3600.0))}\n",
+                stderr="",
+            )
+        raise AssertionError(f"unexpected git command: {cmd}")
+
+    monkeypatch.setattr(status_mod.subprocess, "run", _run)
+
+    module = Status()
+    system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
+    changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
+
+    new_path = tmp_path / _inv("2h")
+    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert new_path.exists()
+
+
 def test_status_ticker_interval_keeps_git_fast_window_temporary(monkeypatch) -> None:
     now_state = {"value": 1000.0}
     monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])

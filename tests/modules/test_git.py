@@ -210,7 +210,7 @@ def test_parse_remote_endpoint_handles_common_git_remote_shapes(
     assert git_ops.parse_remote_endpoint(remote) == expected
 
 
-def test_safe_pull_merge_waits_for_network_without_notify_when_upstream(git_module, monkeypatch):
+def test_safe_pull_merge_waits_for_network_and_notifies_when_upstream(git_module, monkeypatch):
     notifications: list[dict] = []
 
     monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
@@ -237,10 +237,12 @@ def test_safe_pull_merge_waits_for_network_without_notify_when_upstream(git_modu
     )
 
     assert pulled is False
-    assert notifications == []
+    assert [item["name"] for item in notifications] == ["pullwait:/repo"]
 
 
-def test_safe_pull_merge_skips_remote_branch_lookup_when_offline(git_module, monkeypatch):
+def test_safe_pull_merge_skips_remote_branch_lookup_and_notifies_when_offline(
+    git_module, monkeypatch
+):
     notifications: list[dict] = []
 
     monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
@@ -268,10 +270,10 @@ def test_safe_pull_merge_skips_remote_branch_lookup_when_offline(git_module, mon
     )
 
     assert pulled is False
-    assert notifications == []
+    assert [item["name"] for item in notifications] == ["pullwait:/repo"]
 
 
-def test_safe_pull_merge_timeout_while_offline_skips_notify(git_module, monkeypatch):
+def test_safe_pull_merge_timeout_while_offline_notifies_waiting_state(git_module, monkeypatch):
     notifications: list[dict] = []
     reachability_calls = {"count": 0}
 
@@ -304,7 +306,41 @@ def test_safe_pull_merge_timeout_while_offline_skips_notify(git_module, monkeypa
     )
 
     assert pulled is False
-    assert notifications == []
+    assert [item["name"] for item in notifications] == ["pullwait:/repo"]
+
+
+def test_safe_pull_merge_offline_marker_notifies_waiting_state(git_module, monkeypatch):
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops,
+        "run_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["git", "pull"],
+            returncode=1,
+            stdout="",
+            stderr="ssh: connect to host example.com port 22: Connection timed out",
+        ),
+    )
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode="union",
+        notify_config=_NOTIFY_CFG,
+        auto_set_upstream=True,
+        pull_offline_error_markers=["connection timed out"],
+    )
+
+    assert pulled is False
+    assert [item["name"] for item in notifications] == ["pullwait:/repo"]
 
 
 def test_run_git_retries_after_stale_index_lock(git_module, monkeypatch, tmp_path):
