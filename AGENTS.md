@@ -43,12 +43,14 @@ When renaming a flag, update all related places at once:
 - every `config[...]` access;
 - manual/help text;
 - README examples;
+- `ARGS_CHEATSHEET.md`;
 - tests;
 
 After editing, check:
 
 ```text
 rg "old_flag_or_dest"
+rg "new_flag" ARGS_CHEATSHEET.md
 pytest
 git diff --check
 ```

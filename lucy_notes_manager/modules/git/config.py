@@ -35,28 +35,7 @@ GIT_TEMPLATE: Template = [
         "--git-pull-on-opened-event",
         bool,
         True,
-        "Automatically run 'git pull --no-rebase' when a repo is opened. Never uses rebase or force.",
-        False,
-    ),
-    (
-        "--git-pull-interval-hours",
-        float,
-        0.0,
-        "Run pull-only sync every N hours for active repos. Set 0 to disable (default).",
-        False,
-    ),
-    (
-        "--git-pull-cooldown-min-seconds",
-        float,
-        10.0,
-        "Minimum cooldown (seconds) between auto-pulls triggered by opened.",
-        False,
-    ),
-    (
-        "--git-pull-cooldown-max-seconds",
-        float,
-        200.0,
-        "Maximum cooldown cap (seconds). Cooldown progresses (doubles) if opened triggers too often.",
+        "Run 'git pull --no-rebase' for opened events. Never uses rebase or force.",
         False,
     ),
     (
@@ -79,21 +58,6 @@ GIT_TEMPLATE: Template = [
         "union",
         "How to auto-resolve merge conflicts during auto-merge: "
         "'none' (do not resolve), 'ours' (keep local), 'theirs' (keep remote), 'union' (keep both sides, remove markers).",
-        False,
-    ),
-    (
-        "--git-batch-debounce-seconds",
-        float,
-        0.8,
-        "Debounce window in seconds: group file events and commit/push once after changes calm down.",
-        False,
-    ),
-    (
-        "--git-batch-max-seconds",
-        float,
-        8.0,
-        "Maximum time to keep a non-pull batch pending while new events keep arriving. "
-        "Set 0 to disable forced flush.",
         False,
     ),
     (
@@ -138,17 +102,24 @@ GIT_TEMPLATE: Template = [
     ),
     ("--git-push-timeout-seconds", float, 20.0, "Timeout (seconds) for git push.", False),
     (
-        "--git-push-backoff-start-seconds",
+        "--git-sync-retry-window-seconds",
         float,
-        5.0,
-        "Initial backoff (seconds) before retrying push after a failure.",
+        120.0,
+        "How long background git sync retries pull/push failures before giving up. Set 0 to disable retries.",
         False,
     ),
     (
-        "--git-push-backoff-max-seconds",
+        "--git-sync-retry-backoff-start-seconds",
         float,
-        120.0,
-        "Maximum backoff (seconds) cap for repeated push failures.",
+        5.0,
+        "Initial retry delay in seconds for background git sync retries.",
+        False,
+    ),
+    (
+        "--git-sync-retry-backoff-max-seconds",
+        float,
+        60.0,
+        "Maximum retry delay cap in seconds for background git sync retries.",
         False,
     ),
 ]

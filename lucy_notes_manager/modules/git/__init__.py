@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
-import time
 from datetime import datetime
-from queue import Queue
 from typing import Optional
 
 from lucy_notes_manager.lib.args import Template
@@ -25,15 +22,9 @@ from lucy_notes_manager.modules.git.config import (
 )
 from lucy_notes_manager.modules.git.helpers import to_str
 from lucy_notes_manager.modules.git.types import _RepoBatch
-from lucy_notes_manager.modules.git.worker import enqueue, worker_loop
+from lucy_notes_manager.modules.git.worker import process_event
 
 logger = logging.getLogger(__name__)
-_ONESHOT_MODE = False
-
-
-def set_oneshot_mode(enabled: bool) -> None:
-    global _ONESHOT_MODE
-    _ONESHOT_MODE = bool(enabled)
 
 
 class Git(AbstractModule):
@@ -44,39 +35,13 @@ class Git(AbstractModule):
 
     def __init__(self) -> None:
         super().__init__()
-        self._oneshot_mode = _ONESHOT_MODE
-        self._event_queue: Queue[tuple[str, str, list[str], dict, bool]] = Queue()
-        self._pending_batches: dict[str, _RepoBatch] = {}
-        self._pending_lock = threading.Lock()
-
-        self._push_next_allowed_at: dict[str, float] = {}
-        self._push_backoff_seconds: dict[str, float] = {}
-
-        # opened pull cooldown progression (per repo)
-        self._pull_next_allowed_at: dict[str, float] = {}
-        self._pull_cooldown_seconds: dict[str, float] = {}
-
-        # periodic auto-pull state (per repo)
-        self._periodic_pull_next_at: dict[str, float] = {}
-        self._periodic_pull_intervals_seconds: dict[str, float] = {}
-        self._periodic_pull_configs: dict[str, dict] = {}
-
-        self._worker_thread: threading.Thread | None = None
-        if not self._oneshot_mode:
-            self._worker_thread = threading.Thread(
-                target=lambda: worker_loop(self),
-                daemon=True,
-            )
-            self._worker_thread.start()
 
     def _build_commit_message(self, batch: _RepoBatch, changed_paths: list[str]) -> str:
-        event_summary = "+".join(sorted(batch.event_types)) if batch.event_types else "change"
+        event_summary = batch.event_type or "change"
 
         file_names = [os.path.basename(path_item) for path_item in changed_paths if path_item]
         if not file_names and batch.hinted_paths:
-            file_names = [
-                os.path.basename(path_item) for path_item in sorted(batch.hinted_paths)
-            ]
+            file_names = [os.path.basename(path_item) for path_item in batch.hinted_paths]
 
         shown_names = ", ".join(file_names[:8])
         if len(file_names) > 8:
@@ -89,36 +54,10 @@ class Git(AbstractModule):
             message_text += f" [{datetime.now().strftime(batch.timestamp_format)}]"
         return message_text
 
-    def _pull_allowed_with_progression(
-        self,
-        repo_root: str,
-        cooldown_min_seconds: float,
-        cooldown_max_seconds: float,
-    ) -> bool:
-        now = time.time()
-        next_allowed = self._pull_next_allowed_at.get(repo_root, 0.0)
-        current_cd = self._pull_cooldown_seconds.get(repo_root, cooldown_min_seconds)
-
-        if now < next_allowed:
-            new_cd = min(max(current_cd, cooldown_min_seconds) * 2.0, cooldown_max_seconds)
-            self._pull_cooldown_seconds[repo_root] = new_cd
-            self._pull_next_allowed_at[repo_root] = max(next_allowed, now + new_cd)
-            return False
-
-        self._pull_cooldown_seconds[repo_root] = cooldown_min_seconds
-        self._pull_next_allowed_at[repo_root] = now + cooldown_min_seconds
-        return True
-
-    def _register_push_failure(
-        self, repo_root: str, backoff_start_seconds: float, backoff_max_seconds: float
-    ) -> None:
-        current_backoff = self._push_backoff_seconds.get(repo_root, backoff_start_seconds)
-        new_backoff = min(
-            max(current_backoff, backoff_start_seconds) * 2.0,
-            backoff_max_seconds,
-        )
-        self._push_backoff_seconds[repo_root] = new_backoff
-        self._push_next_allowed_at[repo_root] = time.time() + new_backoff
+    @staticmethod
+    def _should_run_in_background(config: dict) -> bool:
+        # One-shot runner should stay synchronous so the process exits after Git sync is done.
+        return "oneshot_event" not in config
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         ctx_path = abs_expand_path(to_str(ctx.path)) if getattr(ctx, "path", None) else ""
@@ -132,13 +71,14 @@ class Git(AbstractModule):
         if not ctx.config["git_pull_on_opened_event"]:
             return None
 
-        enqueue(
+        process_event(
             self,
             repo_root=repo_root,
             event_type="opened",
             paths=[to_str(ctx.path)],
             config_snapshot=ctx.config,
             wants_pull=True,
+            run_in_background=self._should_run_in_background(ctx.config),
         )
         return None
 
@@ -192,12 +132,13 @@ class Git(AbstractModule):
             if destination_path:
                 paths_to_hint.append(destination_path)
 
-        enqueue(
+        process_event(
             self,
             repo_root=repo_root,
             event_type=event_type,
             paths=paths_to_hint,
             config_snapshot=ctx.config,
             wants_pull=False,
+            run_in_background=self._should_run_in_background(ctx.config),
         )
         return None

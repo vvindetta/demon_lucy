@@ -1,0 +1,7 @@
+[Unit]
+Description=Lucy Notes oneshot run
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/user/lucy_notes_daemon
+ExecStart=/usr/bin/python3 /home/user/lucy_notes_daemon/main_oneshot.py --oneshot-event opened --oneshot-paths "/home/user/Notes/file.txt" --oneshot-modules git today

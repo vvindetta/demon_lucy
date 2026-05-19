@@ -45,6 +45,8 @@ You can provide flags in three places:
 2. In config.txt (global defaults)
 3. At startup: ```python3 main_daemon.py --some-flag```
 
+For a compact list of all current arguments, see args [CHEATSHEET.md](CHEATSHEET.md).
+
 ### System module
 
 ```--help``` for help message: 
@@ -120,15 +122,18 @@ Hot reload and install/uninstall commands are in the roadmap.
 ### List of available modules
 
 **Basic:**
-- `sys`: runtime information, man(ual) messages
-- `formatter`: formatting module for
-  `--fmt-todo`: `- point` → `- [ ] point`
-- `banner`: prints an ASCII banner with the current date or custom text
-- `renamer`: renames a file using `--rename name`
-- `today`: archives stale `now.md` into `past.md`
-- `cmd`: run a terminal command with `--cmd command`. Disabled in code by default.
-  Cmd module may cause security issues when used with the `git`.
+- `sys`: writes runtime information, config output, event details, and manual text into notes.
+- `formatter`: formats note text, including todo list conversion and blank-space padding.
+- `banner`: inserts ASCII banner text or date banners into notes.
+- `renamer`: renames notes manually or by simple date-based create rules.
+- `status`: adds date, time, Git, or animated status markers to filenames. Useful when the filename itself should show what state the note is in without opening it.
+- `linker`: creates or cleans repository-root symlinks for active notes.
+- `dropdir`: handles moved files in configured drop directories. Useful for temporary inbox/drop folders where moving a file should immediately trigger a follow-up action.
+- `today`: archives stale active notes into a past/archive note. Useful for keeping one current daily scratch note while automatically moving old content into history.
+- `cmd`: runs local commands and writes command output into notes. Disabled by default.
 
 **Integrations:**
-- `git`: auto commit, pull, push, etc. Please install GIT cli. 
-- `plasma_sync`: sync KDE Plasma widgets ([see video](media/plasma_sync.mp4))
+- `git`: syncs notes with a remote Git repository.
+- `plasma_sync`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_sync.mp4)).
+
+For a compact list of all current arguments, see args [CHEATSHEET.md](CHEATSHEET.md).

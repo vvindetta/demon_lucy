@@ -15,7 +15,6 @@ from watchdog.events import (
 from lucy_notes_manager.lib.args import Template, setup_config_and_cli_args
 from lucy_notes_manager.lib.path import abs_expand_path
 from lucy_notes_manager.module_manager import ModuleManager
-from lucy_notes_manager.modules.git import set_oneshot_mode
 from lucy_notes_manager.runtime import (
     LUCY_STARTUP_TEMPLATE,
     configure_logging,
@@ -138,24 +137,20 @@ def _build_event_plan(config: dict) -> list[tuple[str, FileSystemEvent]]:
 
 def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
     configure_logging(config)
-    set_oneshot_mode(True)
-    try:
-        modules = _select_modules(config)
-        manager = ModuleManager(
-            modules=modules,
-            args=list(unknown_args),
-            system_config=config,
-        )
+    modules = _select_modules(config)
+    manager = ModuleManager(
+        modules=modules,
+        args=list(unknown_args),
+        system_config=config,
+    )
 
-        plan = _build_event_plan(config)
-        for path_value, event in plan:
-            logging.info("ONESHOT EVENT: %s %s", event.event_type, path_value)
-            manager.run(path=path_value, event=event)
+    plan = _build_event_plan(config)
+    for path_value, event in plan:
+        logging.info("ONESHOT EVENT: %s %s", event.event_type, path_value)
+        manager.run(path=path_value, event=event)
 
-        logging.info("ONESHOT DONE: events=%d modules=%d", len(plan), len(modules))
-        return 0
-    finally:
-        set_oneshot_mode(False)
+    logging.info("ONESHOT DONE: events=%d modules=%d", len(plan), len(modules))
+    return 0
 
 
 def main() -> int:

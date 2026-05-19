@@ -1,0 +1,19 @@
+[Unit]
+Description=Lucy Notes Daemon
+After=network.target
+
+[Service]
+Type=simple
+
+# IMPORTANT: set working directory to the project root
+WorkingDirectory=/home/user/lucy_notes_daemon
+
+ExecStart=/usr/bin/python3 /home/user/lucy_notes_daemon/main_daemon.py --sys-config-path /home/user/Notes/config.txt
+
+Restart=on-failure
+RestartSec=2
+
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
