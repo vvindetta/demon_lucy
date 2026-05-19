@@ -195,7 +195,7 @@ Example:
 | `--git-pull-on-opened-event` | `bool` | Run pull-only sync when a repository receives an `opened` event. |
 | `--git-push-auto-merge` | `bool` | If push is rejected because remote is ahead, pull/merge and retry push. |
 | `--git-upstream-auto-set` | `bool` | Try to set upstream automatically when branch has none. |
-| `--git-merge-autoresolve` | `str` | Conflict strategy: `none`, `ours`, `theirs`, `union`. |
+| `--git-merge-autoresolve` | `str` | Conflict strategy: `none`, `ours`, `theirs`, `union`, `markers` (commit with conflict markers). |
 | `--git-command-timeout-seconds` | `float` | Timeout for git add/status/commit and similar operations. |
 | `--git-pull-timeout-seconds` | `float` | Timeout for git pull/merge operations. |
 | `--git-network-probe-timeout-seconds` | `float` | Timeout for remote network reachability probe before pull. |

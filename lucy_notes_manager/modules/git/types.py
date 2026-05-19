@@ -1,9 +1,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Dict, Union
 
 PathLike = Union[str, bytes]
+
+
+class MergeAutoresolveMode(str, Enum):
+    NONE = "none"
+    OURS = "ours"
+    THEIRS = "theirs"
+    UNION = "union"
+    MARKERS = "markers"
+
+
+def parse_merge_autoresolve_mode(raw_value: str) -> MergeAutoresolveMode:
+    normalized = str(raw_value or "").strip().lower()
+    for candidate in MergeAutoresolveMode:
+        if candidate.value == normalized:
+            return candidate
+    return MergeAutoresolveMode.NONE
+
+
+@dataclass(frozen=True)
+class GitPolicy:
+    auto_merge_on_push: bool = True
+    auto_set_upstream: bool = True
+    autoresolve_mode: MergeAutoresolveMode = MergeAutoresolveMode.UNION
+    network_probe_timeout_seconds: float = 0.0
+    pull_offline_error_markers: tuple[str, ...] = ()
 
 
 @dataclass
@@ -27,9 +53,4 @@ class _RepoBatch:
 
     notify_provider: str
     notify_min_interval_sec: float
-    network_probe_timeout_seconds: float = 0.0
-    pull_offline_error_markers: list[str] = field(default_factory=list)
-
-    auto_merge_on_push: bool = True
-    auto_set_upstream: bool = True
-    autoresolve_mode: str = "union"  # none|ours|theirs|union
+    policy: GitPolicy = field(default_factory=GitPolicy)

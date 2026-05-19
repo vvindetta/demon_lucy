@@ -50,7 +50,8 @@ GIT_TEMPLATE: Template = [
         str,
         "union",
         "How to auto-resolve merge conflicts during auto-merge: "
-        "'none' (do not resolve), 'ours' (keep local), 'theirs' (keep remote), 'union' (keep both sides, remove markers).",
+        "'none' (do not resolve), 'ours' (keep local), 'theirs' (keep remote), "
+        "'union' (keep both sides, remove markers), 'markers' (keep conflict markers and commit merge).",
         False,
     ),
     (

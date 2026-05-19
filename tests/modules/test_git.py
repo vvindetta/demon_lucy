@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import subprocess
-import threading
 import time
+from dataclasses import replace
 from datetime import datetime
 
 import pytest
@@ -15,6 +15,11 @@ import lucy_notes_manager.modules.git.operations as git_ops
 import lucy_notes_manager.modules.git.worker as git_worker
 from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.git import Git, _RepoBatch
+from lucy_notes_manager.modules.git.types import (
+    GitPolicy,
+    MergeAutoresolveMode,
+    parse_merge_autoresolve_mode,
+)
 
 _NOTIFY_CFG = {
     "sys_notification_provider": "termuxapi",
@@ -28,6 +33,45 @@ def git_module():
 
 
 def _mk_batch(**overrides) -> _RepoBatch:
+    policy = GitPolicy(
+        auto_merge_on_push=True,
+        auto_set_upstream=True,
+        autoresolve_mode=MergeAutoresolveMode.UNION,
+        network_probe_timeout_seconds=1.0,
+        pull_offline_error_markers=(),
+    )
+    if "policy" in overrides:
+        policy = overrides.pop("policy")
+    if "auto_merge_on_push" in overrides:
+        policy = replace(
+            policy,
+            auto_merge_on_push=bool(overrides.pop("auto_merge_on_push")),
+        )
+    if "auto_set_upstream" in overrides:
+        policy = replace(
+            policy,
+            auto_set_upstream=bool(overrides.pop("auto_set_upstream")),
+        )
+    if "autoresolve_mode" in overrides:
+        policy = replace(
+            policy,
+            autoresolve_mode=parse_merge_autoresolve_mode(
+                str(overrides.pop("autoresolve_mode"))
+            ),
+        )
+    if "network_probe_timeout_seconds" in overrides:
+        policy = replace(
+            policy,
+            network_probe_timeout_seconds=float(
+                overrides.pop("network_probe_timeout_seconds")
+            ),
+        )
+    if "pull_offline_error_markers" in overrides:
+        policy = replace(
+            policy,
+            pull_offline_error_markers=tuple(overrides.pop("pull_offline_error_markers")),
+        )
+
     values = {
         "repo_root": "/repo",
         "event_type": "modified",
@@ -45,11 +89,7 @@ def _mk_batch(**overrides) -> _RepoBatch:
         "sync_retry_backoff_max_seconds": 4.0,
         "notify_provider": "termuxapi",
         "notify_min_interval_sec": 10.0,
-        "network_probe_timeout_seconds": 1.0,
-        "pull_offline_error_markers": [],
-        "auto_merge_on_push": True,
-        "auto_set_upstream": True,
-        "autoresolve_mode": "union",
+        "policy": policy,
     }
     values.update(overrides)
     return _RepoBatch(**values)
@@ -70,6 +110,51 @@ def test_union_resolve_text_merges_conflict_content(git_module):
         "A\n<<<<<<< ours\none\n=======\ntwo\n>>>>>>> theirs\nB\n"
     )
     assert merged == "A\none\ntwo\nB\n"
+
+
+def test_auto_resolve_markers_stages_conflicts_and_commits(git_module, monkeypatch):
+    calls: list[list[str]] = []
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        calls.append(list(arguments))
+        if arguments == ["diff", "--name-only", "--diff-filter=U"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="now.md\nnext.md\n",
+                stderr="",
+            )
+        if arguments[:2] == ["add", "-A"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        if arguments == ["commit", "--no-edit"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="[main] merge commit",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_ops, "run_git", _run_git)
+
+    resolved = git_ops.auto_resolve_merge_conflicts(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        timeout_seconds=5.0,
+        autoresolve_mode="markers",
+    )
+
+    assert resolved is True
+    assert ["add", "-A", "--", "now.md"] in calls
+    assert ["add", "-A", "--", "next.md"] in calls
+    assert ["commit", "--no-edit"] in calls
 
 
 def test_git_environment_forces_c_locale_and_disables_prompt(git_module, monkeypatch):
@@ -531,6 +616,124 @@ def test_safe_pull_merge_conflict_abort_timeout_does_not_raise(git_module, monke
     assert any(item["name"] == "pull-conflict:/repo" for item in notifications)
 
 
+def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkeypatch):
+    notifications: list[dict] = []
+    resolve_modes: list[str] = []
+
+    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
+    monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: True)
+
+    def _auto_resolve_merge_conflicts(
+        _self,
+        _repo_root,
+        _environment,
+        _timeout_seconds,
+        autoresolve_mode,
+    ):
+        resolve_modes.append(autoresolve_mode)
+        return autoresolve_mode == "markers"
+
+    monkeypatch.setattr(git_ops, "auto_resolve_merge_conflicts", _auto_resolve_merge_conflicts)
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments and arguments[0] == "pull":
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=1,
+                stdout="",
+                stderr="pull conflict",
+            )
+        if arguments[:2] == ["merge", "--abort"]:
+            raise AssertionError("merge abort must not run when markers fallback succeeds")
+        return subprocess.CompletedProcess(
+            args=["git"] + arguments,
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+    monkeypatch.setattr(git_ops, "run_git", _run_git)
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode="union",
+        notify_config=_NOTIFY_CFG,
+        auto_set_upstream=True,
+    )
+
+    assert pulled is True
+    assert resolve_modes == ["union", "markers"]
+    assert not any(item["name"] == "pull-conflict:/repo" for item in notifications)
+
+
+def test_safe_pull_merge_conflict_markers_mode_commits_and_returns_true(
+    git_module, monkeypatch
+):
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
+    monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: True)
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments and arguments[0] == "pull":
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=1,
+                stdout="",
+                stderr="pull conflict",
+            )
+        if arguments == ["diff", "--name-only", "--diff-filter=U"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="now.md\n",
+                stderr="",
+            )
+        if arguments[:2] == ["add", "-A"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        if arguments == ["commit", "--no-edit"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="[main] merge commit",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_ops, "run_git", _run_git)
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode="markers",
+        notify_config=_NOTIFY_CFG,
+        auto_set_upstream=True,
+    )
+
+    assert pulled is True
+    assert not any(item["name"] == "pull-conflict:/repo" for item in notifications)
+
+
 def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkeypatch):
     notifications: list[dict] = []
 
@@ -538,7 +741,7 @@ def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkey
     monkeypatch.setattr(git_worker, "merge_in_progress", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         git_worker,
-        "auto_resolve_merge_conflicts",
+        "resolve_merge_conflicts_with_fallback",
         lambda *_args, **_kwargs: False,
     )
 
@@ -664,34 +867,35 @@ def test_process_event_serializes_repo_operations(git_module, monkeypatch):
         return True
 
     monkeypatch.setattr(git_worker, "process_batch", _process_batch)
+    repo_root = f"/repo-queue-{time.time_ns()}"
+    config_snapshot = {
+        "git_sync_retry_window_seconds": 0.0,
+        "git_sync_retry_backoff_start_seconds": 0.01,
+        "git_sync_retry_backoff_max_seconds": 0.01,
+    }
 
-    first = threading.Thread(
-        target=git_worker._process_event_once,
-        kwargs={
-            "self": git_module,
-            "repo_root": "/repo",
-            "event_type": "modified",
-            "paths": ["/repo/a.md"],
-            "config_snapshot": {},
-            "wants_pull": False,
-        },
+    git_worker.process_event(
+        self=git_module,
+        repo_root=repo_root,
+        event_type="modified",
+        paths=[f"{repo_root}/a.md"],
+        config_snapshot=config_snapshot,
+        wants_pull=False,
+        run_in_background=True,
     )
-    second = threading.Thread(
-        target=git_worker._process_event_once,
-        kwargs={
-            "self": git_module,
-            "repo_root": "/repo",
-            "event_type": "modified",
-            "paths": ["/repo/b.md"],
-            "config_snapshot": {},
-            "wants_pull": False,
-        },
+    git_worker.process_event(
+        self=git_module,
+        repo_root=repo_root,
+        event_type="modified",
+        paths=[f"{repo_root}/b.md"],
+        config_snapshot=config_snapshot,
+        wants_pull=False,
+        run_in_background=True,
     )
 
-    first.start()
-    second.start()
-    first.join()
-    second.join()
+    deadline = time.monotonic() + 2.0
+    while state["calls"] < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
 
     assert state["calls"] == 2
     assert state["max_inflight"] == 1

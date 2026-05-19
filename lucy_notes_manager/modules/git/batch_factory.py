@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from lucy_notes_manager.modules.git.types import _RepoBatch
+from lucy_notes_manager.modules.git.types import (
+    GitPolicy,
+    parse_merge_autoresolve_mode,
+    _RepoBatch,
+)
 
 ConfigSnapshot = Mapping[str, Any]
 
@@ -17,6 +21,17 @@ def _repo_batch_kwargs(
     wants_pull: bool,
 ) -> dict[str, Any]:
     hinted_paths = [path_item for path_item in paths if path_item]
+    policy = GitPolicy(
+        auto_merge_on_push=bool(config_snapshot["git_push_auto_merge"]),
+        auto_set_upstream=bool(config_snapshot["git_upstream_auto_set"]),
+        autoresolve_mode=parse_merge_autoresolve_mode(
+            str(config_snapshot["git_merge_autoresolve"])
+        ),
+        network_probe_timeout_seconds=float(
+            config_snapshot["git_network_probe_timeout_seconds"]
+        ),
+        pull_offline_error_markers=tuple(config_snapshot["git_pull_offline_error_markers"]),
+    )
     return {
         "repo_root": repo_root,
         "event_type": event_type,
@@ -36,13 +51,9 @@ def _repo_batch_kwargs(
         "sync_retry_backoff_max_seconds": config_snapshot[
             "git_sync_retry_backoff_max_seconds"
         ],
-        "network_probe_timeout_seconds": config_snapshot["git_network_probe_timeout_seconds"],
-        "pull_offline_error_markers": list(config_snapshot["git_pull_offline_error_markers"]),
         "notify_provider": config_snapshot["sys_notification_provider"],
         "notify_min_interval_sec": config_snapshot["sys_notification_min_interval_seconds"],
-        "auto_merge_on_push": config_snapshot["git_push_auto_merge"],
-        "auto_set_upstream": config_snapshot["git_upstream_auto_set"],
-        "autoresolve_mode": config_snapshot["git_merge_autoresolve"],
+        "policy": policy,
     }
 
 

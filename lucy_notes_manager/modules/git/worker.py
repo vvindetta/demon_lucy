@@ -5,6 +5,8 @@ import os
 import subprocess
 import threading
 import time
+from collections import deque
+from dataclasses import dataclass
 from typing import Any
 
 from lucy_notes_manager.lib import safe_notify
@@ -14,9 +16,10 @@ from lucy_notes_manager.modules.git.helpers import (
     push_rejected_needs_pull,
 )
 from lucy_notes_manager.modules.git.operations import (
-    auto_resolve_merge_conflicts,
+    abort_merge_safely,
     git_environment,
     merge_in_progress,
+    resolve_merge_conflicts_with_fallback,
     run_git,
     safe_pull_merge,
 )
@@ -24,18 +27,62 @@ from lucy_notes_manager.modules.git.types import _RepoBatch
 
 logger = logging.getLogger(__name__)
 _PULL_ONLY_EVENT_TYPES = {"opened"}
-_REPO_LOCKS: dict[str, threading.Lock] = {}
-_REPO_LOCKS_GUARD = threading.Lock()
+_REPO_QUEUES: dict[str, "_RepoQueueState"] = {}
+_REPO_QUEUES_GUARD = threading.Lock()
 
 
-def _repo_operation_lock(repo_root: str) -> threading.Lock:
-    repo_key = os.path.realpath(repo_root)
-    with _REPO_LOCKS_GUARD:
-        repo_lock = _REPO_LOCKS.get(repo_key)
-        if repo_lock is None:
-            repo_lock = threading.Lock()
-            _REPO_LOCKS[repo_key] = repo_lock
-    return repo_lock
+@dataclass
+class _QueuedRepoEvent:
+    module: Any
+    repo_root: str
+    event_type: str
+    paths: list[str]
+    config_snapshot: dict
+    wants_pull: bool
+
+
+@dataclass
+class _RepoQueueState:
+    pending: deque[_QueuedRepoEvent]
+    worker: threading.Thread | None = None
+
+
+def _repo_queue_key(repo_root: str) -> str:
+    return os.path.realpath(repo_root)
+
+
+def _repo_queue_worker_loop(state: _RepoQueueState) -> None:
+    while True:
+        with _REPO_QUEUES_GUARD:
+            if not state.pending:
+                state.worker = None
+                return
+            queued_event = state.pending.popleft()
+        try:
+            _run_event_with_retry_window(
+                self=queued_event.module,
+                repo_root=queued_event.repo_root,
+                event_type=queued_event.event_type,
+                paths=queued_event.paths,
+                config_snapshot=queued_event.config_snapshot,
+                wants_pull=queued_event.wants_pull,
+            )
+        except Exception:
+            logger.exception(
+                "git background event processing crashed | repo=%s | event_type=%s",
+                queued_event.repo_root,
+                queued_event.event_type,
+            )
+
+
+def _get_or_start_repo_queue(repo_root: str) -> _RepoQueueState:
+    repo_key = _repo_queue_key(repo_root)
+    with _REPO_QUEUES_GUARD:
+        queue_state = _REPO_QUEUES.get(repo_key)
+        if queue_state is None:
+            queue_state = _RepoQueueState(pending=deque())
+            _REPO_QUEUES[repo_key] = queue_state
+    return queue_state
 
 
 def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
@@ -71,16 +118,15 @@ def _process_event_once(
     config_snapshot: dict,
     wants_pull: bool,
 ) -> bool:
-    with _repo_operation_lock(repo_root):
-        batch = _build_batch(
-            self=self,
-            repo_root=repo_root,
-            event_type=event_type,
-            paths=paths,
-            config_snapshot=config_snapshot,
-            wants_pull=wants_pull,
-        )
-        return process_batch(self, batch)
+    batch = _build_batch(
+        self=self,
+        repo_root=repo_root,
+        event_type=event_type,
+        paths=paths,
+        config_snapshot=config_snapshot,
+        wants_pull=wants_pull,
+    )
+    return process_batch(self, batch)
 
 
 def _run_event_with_retry_window(
@@ -152,53 +198,27 @@ def process_event(
             wants_pull=wants_pull,
         )
 
-    runner = threading.Thread(
-        target=_run_event_with_retry_window,
-        kwargs={
-            "self": self,
-            "repo_root": repo_root,
-            "event_type": event_type,
-            "paths": list(paths),
-            "config_snapshot": dict(config_snapshot),
-            "wants_pull": wants_pull,
-        },
-        daemon=True,
+    queue_state = _get_or_start_repo_queue(repo_root)
+    queued_event = _QueuedRepoEvent(
+        module=self,
+        repo_root=repo_root,
+        event_type=event_type,
+        paths=list(paths),
+        config_snapshot=dict(config_snapshot),
+        wants_pull=bool(wants_pull),
     )
-    runner.start()
+    with _REPO_QUEUES_GUARD:
+        queue_state.pending.append(queued_event)
+        worker = queue_state.worker
+        if worker is None or not worker.is_alive():
+            worker = threading.Thread(
+                target=_repo_queue_worker_loop,
+                args=(queue_state,),
+                daemon=True,
+            )
+            queue_state.worker = worker
+            worker.start()
     return True
-
-
-def _abort_unfinished_merge(
-    self,
-    repo_root: str,
-    environment: dict[str, str],
-    git_timeout_seconds: float,
-) -> bool:
-    try:
-        abort_result = run_git(
-            self,
-            repo_root,
-            ["merge", "--abort"],
-            environment,
-            timeout_seconds=git_timeout_seconds,
-        )
-    except subprocess.TimeoutExpired:
-        logger.error("git merge --abort timed out | repo=%s", repo_root)
-        return False
-    except Exception:
-        logger.exception("git merge --abort crashed | repo=%s", repo_root)
-        return False
-
-    if abort_result.returncode == 0:
-        return True
-
-    abort_error = (abort_result.stderr or abort_result.stdout or "git merge --abort failed").strip()
-    logger.error(
-        "git merge --abort failed | repo=%s | error=%s",
-        repo_root,
-        abort_error[:1200],
-    )
-    return False
 
 
 def _ensure_merge_state_clean(
@@ -212,7 +232,7 @@ def _ensure_merge_state_clean(
     if not merge_in_progress(self, repo_root, environment, git_timeout_seconds):
         return True
 
-    resolved = auto_resolve_merge_conflicts(
+    resolved = resolve_merge_conflicts_with_fallback(
         self,
         repo_root,
         environment,
@@ -222,11 +242,11 @@ def _ensure_merge_state_clean(
     if resolved:
         return True
 
-    abort_ok = _abort_unfinished_merge(
+    abort_ok = abort_merge_safely(
         self=self,
         repo_root=repo_root,
         environment=environment,
-        git_timeout_seconds=git_timeout_seconds,
+        timeout_seconds=git_timeout_seconds,
     )
     abort_note = "" if abort_ok else " Merge abort failed or timed out."
     logger.error(
@@ -264,11 +284,11 @@ def _handle_pull_only_event(
         environment,
         pull_timeout_seconds=pull_timeout_seconds,
         operation_timeout_seconds=git_timeout_seconds,
-        autoresolve_mode=batch.autoresolve_mode,
+        autoresolve_mode=batch.policy.autoresolve_mode.value,
         notify_config=_notify_config_from_batch(batch),
-        auto_set_upstream=batch.auto_set_upstream,
-        network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
-        pull_offline_error_markers=batch.pull_offline_error_markers,
+        auto_set_upstream=batch.policy.auto_set_upstream,
+        network_probe_timeout_seconds=batch.policy.network_probe_timeout_seconds,
+        pull_offline_error_markers=list(batch.policy.pull_offline_error_markers),
     )
 
 
@@ -406,11 +426,11 @@ def _maybe_pull_before_push(
         environment,
         pull_timeout_seconds=pull_timeout_seconds,
         operation_timeout_seconds=git_timeout_seconds,
-        autoresolve_mode=batch.autoresolve_mode,
+        autoresolve_mode=batch.policy.autoresolve_mode.value,
         notify_config=_notify_config_from_batch(batch),
-        auto_set_upstream=batch.auto_set_upstream,
-        network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
-        pull_offline_error_markers=batch.pull_offline_error_markers,
+        auto_set_upstream=batch.policy.auto_set_upstream,
+        network_probe_timeout_seconds=batch.policy.network_probe_timeout_seconds,
+        pull_offline_error_markers=list(batch.policy.pull_offline_error_markers),
     )
 
 
@@ -472,7 +492,8 @@ def _attempt_push_with_retry(
             .strip()
         )
         should_pull_before_retry = (
-            batch.auto_merge_on_push and push_rejected_needs_pull(combined_push_output)
+            batch.policy.auto_merge_on_push
+            and push_rejected_needs_pull(combined_push_output)
         )
 
     if should_pull_before_retry:
@@ -482,11 +503,11 @@ def _attempt_push_with_retry(
             environment,
             pull_timeout_seconds=pull_timeout_seconds,
             operation_timeout_seconds=git_timeout_seconds,
-            autoresolve_mode=batch.autoresolve_mode,
+            autoresolve_mode=batch.policy.autoresolve_mode.value,
             notify_config=notify_config,
-            auto_set_upstream=batch.auto_set_upstream,
-            network_probe_timeout_seconds=batch.network_probe_timeout_seconds,
-            pull_offline_error_markers=batch.pull_offline_error_markers,
+            auto_set_upstream=batch.policy.auto_set_upstream,
+            network_probe_timeout_seconds=batch.policy.network_probe_timeout_seconds,
+            pull_offline_error_markers=list(batch.policy.pull_offline_error_markers),
         )
         if not pulled:
             logger.warning(
@@ -544,7 +565,7 @@ def process_batch(self, batch: _RepoBatch) -> bool:
         repo_root=repo_root,
         environment=environment,
         git_timeout_seconds=git_timeout_seconds,
-        autoresolve_mode=batch.autoresolve_mode,
+        autoresolve_mode=batch.policy.autoresolve_mode.value,
         notify_config=notify_config,
     ):
         return False

@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import logging
 import os
-import socket
 import subprocess
-import threading
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
-from urllib.parse import urlparse
 
 from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.modules.git.executor import GitExecutor, combined_output
 from lucy_notes_manager.modules.git.helpers import union_resolve_text
+from lucy_notes_manager.modules.git.ops import command_ops, conflict_ops, network_ops
 
 logger = logging.getLogger(__name__)
 _MIN_STALE_INDEX_LOCK_AGE_SECONDS = 60.0
@@ -21,59 +18,23 @@ _RECENT_INDEX_LOCK_RETRY_SLEEP_SECONDS = 1.0
 
 
 def _index_lock_path(repo_root: str) -> str:
-    return os.path.join(repo_root, ".git", "index.lock")
+    return command_ops.index_lock_path(repo_root)
 
 
 def failure_is_index_lock(error_text: str) -> bool:
-    return "index.lock" in (error_text or "").lower()
+    return command_ops.failure_is_index_lock(error_text)
 
 
 def clear_stale_index_lock(repo_root: str) -> bool:
-    lock_path = _index_lock_path(repo_root)
-
-    try:
-        lock_mtime_seconds = os.path.getmtime(lock_path)
-    except FileNotFoundError:
-        return False
-    except OSError:
-        logger.exception("failed to inspect git index.lock | repo=%s", repo_root)
-        return False
-
-    lock_age_seconds = time.time() - lock_mtime_seconds
-    if lock_age_seconds < _MIN_STALE_INDEX_LOCK_AGE_SECONDS:
-        logger.warning(
-            "git index.lock is recent; skip auto-remove | repo=%s | age_seconds=%.1f",
-            repo_root,
-            lock_age_seconds,
-        )
-        return False
-
-    try:
-        os.remove(lock_path)
-    except FileNotFoundError:
-        return True
-    except OSError:
-        logger.exception("failed to remove stale git index.lock | repo=%s", repo_root)
-        return False
-
-    logger.warning(
-        "removed stale git index.lock before retrying pull | repo=%s | age_seconds=%.1f",
+    return command_ops.clear_stale_index_lock(
         repo_root,
-        lock_age_seconds,
+        min_stale_age_seconds=_MIN_STALE_INDEX_LOCK_AGE_SECONDS,
+        logger=logger,
     )
-    return True
 
 
 def _index_lock_age_seconds(repo_root: str) -> float | None:
-    lock_path = _index_lock_path(repo_root)
-    try:
-        lock_mtime_seconds = os.path.getmtime(lock_path)
-    except FileNotFoundError:
-        return None
-    except OSError:
-        logger.exception("failed to inspect git index.lock | repo=%s", repo_root)
-        return None
-    return max(0.0, time.time() - lock_mtime_seconds)
+    return command_ops.index_lock_age_seconds(repo_root, logger=logger)
 
 
 def _resolve_address_infos(
@@ -81,71 +42,33 @@ def _resolve_address_infos(
     port_number: int,
     timeout_seconds: float,
 ) -> tuple[list[tuple], bool]:
-    resolver_result: dict[str, object] = {}
-    resolver_done = threading.Event()
-
-    def _resolve() -> None:
-        try:
-            resolver_result["address_infos"] = socket.getaddrinfo(
-                host_name,
-                port_number,
-                family=socket.AF_UNSPEC,
-                type=socket.SOCK_STREAM,
-            )
-        except OSError as exception:
-            resolver_result["error"] = exception
-        finally:
-            resolver_done.set()
-
-    resolver_thread = threading.Thread(target=_resolve, daemon=True)
-    resolver_thread.start()
-    if not resolver_done.wait(timeout_seconds):
-        return [], True
-
-    error_value = resolver_result.get("error")
-    if isinstance(error_value, OSError):
-        raise error_value
-
-    address_infos = resolver_result.get("address_infos")
-    if isinstance(address_infos, list):
-        return address_infos, False
-    return [], False
+    return network_ops.resolve_address_infos(
+        host_name=host_name,
+        port_number=port_number,
+        timeout_seconds=timeout_seconds,
+    )
 
 
-def _abort_merge_safely(
+def abort_merge_safely(
     self,
     repo_root: str,
     environment: Dict[str, str],
     timeout_seconds: float,
 ) -> bool:
-    try:
-        abort_result = run_git(
-            self,
-            repo_root,
-            ["merge", "--abort"],
-            environment,
-            timeout_seconds=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired:
-        logger.error("git merge --abort timed out | repo=%s", repo_root)
-        return False
-    except Exception:
-        logger.exception("git merge --abort crashed | repo=%s", repo_root)
-        return False
-
-    if abort_result.returncode == 0:
-        return True
-
-    abort_error = combined_output(abort_result) or "git merge --abort failed"
-    logger.error(
-        "git merge --abort failed | repo=%s | error=%s",
-        repo_root,
-        abort_error[:1200],
+    return conflict_ops.abort_merge_safely(
+        self_obj=self,
+        repo_root=repo_root,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+        run_git_fn=run_git,
+        combined_output_fn=combined_output,
+        logger=logger,
     )
-    return False
 
 
 def git_environment(self, config: dict) -> Dict[str, str]:
+    _ = self
+    _ = config
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
     environment["LC_ALL"] = "C"
@@ -161,40 +84,21 @@ def run_git(
     environment: Dict[str, str],
     timeout_seconds: float,
 ) -> subprocess.CompletedProcess[str]:
-    executor = GitExecutor(repo_root=repo_root, environment=environment)
-    recent_retry_attempt = 0
-    while True:
-        result = executor.run(arguments=arguments, timeout_seconds=timeout_seconds)
-        if result.returncode == 0:
-            return result
-
-        if not failure_is_index_lock(combined_output(result)):
-            return result
-
-        if clear_stale_index_lock(repo_root):
-            logger.warning(
-                "retrying git command after stale index.lock cleanup | repo=%s | args=%s",
-                repo_root,
-                " ".join(arguments[:4]),
-            )
-            continue
-
-        if recent_retry_attempt >= _RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS:
-            return result
-
-        lock_age_seconds = _index_lock_age_seconds(repo_root)
-        if lock_age_seconds is None:
-            return result
-
-        logger.warning(
-            "git index.lock is active; waiting before retry | repo=%s | age_seconds=%.1f | retry=%d/%d",
-            repo_root,
-            lock_age_seconds,
-            recent_retry_attempt + 1,
-            _RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS,
-        )
-        time.sleep(_RECENT_INDEX_LOCK_RETRY_SLEEP_SECONDS)
-        recent_retry_attempt += 1
+    _ = self
+    return command_ops.run_git(
+        repo_root=repo_root,
+        arguments=arguments,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+        executor_factory=lambda root, env: GitExecutor(repo_root=root, environment=env),
+        output_getter=combined_output,
+        failure_is_index_lock_fn=failure_is_index_lock,
+        clear_stale_index_lock_fn=clear_stale_index_lock,
+        index_lock_age_seconds_fn=_index_lock_age_seconds,
+        recent_retry_max_attempts=_RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS,
+        recent_retry_sleep_seconds=_RECENT_INDEX_LOCK_RETRY_SLEEP_SECONDS,
+        logger=logger,
+    )
 
 
 def has_upstream(
@@ -287,58 +191,7 @@ def remote_url(
 
 
 def parse_remote_endpoint(remote_url_value: str) -> tuple[Optional[str], Optional[int]]:
-    remote_url_text = (remote_url_value or "").strip()
-    if not remote_url_text:
-        return None, None
-
-    # Local remotes do not need network checks.
-    if remote_url_text.startswith("file://"):
-        return None, None
-    if remote_url_text.startswith("/") or remote_url_text.startswith("./"):
-        return None, None
-    if remote_url_text.startswith("../"):
-        return None, None
-    if remote_url_text.startswith("\\\\") or remote_url_text.startswith("//"):
-        return None, None
-    if (
-        len(remote_url_text) >= 3
-        and remote_url_text[0].isalpha()
-        and remote_url_text[1] == ":"
-        and remote_url_text[2] in {"/", "\\"}
-    ):
-        return None, None
-
-    if "://" in remote_url_text:
-        parsed = urlparse(remote_url_text)
-        host_name = parsed.hostname
-        if not host_name:
-            return None, None
-
-        scheme_name = (parsed.scheme or "").lower()
-
-        if parsed.port is not None:
-            return host_name, parsed.port
-
-        default_port_by_scheme = {
-            "http": 80,
-            "https": 443,
-            "ssh": 22,
-            "git": 9418,
-            "git+ssh": 22,
-            "ssh+git": 22,
-            "sftp": 22,
-        }
-        return host_name, default_port_by_scheme.get(scheme_name, 22)
-
-    # SCP-like syntax: [user@]host:path
-    if ":" in remote_url_text:
-        host_part, _, _path_part = remote_url_text.partition(":")
-        if "@" in host_part:
-            host_part = host_part.rsplit("@", 1)[1]
-        if host_part and "/" not in host_part and "\\" not in host_part:
-            return host_part, 22
-
-    return None, None
+    return network_ops.parse_remote_endpoint(remote_url_value)
 
 
 def remote_is_reachable(
@@ -349,86 +202,22 @@ def remote_is_reachable(
     timeout_seconds: float,
     network_probe_timeout_seconds: float = 0.0,
 ) -> bool:
-    remote_url_value = remote_url(
-        self,
-        repo_root,
-        remote_name,
-        environment,
-        timeout_seconds,
+    return network_ops.remote_is_reachable(
+        repo_root=repo_root,
+        remote_name=remote_name,
+        timeout_seconds=timeout_seconds,
+        network_probe_timeout_seconds=network_probe_timeout_seconds,
+        remote_url_getter=lambda: remote_url(
+            self,
+            repo_root,
+            remote_name,
+            environment,
+            timeout_seconds,
+        ),
+        parse_remote_endpoint_fn=parse_remote_endpoint,
+        resolve_address_infos_fn=_resolve_address_infos,
+        logger=logger,
     )
-    if not remote_url_value:
-        return True
-
-    host_name, port_number = parse_remote_endpoint(remote_url_value)
-    if not host_name or not port_number:
-        return True
-
-    timeout_candidates = [
-        candidate
-        for candidate in (timeout_seconds, network_probe_timeout_seconds)
-        if candidate > 0.0
-    ]
-    if not timeout_candidates:
-        logger.info(
-            "invalid network probe timeout; waiting for network before pull | repo=%s | remote=%s",
-            repo_root,
-            remote_name,
-        )
-        return False
-    connect_timeout_seconds = min(timeout_candidates)
-
-    try:
-        address_infos, dns_resolution_timed_out = _resolve_address_infos(
-            host_name=host_name,
-            port_number=port_number,
-            timeout_seconds=connect_timeout_seconds,
-        )
-    except OSError:
-        logger.info(
-            "remote host resolution failed; waiting for network before pull | repo=%s | remote=%s | host=%s",
-            repo_root,
-            remote_name,
-            host_name,
-        )
-        return False
-    if dns_resolution_timed_out:
-        logger.info(
-            "remote host resolution timed out; waiting for network before pull | repo=%s | remote=%s | host=%s",
-            repo_root,
-            remote_name,
-            host_name,
-        )
-        return False
-
-    seen_sockaddrs = set()
-    for family, socktype, proto, _canonname, sockaddr in address_infos:
-        if sockaddr in seen_sockaddrs:
-            continue
-        seen_sockaddrs.add(sockaddr)
-        probe_socket: Optional[socket.socket] = None
-        try:
-            probe_socket = socket.socket(family, socktype, proto)
-            probe_socket.settimeout(connect_timeout_seconds)
-            probe_socket.connect(sockaddr)
-            probe_socket.close()
-            probe_socket = None
-            return True
-        except OSError:
-            if probe_socket is not None:
-                try:
-                    probe_socket.close()
-                except OSError:
-                    pass
-            continue
-
-    logger.info(
-        "remote endpoint unreachable; waiting for network before pull | repo=%s | remote=%s | host=%s | port=%s",
-        repo_root,
-        remote_name,
-        host_name,
-        port_number,
-    )
-    return False
 
 
 def pull_failure_looks_offline(
@@ -485,33 +274,25 @@ def try_set_upstream(
 def merge_in_progress(
     self, repo_root: str, environment: Dict[str, str], timeout_seconds: float
 ) -> bool:
-    result = run_git(
-        self,
-        repo_root,
-        ["rev-parse", "-q", "--verify", "MERGE_HEAD"],
-        environment,
-        timeout_seconds,
+    return conflict_ops.merge_in_progress(
+        self_obj=self,
+        repo_root=repo_root,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+        run_git_fn=run_git,
     )
-    return result.returncode == 0 and bool((result.stdout or "").strip())
 
 
 def conflicted_files(
     self, repo_root: str, environment: Dict[str, str], timeout_seconds: float
 ) -> list[str]:
-    result = run_git(
-        self,
-        repo_root,
-        ["diff", "--name-only", "--diff-filter=U"],
-        environment,
-        timeout_seconds,
+    return conflict_ops.conflicted_files(
+        self_obj=self,
+        repo_root=repo_root,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+        run_git_fn=run_git,
     )
-    if result.returncode != 0:
-        return []
-    return [
-        line_text.strip()
-        for line_text in (result.stdout or "").splitlines()
-        if line_text.strip()
-    ]
 
 
 def auto_resolve_merge_conflicts(
@@ -521,125 +302,34 @@ def auto_resolve_merge_conflicts(
     timeout_seconds: float,
     autoresolve_mode: str,
 ) -> bool:
-    normalized_mode = (autoresolve_mode or "none").strip().lower()
-    if normalized_mode not in {"none", "ours", "theirs", "union"}:
-        normalized_mode = "none"
-
-    conflicted_paths = conflicted_files(self, repo_root, environment, timeout_seconds)
-    if not conflicted_paths or normalized_mode == "none":
-        return False
-
-    for relative_path in conflicted_paths:
-        absolute_path = os.path.join(repo_root, relative_path)
-
-        if normalized_mode in {"ours", "theirs"}:
-            side_argument = "--ours" if normalized_mode == "ours" else "--theirs"
-            checkout_result = run_git(
-                self,
-                repo_root,
-                ["checkout", side_argument, "--", relative_path],
-                environment,
-                timeout_seconds,
-            )
-            if checkout_result.returncode != 0:
-                logger.error(
-                    "auto-resolve checkout failed | repo=%s | file=%s | mode=%s | err=%s",
-                    repo_root,
-                    relative_path,
-                    normalized_mode,
-                    (checkout_result.stderr or checkout_result.stdout or "")[:1200],
-                )
-                return False
-
-        elif normalized_mode == "union":
-            try:
-                if os.path.isfile(absolute_path):
-                    with open(
-                        absolute_path,
-                        "r",
-                        encoding="utf-8",
-                        errors="surrogateescape",
-                    ) as file_obj:
-                        file_text = file_obj.read()
-                    resolved_text = union_resolve_text(file_text)
-                    if resolved_text is None:
-                        checkout_result = run_git(
-                            self,
-                            repo_root,
-                            ["checkout", "--ours", "--", relative_path],
-                            environment,
-                            timeout_seconds,
-                        )
-                        if checkout_result.returncode != 0:
-                            logger.error(
-                                "auto-resolve union fallback checkout failed | repo=%s | file=%s | err=%s",
-                                repo_root,
-                                relative_path,
-                                (
-                                    checkout_result.stderr
-                                    or checkout_result.stdout
-                                    or ""
-                                )[:1200],
-                            )
-                            return False
-                    else:
-                        with open(
-                            absolute_path,
-                            "w",
-                            encoding="utf-8",
-                            errors="surrogateescape",
-                        ) as file_obj:
-                            file_obj.write(resolved_text)
-                else:
-                    checkout_result = run_git(
-                        self,
-                        repo_root,
-                        ["checkout", "--ours", "--", relative_path],
-                        environment,
-                        timeout_seconds,
-                    )
-                    if checkout_result.returncode != 0:
-                        logger.error(
-                            "auto-resolve union non-file checkout failed | repo=%s | path=%s | err=%s",
-                            repo_root,
-                            relative_path,
-                            (
-                                checkout_result.stderr or checkout_result.stdout or ""
-                            )[:1200],
-                        )
-                        return False
-            except OSError:
-                logger.exception(
-                    "auto-resolve union IO failed | repo=%s | file=%s",
-                    repo_root,
-                    relative_path,
-                )
-                return False
-
-        add_result = run_git(
-            self,
-            repo_root, ["add", "--", relative_path], environment, timeout_seconds
-        )
-        if add_result.returncode != 0:
-            logger.error(
-                "auto-resolve git add failed | repo=%s | file=%s | err=%s",
-                repo_root,
-                relative_path,
-                (add_result.stderr or add_result.stdout or "")[:1200],
-            )
-            return False
-
-    commit_result = run_git(
-        self,
-        repo_root, ["commit", "--no-edit"], environment, timeout_seconds
+    return conflict_ops.auto_resolve_merge_conflicts(
+        self_obj=self,
+        repo_root=repo_root,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+        autoresolve_mode=autoresolve_mode,
+        run_git_fn=run_git,
+        union_resolve_text_fn=union_resolve_text,
+        logger=logger,
     )
-    if commit_result.returncode != 0:
-        logger.error(
-            "auto-resolve commit failed | repo=%s | err=%s",
-            repo_root,
-            (commit_result.stderr or commit_result.stdout or "")[:1200],
-        )
-    return commit_result.returncode == 0
+
+
+def resolve_merge_conflicts_with_fallback(
+    self,
+    repo_root: str,
+    environment: Dict[str, str],
+    timeout_seconds: float,
+    autoresolve_mode: str,
+) -> bool:
+    return conflict_ops.resolve_merge_conflicts_with_fallback(
+        self_obj=self,
+        repo_root=repo_root,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+        autoresolve_mode=autoresolve_mode,
+        auto_resolve_fn=auto_resolve_merge_conflicts,
+        logger=logger,
+    )
 
 
 @dataclass(frozen=True)
@@ -855,7 +545,7 @@ def _handle_pull_failure(
     notify_config: Mapping[str, Any],
 ) -> bool:
     if merge_in_progress(self, repo_root, environment, operation_timeout_seconds):
-        resolved = auto_resolve_merge_conflicts(
+        resolved = resolve_merge_conflicts_with_fallback(
             self,
             repo_root,
             environment,
@@ -866,7 +556,7 @@ def _handle_pull_failure(
             return True
 
         pull_error = _pull_error_text(pull_result)
-        abort_ok = _abort_merge_safely(
+        abort_ok = abort_merge_safely(
             self=self,
             repo_root=repo_root,
             environment=environment,
