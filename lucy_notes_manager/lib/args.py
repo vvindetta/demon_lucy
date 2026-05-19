@@ -32,19 +32,25 @@ def flag_to_dest(flag: str) -> str:
     return flag.lstrip("-").replace("-", "_")
 
 
-def parse_args(args: list[str], template: Template) -> tuple[dict[str, Any], list[str]]:
+def parse_args(
+    args: list[str],
+    template: Template,
+    *,
+    include_defaults: bool = True,
+) -> tuple[dict[str, Any], list[str]]:
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
 
     for item in template:
         flag, typ, default, _desc, _required = parse_template_item(item)
         dest = flag_to_dest(flag)
+        arg_default = default if include_defaults else argparse.SUPPRESS
 
         if typ is bool:
             parser.add_argument(
                 flag,
                 dest=dest,
                 action="store_true",  # --flag -> True
-                default=default,  # missing -> default (usually False)
+                default=arg_default,  # missing -> default (usually False)
             )
         elif isinstance(default, list):
             parser.add_argument(
@@ -52,14 +58,14 @@ def parse_args(args: list[str], template: Template) -> tuple[dict[str, Any], lis
                 dest=dest,
                 type=typ,
                 nargs="+",
-                default=list(default),
+                default=list(default) if include_defaults else argparse.SUPPRESS,
             )
         else:
             parser.add_argument(
                 flag,
                 dest=dest,
                 type=typ,
-                default=default,
+                default=arg_default,
             )
 
     try:
@@ -244,7 +250,11 @@ def get_args_from_file(
         if not cli_tokens:
             continue
 
-        line_known, line_unknown = parse_args(template=template, args=cli_tokens)
+        line_known, line_unknown = parse_args(
+            template=template,
+            args=cli_tokens,
+            include_defaults=False,
+        )
 
         if line_unknown:
             merged_unknown.extend(line_unknown)

@@ -23,7 +23,7 @@ Used by `main_daemon.py` and config files.
 | `--sys-watch-paths` | `str[]` | Directories watched recursively by the daemon. |
 | `--sys-opened-event-cooldown-seconds` | `int` | Per-file cooldown for `opened` filesystem events. |
 | `--sys-disable-opened-events` | `bool` | Ignore `opened` events completely. Useful on Termux. |
-| `--sys-notification-provider` | `str` | Notification backend: `termuxapi`, `desktop`, or `disable`. |
+| `--sys-notification-provider` | `str` | Notification backend: `auto`, `termuxapi`, `desktop`, or `disable`. |
 | `--sys-notification-min-interval-seconds` | `float` | Minimum interval before repeating the same notification. |
 | `--sys-ignore-paths` | `str[]` | Paths where modules should not run. |
 
@@ -63,7 +63,7 @@ These can be set globally or inside notes.
 | `--modules-disable` | `str[]` | Skip named modules. Can be overridden by `--modules-force-enable`. |
 | `--modules-priority` | `str[]` | Override module order. Format: `name=int`. Lower number runs earlier. |
 | `--sys-parse-note-first-line-only` | `bool` | Parse flags only from the first line of a note. Faster, but ignores lower lines. |
-| `--sys-notification-provider` | `str` | Override notification backend for modules. |
+| `--sys-notification-provider` | `str` | Override notification backend for modules (`auto`, `termuxapi`, `desktop`, `disable`). |
 | `--sys-notification-min-interval-seconds` | `float` | Override module notification throttle interval. |
 | `--sys-ignore-paths` | `str[]` | Override ignored paths for module execution. |
 

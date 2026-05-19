@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 
 import lucy_notes_manager.lib as lib_mod
 
 _TERMUX_CONFIG = {
     "sys_notification_provider": "termuxapi",
+    "sys_notification_min_interval_seconds": 10.0,
+}
+_AUTO_CONFIG = {
+    "sys_notification_provider": "auto",
     "sys_notification_min_interval_seconds": 10.0,
 }
 
@@ -84,7 +90,11 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
             self.sent = True
 
     dummy = DummyNotify()
-    monkeypatch.setattr(lib_mod, "notifypy", dummy)
+    monkeypatch.setitem(
+        sys.modules,
+        "notifypy",
+        types.SimpleNamespace(Notify=lambda: dummy),
+    )
     monkeypatch.setattr(
         lib_mod,
         "_notify_termux",
@@ -102,6 +112,46 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
     assert dummy.sent is True
     assert dummy.title == "Lucy"
     assert dummy.message == "desktop notification"
+
+
+def test_notify_auto_provider_uses_termux_on_termux(monkeypatch):
+    calls: dict[str, int] = {"termux": 0, "desktop": 0}
+
+    monkeypatch.setattr(lib_mod.shutil, "which", lambda _name: "/usr/bin/termux-notification")
+    monkeypatch.setattr(
+        lib_mod,
+        "_notify_termux",
+        lambda *_args, **_kwargs: calls.__setitem__("termux", calls["termux"] + 1) or True,
+    )
+    monkeypatch.setattr(
+        lib_mod,
+        "_notify_desktop",
+        lambda *_args, **_kwargs: calls.__setitem__("desktop", calls["desktop"] + 1) or True,
+    )
+
+    lib_mod.notify("auto termux", title="Lucy", config=_AUTO_CONFIG)
+
+    assert calls == {"termux": 1, "desktop": 0}
+
+
+def test_notify_auto_provider_uses_desktop_when_termux_missing(monkeypatch):
+    calls: dict[str, int] = {"termux": 0, "desktop": 0}
+
+    monkeypatch.setattr(lib_mod.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(
+        lib_mod,
+        "_notify_termux",
+        lambda *_args, **_kwargs: calls.__setitem__("termux", calls["termux"] + 1) or True,
+    )
+    monkeypatch.setattr(
+        lib_mod,
+        "_notify_desktop",
+        lambda *_args, **_kwargs: calls.__setitem__("desktop", calls["desktop"] + 1) or True,
+    )
+
+    lib_mod.notify("auto desktop", title="Lucy", config=_AUTO_CONFIG)
+
+    assert calls == {"termux": 0, "desktop": 1}
 
 
 def test_slow_write_lines_from_writes_and_counts(tmp_path: Path, monkeypatch):

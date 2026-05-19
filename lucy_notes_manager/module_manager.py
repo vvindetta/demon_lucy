@@ -57,21 +57,21 @@ class ModuleManager:
             (
                 "--sys-notification-provider",
                 str,
-                system_config["sys_notification_provider"],
-                "Notification provider for modules: termuxapi, desktop, disable.",
+                "auto",
+                "Notification provider for modules: auto, termuxapi, desktop, disable.",
                 False,
             ),
             (
                 "--sys-notification-min-interval-seconds",
                 float,
-                system_config["sys_notification_min_interval_seconds"],
+                10.0,
                 "Minimum interval between repeated notifications (seconds).",
                 False,
             ),
             (
                 "--sys-ignore-paths",
                 str,
-                system_config["sys_ignore_paths"],
+                [],
                 "Skip module execution for files under these paths.",
                 False,
             ),
@@ -80,7 +80,23 @@ class ModuleManager:
         for module in self.modules:
             self.template.extend(module.template)
 
-        self.config, _ = parse_args(args=args, template=self.template)
+        template_defaults, _ = parse_args(args=[], template=self.template)
+        inherited_system_config = {
+            key: value for key, value in system_config.items() if key in template_defaults
+        }
+        explicit_args, _ = parse_args(
+            args=args,
+            template=self.template,
+            include_defaults=False,
+        )
+        self.config = merge_known_args(
+            args=template_defaults,
+            overwrite_args=inherited_system_config,
+        )
+        self.config = merge_known_args(
+            args=self.config,
+            overwrite_args=explicit_args,
+        )
 
         priority_dict = self._parse_priority_list(self.config["modules_priority"])
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))

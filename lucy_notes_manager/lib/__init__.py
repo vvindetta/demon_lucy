@@ -6,20 +6,13 @@ from typing import Any, Dict, List, Mapping
 
 _NOTIFY_LAST: Dict[str, float] = {}
 
-try:
-    from notifypy import Notify as _Notify  # pyright: ignore[reportAssignmentType]
-except Exception:
-
-    class _Notify:
-        def __init__(self, *args, **kwargs):
-            self.title = ""
-            self.message = ""
-
-        def send(self):
-            return None
-
-
-notifypy = _Notify()
+def _resolve_notification_provider(config: Mapping[str, Any]) -> str:
+    provider = config["sys_notification_provider"]
+    if provider != "auto":
+        return provider
+    if shutil.which("termux-notification"):
+        return "termuxapi"
+    return "desktop"
 
 
 def _notify_termux(message: str, title: str) -> bool:
@@ -49,9 +42,12 @@ def _notify_termux(message: str, title: str) -> bool:
 
 def _notify_desktop(message: str, title: str) -> bool:
     try:
-        notifypy.title = title
-        notifypy.message = message
-        notifypy.send()
+        from notifypy import Notify
+
+        notifier = Notify()
+        notifier.title = title
+        notifier.message = message
+        notifier.send()
     except Exception:
         return False
     return True
@@ -89,7 +85,7 @@ def notify(
     Send a notification via configured provider.
     Fails silently if notify-py (or its backend) is unavailable.
     """
-    provider = config["sys_notification_provider"]
+    provider = _resolve_notification_provider(config)
 
     try:
         if provider == "desktop":

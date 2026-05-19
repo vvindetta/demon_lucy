@@ -63,8 +63,9 @@ LUCY_STARTUP_TEMPLATE: Template = [
     (
         "--sys-notification-provider",
         str,
-        "termuxapi",
-        "Notification provider. Supported: termuxapi, desktop, disable. Default: termuxapi.",
+        "auto",
+        "Notification provider. Supported: auto, termuxapi, desktop, disable. "
+        "Default: auto (termuxapi when available, otherwise desktop).",
         False,
     ),
     (
