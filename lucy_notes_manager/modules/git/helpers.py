@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 from typing import Optional
 
 from lucy_notes_manager.modules.git.types import PathLike
@@ -22,6 +23,30 @@ def parse_porcelain_paths(porcelain_text: str) -> list[str]:
             path_part = path_part.split(" -> ", 1)[1]
         result_paths.append(path_part)
     return result_paths
+
+
+def format_path_for_commit_message(path_text: str) -> str:
+    raw_value = str(path_text or "").strip()
+
+    def _strip_conflict_arrow_prefix(value: str) -> str:
+        if value.startswith("→ "):
+            return value[2:].strip()
+        if value.startswith("-> "):
+            return value[3:].strip()
+        return value
+
+    if len(raw_value) >= 2 and raw_value[0] == '"' and raw_value[-1] == '"':
+        inner_value = raw_value[1:-1]
+        try:
+            decoded_value = codecs.decode(inner_value, "unicode_escape")
+            return _strip_conflict_arrow_prefix(
+                decoded_value.encode("latin-1", errors="surrogateescape")
+                .decode("utf-8", errors="surrogateescape")
+                .strip()
+            )
+        except Exception:
+            return _strip_conflict_arrow_prefix(inner_value)
+    return _strip_conflict_arrow_prefix(raw_value)
 
 
 def push_rejected_needs_pull(output_text: str) -> bool:

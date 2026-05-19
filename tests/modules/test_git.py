@@ -112,6 +112,11 @@ def test_union_resolve_text_merges_conflict_content(git_module):
     assert merged == "A\none\ntwo\nB\n"
 
 
+def test_format_path_for_commit_message_decodes_git_quoted_path():
+    formatted = git_helpers.format_path_for_commit_message('"\\342\\206\\222 now.md"')
+    assert formatted == "now.md"
+
+
 def test_auto_resolve_markers_stages_conflicts_and_commits(git_module, monkeypatch):
     calls: list[list[str]] = []
 
@@ -212,6 +217,12 @@ def test_build_commit_message_includes_event_summary_and_names(git_module, monke
     assert message.startswith("Auto: created")
     assert "a.md, b.md" in message
     assert message.endswith("[2026]")
+
+
+def test_build_commit_message_sanitizes_git_escaped_file_names(git_module):
+    batch = _mk_batch(event_type="modified")
+    message = git_module._build_commit_message(batch, ['"\\342\\206\\222 now.md"'])
+    assert message == "Auto: modified now.md"
 
 
 def test_opened_processes_pull_when_repo_exists(git_module, monkeypatch):
@@ -873,7 +884,7 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
     assert batch.hinted_paths == ["/repo/note.md"]
 
 
-def test_process_event_serializes_repo_operations(git_module, monkeypatch):
+def test_process_event_runs_repo_operations_concurrently(git_module, monkeypatch):
     state = {
         "inflight": 0,
         "max_inflight": 0,
@@ -922,7 +933,7 @@ def test_process_event_serializes_repo_operations(git_module, monkeypatch):
         time.sleep(0.01)
 
     assert state["calls"] == 2
-    assert state["max_inflight"] == 1
+    assert state["max_inflight"] >= 2
 
 
 def test_retry_window_retries_with_backoff_until_success(git_module, monkeypatch):

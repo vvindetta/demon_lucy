@@ -21,6 +21,7 @@ from lucy_notes_manager.modules.git.config import (
     GIT_TEMPLATE,
 )
 from lucy_notes_manager.modules.git.helpers import to_str
+from lucy_notes_manager.modules.git.helpers import format_path_for_commit_message
 from lucy_notes_manager.modules.git.types import _RepoBatch
 from lucy_notes_manager.modules.git.worker import process_event
 
@@ -39,9 +40,16 @@ class Git(AbstractModule):
     def _build_commit_message(self, batch: _RepoBatch, changed_paths: list[str]) -> str:
         event_summary = batch.event_type or "change"
 
-        file_names = [os.path.basename(path_item) for path_item in changed_paths if path_item]
+        file_names = [
+            os.path.basename(format_path_for_commit_message(path_item))
+            for path_item in changed_paths
+            if path_item
+        ]
         if not file_names and batch.hinted_paths:
-            file_names = [os.path.basename(path_item) for path_item in batch.hinted_paths]
+            file_names = [
+                os.path.basename(format_path_for_commit_message(path_item))
+                for path_item in batch.hinted_paths
+            ]
 
         shown_names = ", ".join(file_names[:8])
         if len(file_names) > 8:
