@@ -16,6 +16,8 @@ from lucy_notes_manager.modules.git.helpers import union_resolve_text
 
 logger = logging.getLogger(__name__)
 _MIN_STALE_INDEX_LOCK_AGE_SECONDS = 60.0
+_RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS = 3
+_RECENT_INDEX_LOCK_RETRY_SLEEP_SECONDS = 1.0
 
 
 def _index_lock_path(repo_root: str) -> str:
@@ -60,6 +62,18 @@ def clear_stale_index_lock(repo_root: str) -> bool:
         lock_age_seconds,
     )
     return True
+
+
+def _index_lock_age_seconds(repo_root: str) -> float | None:
+    lock_path = _index_lock_path(repo_root)
+    try:
+        lock_mtime_seconds = os.path.getmtime(lock_path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        logger.exception("failed to inspect git index.lock | repo=%s", repo_root)
+        return None
+    return max(0.0, time.time() - lock_mtime_seconds)
 
 
 def _resolve_address_infos(
@@ -148,22 +162,39 @@ def run_git(
     timeout_seconds: float,
 ) -> subprocess.CompletedProcess[str]:
     executor = GitExecutor(repo_root=repo_root, environment=environment)
-    result = executor.run(arguments=arguments, timeout_seconds=timeout_seconds)
-    if result.returncode == 0:
-        return result
+    recent_retry_attempt = 0
+    while True:
+        result = executor.run(arguments=arguments, timeout_seconds=timeout_seconds)
+        if result.returncode == 0:
+            return result
 
-    if not failure_is_index_lock(combined_output(result)):
-        return result
+        if not failure_is_index_lock(combined_output(result)):
+            return result
 
-    if not clear_stale_index_lock(repo_root):
-        return result
+        if clear_stale_index_lock(repo_root):
+            logger.warning(
+                "retrying git command after stale index.lock cleanup | repo=%s | args=%s",
+                repo_root,
+                " ".join(arguments[:4]),
+            )
+            continue
 
-    logger.warning(
-        "retrying git command after stale index.lock cleanup | repo=%s | args=%s",
-        repo_root,
-        " ".join(arguments[:4]),
-    )
-    return executor.run(arguments=arguments, timeout_seconds=timeout_seconds)
+        if recent_retry_attempt >= _RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS:
+            return result
+
+        lock_age_seconds = _index_lock_age_seconds(repo_root)
+        if lock_age_seconds is None:
+            return result
+
+        logger.warning(
+            "git index.lock is active; waiting before retry | repo=%s | age_seconds=%.1f | retry=%d/%d",
+            repo_root,
+            lock_age_seconds,
+            recent_retry_attempt + 1,
+            _RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS,
+        )
+        time.sleep(_RECENT_INDEX_LOCK_RETRY_SLEEP_SECONDS)
+        recent_retry_attempt += 1
 
 
 def has_upstream(

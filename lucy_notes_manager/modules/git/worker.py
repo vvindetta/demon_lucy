@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -23,6 +24,18 @@ from lucy_notes_manager.modules.git.types import _RepoBatch
 
 logger = logging.getLogger(__name__)
 _PULL_ONLY_EVENT_TYPES = {"opened"}
+_REPO_LOCKS: dict[str, threading.Lock] = {}
+_REPO_LOCKS_GUARD = threading.Lock()
+
+
+def _repo_operation_lock(repo_root: str) -> threading.Lock:
+    repo_key = os.path.realpath(repo_root)
+    with _REPO_LOCKS_GUARD:
+        repo_lock = _REPO_LOCKS.get(repo_key)
+        if repo_lock is None:
+            repo_lock = threading.Lock()
+            _REPO_LOCKS[repo_key] = repo_lock
+    return repo_lock
 
 
 def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
@@ -58,15 +71,16 @@ def _process_event_once(
     config_snapshot: dict,
     wants_pull: bool,
 ) -> bool:
-    batch = _build_batch(
-        self=self,
-        repo_root=repo_root,
-        event_type=event_type,
-        paths=paths,
-        config_snapshot=config_snapshot,
-        wants_pull=wants_pull,
-    )
-    return process_batch(self, batch)
+    with _repo_operation_lock(repo_root):
+        batch = _build_batch(
+            self=self,
+            repo_root=repo_root,
+            event_type=event_type,
+            paths=paths,
+            config_snapshot=config_snapshot,
+            wants_pull=wants_pull,
+        )
+        return process_batch(self, batch)
 
 
 def _run_event_with_retry_window(

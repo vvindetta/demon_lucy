@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 import time
 from datetime import datetime
 
@@ -441,7 +442,7 @@ def test_run_git_does_not_remove_recent_index_lock(git_module, monkeypatch, tmp_
     )
 
     assert result.returncode != 0
-    assert attempts["count"] == 1
+    assert attempts["count"] == 4
     assert lock_path.exists()
 
 
@@ -642,6 +643,57 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
     assert batch.repo_root == "/repo"
     assert batch.event_type == "modified"
     assert batch.hinted_paths == ["/repo/note.md"]
+
+
+def test_process_event_serializes_repo_operations(git_module, monkeypatch):
+    state = {
+        "inflight": 0,
+        "max_inflight": 0,
+        "calls": 0,
+    }
+
+    monkeypatch.setattr(git_worker, "_build_batch", lambda **_kwargs: object())
+
+    def _process_batch(_self, _batch):
+        state["calls"] += 1
+        state["inflight"] += 1
+        state["max_inflight"] = max(state["max_inflight"], state["inflight"])
+        time.sleep(0.05)
+        state["inflight"] -= 1
+        return True
+
+    monkeypatch.setattr(git_worker, "process_batch", _process_batch)
+
+    first = threading.Thread(
+        target=git_worker._process_event_once,
+        kwargs={
+            "self": git_module,
+            "repo_root": "/repo",
+            "event_type": "modified",
+            "paths": ["/repo/a.md"],
+            "config_snapshot": {},
+            "wants_pull": False,
+        },
+    )
+    second = threading.Thread(
+        target=git_worker._process_event_once,
+        kwargs={
+            "self": git_module,
+            "repo_root": "/repo",
+            "event_type": "modified",
+            "paths": ["/repo/b.md"],
+            "config_snapshot": {},
+            "wants_pull": False,
+        },
+    )
+
+    first.start()
+    second.start()
+    first.join()
+    second.join()
+
+    assert state["calls"] == 2
+    assert state["max_inflight"] == 1
 
 
 def test_retry_window_retries_with_backoff_until_success(git_module, monkeypatch):
