@@ -70,20 +70,20 @@ def safe_notify(
     *,
     config: Mapping[str, Any],
     title: str = "Lucy Note Manager",
-    is_error: bool = False,
+    use_rare_mode: bool = True,
 ) -> None:
     """
     Throttle notifications by `key`.
 
     - If called again within configured min interval, it does nothing.
     - Otherwise calls lucy_notes_manager.lib.notify(message=...).
-    - Error notifications support exponential backoff + burst window limit.
+    - Rare mode supports exponential backoff + burst window limit.
     """
     min_interval_seconds = max(0.0, config["sys_notification_min_interval_seconds"])
     now = time.time()
 
     with _NOTIFY_STATE_LOCK:
-        if is_error:
+        if use_rare_mode:
             backoff_base_seconds = max(
                 min_interval_seconds,
                 config["sys_notification_error_backoff_base_seconds"],

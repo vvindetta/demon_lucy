@@ -63,11 +63,11 @@ def test_safe_notify_error_uses_exponential_backoff(monkeypatch):
     monkeypatch.setattr(lib_mod.time, "time", lambda: next(times))
     _reset_notify_state()
 
-    lib_mod.safe_notify("err:key", "m1", config=_TERMUX_CONFIG, is_error=True)
-    lib_mod.safe_notify("err:key", "m2", config=_TERMUX_CONFIG, is_error=True)
-    lib_mod.safe_notify("err:key", "m3", config=_TERMUX_CONFIG, is_error=True)
-    lib_mod.safe_notify("err:key", "m4", config=_TERMUX_CONFIG, is_error=True)
-    lib_mod.safe_notify("err:key", "m5", config=_TERMUX_CONFIG, is_error=True)
+    lib_mod.safe_notify("err:key", "m1", config=_TERMUX_CONFIG, use_rare_mode=True)
+    lib_mod.safe_notify("err:key", "m2", config=_TERMUX_CONFIG, use_rare_mode=True)
+    lib_mod.safe_notify("err:key", "m3", config=_TERMUX_CONFIG, use_rare_mode=True)
+    lib_mod.safe_notify("err:key", "m4", config=_TERMUX_CONFIG, use_rare_mode=True)
+    lib_mod.safe_notify("err:key", "m5", config=_TERMUX_CONFIG, use_rare_mode=True)
 
     assert calls == ["m1", "m3", "m5"]
 
@@ -92,10 +92,10 @@ def test_safe_notify_error_burst_limit_applies_globally(monkeypatch):
     monkeypatch.setattr(lib_mod.time, "time", lambda: next(times))
     _reset_notify_state()
 
-    lib_mod.safe_notify("err:a", "a1", config=cfg, is_error=True)
-    lib_mod.safe_notify("err:b", "b1", config=cfg, is_error=True)
-    lib_mod.safe_notify("err:c", "c1", config=cfg, is_error=True)
-    lib_mod.safe_notify("err:d", "d1", config=cfg, is_error=True)
+    lib_mod.safe_notify("err:a", "a1", config=cfg, use_rare_mode=True)
+    lib_mod.safe_notify("err:b", "b1", config=cfg, use_rare_mode=True)
+    lib_mod.safe_notify("err:c", "c1", config=cfg, use_rare_mode=True)
+    lib_mod.safe_notify("err:d", "d1", config=cfg, use_rare_mode=True)
 
     assert calls == ["a1", "b1", "d1"]
 

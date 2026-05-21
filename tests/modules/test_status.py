@@ -213,23 +213,37 @@ def test_status_banner_preserves_multi_spaces(tmp_path: Path) -> None:
     assert not path.exists()
 
 
-def test_status_git_writes_sync_timestamp_once(tmp_path: Path, monkeypatch) -> None:
+def test_status_git_uses_upstream_timestamp_and_refreshes_after_sync(
+    tmp_path: Path, monkeypatch
+) -> None:
     path = tmp_path / "note.md"
     path.write_text("--status git\n", encoding="utf-8")
 
-    last_commit = 1_800_000_000.0
+    upstream_values = [1_800_000_000, 1_800_000_000, 1_800_001_000]
+    calls = {"upstream": 0}
 
     monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
-    monkeypatch.setattr(
-        status_mod.subprocess,
-        "run",
-        lambda cmd, **_kwargs: subprocess.CompletedProcess(
-            args=cmd,
-            returncode=0,
-            stdout=f"{int(last_commit)}\n",
-            stderr="",
-        ),
-    )
+
+    def _run(cmd, **_kwargs):
+        if cmd[-1] == "@{u}":
+            index = min(calls["upstream"], len(upstream_values) - 1)
+            calls["upstream"] += 1
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=f"{upstream_values[index]}\n",
+                stderr="",
+            )
+        if cmd[-1] == "HEAD":
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="1900000000\n",
+                stderr="",
+            )
+        raise AssertionError(f"unexpected git command: {cmd}")
+
+    monkeypatch.setattr(status_mod.subprocess, "run", _run)
 
     module = Status()
     system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
@@ -243,6 +257,12 @@ def test_status_git_writes_sync_timestamp_once(tmp_path: Path, monkeypatch) -> N
     second_changed = module.modified(_ctx_for(first_path, status_values=["git"]), system)
     assert second_changed is None
     assert first_path.exists()
+
+    third_changed = module.modified(_ctx_for(first_path, status_values=["git"]), system)
+    third_path = tmp_path / _inv("1800001000")
+    assert third_changed == {str(first_path.resolve()): 1, str(third_path.resolve()): 1}
+    assert third_path.exists()
+    assert not first_path.exists()
 
 
 def test_status_git_update_uses_compact_units_and_ticks(tmp_path: Path, monkeypatch) -> None:

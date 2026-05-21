@@ -155,8 +155,10 @@ Examples:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--link-root` | `bool` | Create a symlink in the repo root with the current note filename. |
-| `--link-clean-root-symlinks` | `bool` | If `--link-root` is not set, remove symlinks from the repo root. |
+| `--linker-root` | `bool` | Create a symlink in the repo root with the current note filename. |
+| `--linker-clean-root-symlinks` | `bool` | If `--linker-root` is not set, remove symlinks from the repo root. |
+| `--linker-ignore` | `str[]` | Ignore files/links for linker actions (basename or absolute/repo-relative path). |
+| `--linker-update-references-on-move` | `bool` | On move/rename, scan markdown files in repo and update links to moved note. |
 
 ## Dropdir
 
@@ -172,6 +174,7 @@ Examples:
 | `--today-now-path` | `str` | Active note file to archive when stale. Default: `now.md`. |
 | `--today-past-path` | `str` | Archive file path. Default: `past.md`. |
 | `--today-idle-hours` | `float` | Archive `today-now` when its age is at least this many hours. |
+| `--today-past` | `bool` | Force move `today-now` to `today-past` on this event. |
 | `--today-force-filesystem-mtime` | `bool` | Use filesystem mtime even inside Git repositories. |
 
 

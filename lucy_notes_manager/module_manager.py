@@ -217,7 +217,7 @@ class ModuleManager:
                     f"module_missing_required:{module.name}",
                     message,
                     config=config,
-                    is_error=True,
+                    use_rare_mode=True,
                 )
                 continue
 

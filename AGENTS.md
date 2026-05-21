@@ -1,12 +1,20 @@
+# Args
+
+## Hard Rules
+
+- Do not add subcommands like `--git pull hours 2`.
+- One flag must have one concrete type: `bool`, `str`, `int`, `float`, or a real
+  `str[]`.
+- Do not shorten words just to save a few letters: write `hours`.
+- `src` and `dest` may be kept for move/source/destination paths.
+- `bool` currently works as `store_true`; `true`/`false` values after the flag are not supported.
 
 
-## Argument Style
+## Style
 
 Use one consistent format:
 
-```text
---module-action-detail value
-```
+`--module-action-detail value`
 
 Frequently used note flags should be short and readable:
 
@@ -25,15 +33,6 @@ without reading the manual:
 - `--git-network-probe-timeout-seconds`
 - `--git-pull-interval-hours`
 
-## Hard Rules
-
-- Do not add subcommands like `--git pull hours 2`.
-- One flag must have one concrete type: `bool`, `str`, `int`, `float`, or a real
-  `str[]`.
-- Do not shorten words just to save a few letters: write `hours`.
-- `src` and `dest` may be kept for move/source/destination paths.
-- `bool` currently works as `store_true`; `true`/`false` values after the flag
-  are not supported.
 
 ## Config Usage
 
@@ -43,13 +42,6 @@ without reading the manual:
 - If a new config key is needed, add it to templates first, then read it via
   `config[...]` in code.
 
-## Notification Guide (New Modules)
-
-- For failures, call `safe_notify(..., is_error=True)`.
-- Use one stable root-cause key per incident scope (for example per repo/path), snot separate keys per command step.
-- Do not send multiple notifications for cause + symptoms. Send one consolidatez error notification with the root cause.
-- Key naming should be domain-level, for example `git-network:<repo_root>`,
-  instead of command-level keys like `pull-timeout:*` and `push-fail:*` for the same network outage.
 
 ## When Renaming Args
 
@@ -62,11 +54,11 @@ When renaming a flag, update all related places at once:
 - `ARGS_CHEATSHEET.md`;
 - tests;
 
-After editing, check:
 
-```text
-rg "old_flag_or_dest"
-rg "new_flag" ARGS_CHEATSHEET.md
-pytest
-git diff --check
-```
+# Notifications
+
+- For failures, call `safe_notify(..., use_rare_mode=True)` (default mode).
+- Use one stable root-cause key per incident scope (for example per repo/path), not separate keys per command step.
+- Do not send multiple notifications for cause + symptoms. Send one consolidated error notification with the root cause.
+- Key naming should be domain-level, for example `git-network:<repo_root>`,
+  instead of command-level keys like `pull-timeout:*` and `push-fail:*` for the same network outage.

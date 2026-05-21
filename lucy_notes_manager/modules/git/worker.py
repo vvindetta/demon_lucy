@@ -49,7 +49,7 @@ def _notify_git_network_issue(
             f"Reason:\n{reason_text[:1200]}"
         ),
         config=notify_config,
-        is_error=True,
+        use_rare_mode=True,
     )
 
 
@@ -215,7 +215,7 @@ def _ensure_merge_state_clean(
             f"Found unfinished merge; auto-resolve failed; merge aborted.{abort_note}"
         ),
         config=notify_config,
-        is_error=True,
+        use_rare_mode=True,
     )
     return False
 
@@ -268,7 +268,7 @@ def _stage_and_collect_changes(
             name=f"timeout:add:{repo_root}",
             message=f"git add timed out:\n{repo_root}",
             config=notify_config,
-            is_error=True,
+            use_rare_mode=True,
         )
         return False, "", []
 
@@ -279,7 +279,7 @@ def _stage_and_collect_changes(
             name=f"addfail:{repo_root}",
             message=f"Repository:\n{repo_root}\n\nError:\n{add_error[:1200]}",
             config=notify_config,
-            is_error=True,
+            use_rare_mode=True,
         )
         return False, "", []
 
@@ -297,7 +297,7 @@ def _stage_and_collect_changes(
             name=f"timeout:status:{repo_root}",
             message=f"git status timed out:\n{repo_root}",
             config=notify_config,
-            is_error=True,
+            use_rare_mode=True,
         )
         return False, "", []
 
@@ -308,7 +308,7 @@ def _stage_and_collect_changes(
             name=f"statusfail:{repo_root}",
             message=f"Repository:\n{repo_root}\n\nError:\n{status_error[:1200]}",
             config=notify_config,
-            is_error=True,
+            use_rare_mode=True,
         )
         return False, "", []
 
@@ -344,7 +344,7 @@ def _commit_if_needed(
             name=f"timeout:commit:{repo_root}",
             message=f"git commit timed out:\n{repo_root}",
             config=notify_config,
-            is_error=True,
+            use_rare_mode=True,
         )
         return False
 
@@ -365,7 +365,7 @@ def _commit_if_needed(
         name=f"commitfail:{repo_root}",
         message=f"Repository:\n{repo_root}\n\nError:\n{commit_error[:1200]}",
         config=notify_config,
-        is_error=True,
+        use_rare_mode=True,
     )
     return False
 
@@ -522,7 +522,7 @@ def _attempt_push_with_retry(
             f"Error:\n{push_error[:1200]}"
         ),
         config=notify_config,
-        is_error=True,
+        use_rare_mode=True,
     )
     return False
 

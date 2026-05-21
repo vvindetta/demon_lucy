@@ -43,6 +43,13 @@ class Today(AbstractModule):
             False,
         ),
         (
+            "--today-past",
+            bool,
+            False,
+            "Force move now file to past on this event.",
+            False,
+        ),
+        (
             "--today-force-filesystem-mtime",
             bool,
             False,
@@ -225,13 +232,13 @@ class Today(AbstractModule):
         return self._archive_if_needed(ctx, force=force)
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_if_needed(ctx, force=False)
+        return self._archive_if_needed(ctx, force=bool(ctx.config["today_past"]))
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_if_needed(ctx, force=False)
+        return self._archive_if_needed(ctx, force=bool(ctx.config["today_past"]))
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_if_needed(ctx, force=False)
+        return self._archive_if_needed(ctx, force=bool(ctx.config["today_past"]))
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_if_needed(ctx, force=False)
+        return self._archive_if_needed(ctx, force=bool(ctx.config["today_past"]))

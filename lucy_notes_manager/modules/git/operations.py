@@ -356,7 +356,7 @@ def _notify_pull_waiting_for_network(
             f"Reason:\n{reason[:600]}"
         ),
         config=notify_config,
-        is_error=True,
+        use_rare_mode=True,
     )
 
 
@@ -427,7 +427,7 @@ def _resolve_pull_plan(
                 f"No upstream configured and cannot infer remote/branch; skip pull."
             ),
             config=notify_config,
-            is_error=True,
+            use_rare_mode=True,
         )
         return None
 
@@ -471,7 +471,7 @@ def _resolve_pull_plan(
                 f"Skip pull."
             ),
             config=notify_config,
-            is_error=True,
+            use_rare_mode=True,
         )
         return None
 
@@ -589,7 +589,7 @@ def _handle_pull_failure(
                 f"{merge_abort_note}"
             ),
             config=notify_config,
-            is_error=True,
+            use_rare_mode=True,
         )
         return False
 
@@ -619,7 +619,7 @@ def _handle_pull_failure(
             f"Error:\n{pull_error[:1200]}"
         ),
         config=notify_config,
-        is_error=True,
+        use_rare_mode=True,
     )
     return False
 

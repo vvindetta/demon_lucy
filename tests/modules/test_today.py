@@ -18,6 +18,7 @@ def _ctx_for(
     path: Path,
     *,
     force_fs: bool = False,
+    force_past: bool = False,
     now_path: str = "now.md",
     past_path: str = "past.md",
 ) -> Context:
@@ -25,10 +26,13 @@ def _ctx_for(
         "today_now_path": now_path,
         "today_past_path": past_path,
         "today_idle_hours": 12.0,
+        "today_past": False,
         "today_force_filesystem_mtime": False,
     }
     if force_fs:
         config["today_force_filesystem_mtime"] = True
+    if force_past:
+        config["today_past"] = True
 
     return Context(
         path=str(path),
@@ -124,6 +128,25 @@ def test_does_not_archive_when_file_is_not_stale(tmp_path: Path) -> None:
     assert ignore is None
     assert now_path.read_text(encoding="utf-8") == "keep\n"
     assert not (tmp_path / "past.md").exists()
+
+
+def test_force_today_past_archives_even_when_not_stale(tmp_path: Path, monkeypatch) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("move now\n", encoding="utf-8")
+    _make_stale(now_path, 1.0)
+
+    module = Today()
+    ctx = _ctx_for(now_path, force_past=True)
+    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert past_path.read_text(encoding="utf-8") == "-- 01.05\nmove now\n"
 
 
 def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -> None:

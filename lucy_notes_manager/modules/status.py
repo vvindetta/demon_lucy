@@ -265,36 +265,6 @@ class Status(AbstractModule):
         step = offset % cycle_len
         return stream[step : step + width].ljust(width)
 
-    def _git_last_commit_timestamp(self, path: str) -> Optional[float]:
-        repo_root = find_parent_with(path, ".git")
-        if not repo_root:
-            return None
-
-        try:
-            result = subprocess.run(
-                ["git", "log", "-1", "--format=%ct"],
-                cwd=repo_root,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-                timeout=2.0,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-
-        if result.returncode != 0:
-            return None
-
-        raw_timestamp = (result.stdout or "").strip()
-        if not raw_timestamp:
-            return None
-
-        try:
-            return float(raw_timestamp)
-        except ValueError:
-            return None
-
     def _git_last_synced_timestamp(self, path: str) -> Optional[float]:
         repo_root = find_parent_with(path, ".git")
         if not repo_root:
@@ -337,7 +307,7 @@ class Status(AbstractModule):
         return f"{age_minutes}m"
 
     def _git_sync_time_label(self, path: str) -> str:
-        last_commit_ts = self._git_last_commit_timestamp(path)
+        last_commit_ts = self._git_last_synced_timestamp(path)
         if last_commit_ts is None:
             return "0"
         return str(int(last_commit_ts))
@@ -372,10 +342,11 @@ class Status(AbstractModule):
                 tokens.append(self._git_age_label(path))
                 continue
             if part == "git_static":
-                if existing_git_sync_token:
+                git_sync_token = self._git_sync_time_label(path)
+                if git_sync_token == "0" and existing_git_sync_token:
                     tokens.append(existing_git_sync_token)
                 else:
-                    tokens.append(self._git_sync_time_label(path))
+                    tokens.append(git_sync_token)
 
         if banner_text:
             banner_frame = self._render_banner_frame(

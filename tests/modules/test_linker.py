@@ -4,6 +4,9 @@ import os
 from pathlib import Path
 
 import lucy_notes_manager.modules.linker as linker_mod
+from watchdog.events import FileMovedEvent
+
+from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.linker import Linker
 
 
@@ -18,12 +21,16 @@ def test_apply_creates_link_in_repo_root(tmp_path: Path):
     nested = repo / "notes" / "work"
     nested.mkdir(parents=True)
     note = nested / "daily.md"
-    note.write_text("hello\n--link-root\n", encoding="utf-8")
+    note.write_text("hello\n--linker-root\n", encoding="utf-8")
 
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"link_root": True, "link_clean_root_symlinks": False},
+        config={
+            "linker_root": True,
+            "linker_clean_root_symlinks": False,
+            "linker_ignore": [],
+        },
     )
 
     link_path = repo / "daily.md"
@@ -41,7 +48,11 @@ def test_apply_returns_none_when_flag_is_disabled(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"link_root": False, "link_clean_root_symlinks": False},
+        config={
+            "linker_root": False,
+            "linker_clean_root_symlinks": False,
+            "linker_ignore": [],
+        },
     )
 
     assert changed is None
@@ -56,7 +67,11 @@ def test_apply_returns_none_when_file_is_already_in_repo_root(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"link_root": True, "link_clean_root_symlinks": False},
+        config={
+            "linker_root": True,
+            "linker_clean_root_symlinks": False,
+            "linker_ignore": [],
+        },
     )
 
     assert changed is None
@@ -74,7 +89,11 @@ def test_apply_returns_none_when_target_exists_as_file(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"link_root": True, "link_clean_root_symlinks": False},
+        config={
+            "linker_root": True,
+            "linker_clean_root_symlinks": False,
+            "linker_ignore": [],
+        },
     )
 
     assert changed is None
@@ -93,7 +112,11 @@ def test_apply_returns_none_when_same_symlink_already_exists(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"link_root": True, "link_clean_root_symlinks": False},
+        config={
+            "linker_root": True,
+            "linker_clean_root_symlinks": False,
+            "linker_ignore": [],
+        },
     )
 
     assert changed is None
@@ -108,7 +131,11 @@ def test_apply_returns_none_outside_repo(tmp_path: Path, monkeypatch):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"link_root": True, "link_clean_root_symlinks": False},
+        config={
+            "linker_root": True,
+            "linker_clean_root_symlinks": False,
+            "linker_ignore": [],
+        },
     )
 
     assert changed is None
@@ -133,7 +160,11 @@ def test_auto_cleanup_removes_symlinks_from_repo_root(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"link_root": False, "link_clean_root_symlinks": True},
+        config={
+            "linker_root": False,
+            "linker_clean_root_symlinks": True,
+            "linker_ignore": [],
+        },
     )
 
     assert changed is not None
@@ -156,7 +187,11 @@ def test_auto_cleanup_skipped_when_link_top_is_set(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"link_root": True, "link_clean_root_symlinks": True},
+        config={
+            "linker_root": True,
+            "linker_clean_root_symlinks": True,
+            "linker_ignore": [],
+        },
     )
 
     assert changed == {str((repo / "x.md").absolute()): 1}
@@ -172,7 +207,216 @@ def test_auto_cleanup_returns_none_when_no_links(tmp_path: Path):
     module = Linker()
     changed = module._apply(
         path=str(note),
-        config={"link_root": False, "link_clean_root_symlinks": True},
+        config={
+            "linker_root": False,
+            "linker_clean_root_symlinks": True,
+            "linker_ignore": [],
+        },
     )
 
     assert changed is None
+
+
+def test_apply_skips_link_creation_when_source_matches_ignore_basename(tmp_path: Path):
+    repo = _setup_repo(tmp_path)
+    note = repo / "notes" / "secret.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("x\n", encoding="utf-8")
+
+    module = Linker()
+    changed = module._apply(
+        path=str(note),
+        config={
+            "linker_root": True,
+            "linker_clean_root_symlinks": False,
+            "linker_ignore": ["secret.md"],
+        },
+    )
+
+    assert changed is None
+    assert not (repo / "secret.md").exists()
+
+
+def test_auto_cleanup_keeps_ignored_symlink_by_name(tmp_path: Path):
+    repo = _setup_repo(tmp_path)
+    notes_dir = repo / "notes"
+    notes_dir.mkdir(parents=True)
+    note = notes_dir / "x.md"
+    note.write_text("x\n", encoding="utf-8")
+    other = notes_dir / "y.md"
+    other.write_text("y\n", encoding="utf-8")
+
+    keep_link = repo / "x.md"
+    delete_link = repo / "y.md"
+    os.symlink(os.path.relpath(note, repo), keep_link)
+    os.symlink(os.path.relpath(other, repo), delete_link)
+
+    module = Linker()
+    changed = module._apply(
+        path=str(note),
+        config={
+            "linker_root": False,
+            "linker_clean_root_symlinks": True,
+            "linker_ignore": ["x.md"],
+        },
+    )
+
+    assert changed == {str(delete_link.absolute()): 1}
+    assert keep_link.is_symlink()
+    assert not delete_link.exists()
+
+
+def test_moved_updates_markdown_link_paths_only(tmp_path: Path):
+    repo = _setup_repo(tmp_path)
+    notes_dir = repo / "notes"
+    moved_dir = notes_dir / "log"
+    notes_dir.mkdir(parents=True)
+    moved_dir.mkdir(parents=True)
+
+    old_path = notes_dir / "day.md"
+    new_path = moved_dir / "day.md"
+    old_path.write_text("note\n", encoding="utf-8")
+    os.rename(old_path, new_path)
+
+    index_path = notes_dir / "index.md"
+    index_path.write_text(
+        '[good day](day.md)\n'
+        '[with title](./day.md#top "T")\n'
+        '[external](https://example.com/day.md)\n',
+        encoding="utf-8",
+    )
+
+    module = Linker()
+    config = {
+        "linker_root": False,
+        "linker_clean_root_symlinks": False,
+        "linker_ignore": [],
+        "linker_update_references_on_move": True,
+    }
+    ctx = Context(path=str(new_path), config=config, arg_lines={})
+    system = System(
+        event=FileMovedEvent(str(old_path), str(new_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.moved(ctx, system)
+
+    assert changed == {str(index_path.resolve()): 1}
+    assert (
+        index_path.read_text(encoding="utf-8")
+        == '[good day](log/day.md)\n'
+        '[with title](./log/day.md#top "T")\n'
+        '[external](https://example.com/day.md)\n'
+    )
+
+
+def test_moved_skips_markdown_rewrite_for_ignored_targets(tmp_path: Path):
+    repo = _setup_repo(tmp_path)
+    notes_dir = repo / "notes"
+    moved_dir = notes_dir / "log"
+    notes_dir.mkdir(parents=True)
+    moved_dir.mkdir(parents=True)
+
+    old_path = notes_dir / "day.md"
+    new_path = moved_dir / "day.md"
+    old_path.write_text("note\n", encoding="utf-8")
+    os.rename(old_path, new_path)
+
+    index_path = notes_dir / "index.md"
+    index_path.write_text("[good day](day.md)\n", encoding="utf-8")
+
+    module = Linker()
+    config = {
+        "linker_root": False,
+        "linker_clean_root_symlinks": False,
+        "linker_ignore": ["index.md"],
+        "linker_update_references_on_move": True,
+    }
+    ctx = Context(path=str(new_path), config=config, arg_lines={})
+    system = System(
+        event=FileMovedEvent(str(old_path), str(new_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.moved(ctx, system)
+
+    assert changed is None
+    assert index_path.read_text(encoding="utf-8") == "[good day](day.md)\n"
+
+
+def test_moved_updates_link_in_middle_of_line(tmp_path: Path):
+    repo = _setup_repo(tmp_path)
+    notes_dir = repo / "notes"
+    moved_dir = notes_dir / "log"
+    notes_dir.mkdir(parents=True)
+    moved_dir.mkdir(parents=True)
+
+    old_path = notes_dir / "day.md"
+    new_path = moved_dir / "day.md"
+    old_path.write_text("note\n", encoding="utf-8")
+    os.rename(old_path, new_path)
+
+    index_path = notes_dir / "index.md"
+    index_path.write_text(
+        "prefix text [good day](day.md) suffix text\n",
+        encoding="utf-8",
+    )
+
+    module = Linker()
+    config = {
+        "linker_root": False,
+        "linker_clean_root_symlinks": False,
+        "linker_ignore": [],
+        "linker_update_references_on_move": True,
+    }
+    ctx = Context(path=str(new_path), config=config, arg_lines={})
+    system = System(
+        event=FileMovedEvent(str(old_path), str(new_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.moved(ctx, system)
+
+    assert changed == {str(index_path.resolve()): 1}
+    assert (
+        index_path.read_text(encoding="utf-8")
+        == "prefix text [good day](log/day.md) suffix text\n"
+    )
+
+
+def test_moved_does_not_update_when_flag_is_disabled(tmp_path: Path):
+    repo = _setup_repo(tmp_path)
+    notes_dir = repo / "notes"
+    moved_dir = notes_dir / "log"
+    notes_dir.mkdir(parents=True)
+    moved_dir.mkdir(parents=True)
+
+    old_path = notes_dir / "day.md"
+    new_path = moved_dir / "day.md"
+    old_path.write_text("note\n", encoding="utf-8")
+    os.rename(old_path, new_path)
+
+    index_path = notes_dir / "index.md"
+    index_path.write_text("[good day](day.md)\n", encoding="utf-8")
+
+    module = Linker()
+    config = {
+        "linker_root": False,
+        "linker_clean_root_symlinks": False,
+        "linker_ignore": [],
+        "linker_update_references_on_move": False,
+    }
+    ctx = Context(path=str(new_path), config=config, arg_lines={})
+    system = System(
+        event=FileMovedEvent(str(old_path), str(new_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.moved(ctx, system)
+
+    assert changed is None
+    assert index_path.read_text(encoding="utf-8") == "[good day](day.md)\n"
