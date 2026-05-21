@@ -83,11 +83,20 @@ def get_config_args(path: str, template: Template) -> Tuple[Dict[str, Any], List
     config_args_raw: List[str] = []
 
     with open(path, "r", encoding="utf-8") as file:
-        for line in file:
+        for lineno, line in enumerate(file, start=1):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            config_args_raw.extend(shlex.split(line))
+            try:
+                config_args_raw.extend(shlex.split(line))
+            except ValueError as exc:
+                logger.warning(
+                    "Skipping invalid config line %s:%d (%s)",
+                    path,
+                    lineno,
+                    exc,
+                )
+                continue
 
     return parse_args(template=template, args=config_args_raw)
 

@@ -77,6 +77,23 @@ def test_get_config_args_reads_lines_and_ignores_comments(tmp_path: Path):
     assert unknown == []
 
 
+def test_get_config_args_skips_invalid_quote_line(tmp_path: Path):
+    cfg = tmp_path / "config.txt"
+    cfg.write_text(
+        '--name "john\n--count 7\n',
+        encoding="utf-8",
+    )
+    template = [
+        ("--name", str, None, "", False),
+        ("--count", int, 0, "", False),
+    ]
+
+    known, unknown = get_config_args(str(cfg), template)
+    assert known["name"] is None
+    assert known["count"] == 7
+    assert unknown == []
+
+
 def test_merge_known_args_overwrites_only_when_value_is_meaningful():
     base = {"a": 1, "b": "x", "c": ["old"]}
     overwrite = {"a": None, "b": "", "c": ["new"], "d": 5}

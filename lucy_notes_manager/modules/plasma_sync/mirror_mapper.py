@@ -96,7 +96,7 @@ def _apply_mirror_items_to_doc(
     - every line that contains ANY bold in MAIN consumes exactly 1 item from mirror
     - we replace the whole line content with that item (fully bold), preserving line kind/state
     - if mirror has more items, append them as new bold paragraphs
-    - if mirror has fewer, we keep remaining bold lines unchanged (no data loss)
+    - if mirror has fewer, remaining bold lines are removed
     """
     cleaned = [it.strip() for it in items if it.strip()]
     cleaned = _dedupe_consecutive(cleaned)
@@ -115,7 +115,9 @@ def _apply_mirror_items_to_doc(
             )
             index += 1
         else:
-            out.append(dl)
+            # mirror source has no item for this bold line anymore:
+            # treat this as deletion from mirror and drop the line.
+            continue
 
     # collect all existing bold lines after replacement
     existing_bold_lines = {

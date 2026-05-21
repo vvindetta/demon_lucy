@@ -31,6 +31,14 @@ def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
     return {
         "sys_notification_provider": batch.notify_provider,
         "sys_notification_min_interval_seconds": batch.notify_min_interval_sec,
+        "sys_notification_error_backoff_base_seconds": (
+            batch.notify_error_backoff_base_seconds
+        ),
+        "sys_notification_error_backoff_max_seconds": batch.notify_error_backoff_max_seconds,
+        "sys_notification_error_burst_limit": batch.notify_error_burst_limit,
+        "sys_notification_error_burst_window_seconds": (
+            batch.notify_error_burst_window_seconds
+        ),
     }
 
 

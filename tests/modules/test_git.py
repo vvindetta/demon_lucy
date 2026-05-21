@@ -93,10 +93,32 @@ def _mk_batch(**overrides) -> _RepoBatch:
         "sync_retry_backoff_max_seconds": 4.0,
         "notify_provider": "termuxapi",
         "notify_min_interval_sec": 10.0,
+        "notify_error_backoff_base_seconds": 10.0,
+        "notify_error_backoff_max_seconds": 1800.0,
+        "notify_error_burst_limit": 3,
+        "notify_error_burst_window_seconds": 600.0,
         "policy": policy,
     }
     values.update(overrides)
     return _RepoBatch(**values)
+
+
+def test_notify_config_from_batch_includes_rare_notification_settings():
+    batch = _mk_batch(
+        notify_error_backoff_base_seconds=2.0,
+        notify_error_backoff_max_seconds=30.0,
+        notify_error_burst_limit=4,
+        notify_error_burst_window_seconds=90.0,
+    )
+
+    assert git_worker._notify_config_from_batch(batch) == {
+        "sys_notification_provider": "termuxapi",
+        "sys_notification_min_interval_seconds": 10.0,
+        "sys_notification_error_backoff_base_seconds": 2.0,
+        "sys_notification_error_backoff_max_seconds": 30.0,
+        "sys_notification_error_burst_limit": 4,
+        "sys_notification_error_burst_window_seconds": 90.0,
+    }
 
 
 def test_parse_porcelain_paths_handles_regular_and_renamed(git_module):
@@ -874,6 +896,10 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
             "git_pull_offline_error_markers": [],
             "sys_notification_provider": "termuxapi",
             "sys_notification_min_interval_seconds": 10.0,
+            "sys_notification_error_backoff_base_seconds": 10.0,
+            "sys_notification_error_backoff_max_seconds": 1800.0,
+            "sys_notification_error_burst_limit": 3,
+            "sys_notification_error_burst_window_seconds": 600.0,
             "git_push_auto_merge": True,
             "git_upstream_auto_set": True,
             "git_merge_autoresolve": "union",
