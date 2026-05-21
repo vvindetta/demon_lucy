@@ -108,12 +108,13 @@ def run_git(
         if lock_age is None:
             return result
 
-        logger.warning(
-            "git index.lock is active; waiting before retry | repo=%s | age_seconds=%.1f | retry=%d/%d",
-            repo_root,
-            lock_age,
-            recent_retry_attempt + 1,
-            recent_retry_max_attempts,
-        )
+        if recent_retry_attempt in (0, recent_retry_max_attempts - 1):
+            logger.warning(
+                "git index.lock is active; waiting before retry | repo=%s | age_seconds=%.1f | retry=%d/%d",
+                repo_root,
+                lock_age,
+                recent_retry_attempt + 1,
+                recent_retry_max_attempts,
+            )
         time.sleep(recent_retry_sleep_seconds)
         recent_retry_attempt += 1

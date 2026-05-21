@@ -825,6 +825,13 @@ def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkey
                 cmd=["git", "merge", "--abort"],
                 timeout=5.0,
             )
+        if arguments == ["reset", "--mixed", "-q"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=1,
+                stdout="",
+                stderr="reset failed",
+            )
         raise AssertionError(f"Unexpected command: {arguments}")
 
     monkeypatch.setattr(git_worker, "run_git", _run_git)
@@ -839,7 +846,7 @@ def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkey
     )
 
     assert cleaned is False
-    assert any(item["name"] == "merge-stuck:/repo" for item in notifications)
+    assert any(item["name"] == "git-sync:/repo" for item in notifications)
 
 
 def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
@@ -984,6 +991,166 @@ def test_process_batch_wraps_pipeline_with_repo_process_lock(git_module, monkeyp
     assert calls == {"with_lock": 1, "unlocked": 1}
 
 
+def test_with_repo_process_lock_skips_when_busy_not_stale(tmp_path, monkeypatch):
+    repo_root = tmp_path / "repo"
+    git_dir = repo_root / ".git"
+    git_dir.mkdir(parents=True)
+    lock_path = git_dir / "lucy-sync.lock"
+    lock_path.write_text(f"pid={os.getpid()}\n", encoding="utf-8")
+
+    clock = {"t": 0.0}
+
+    monkeypatch.setattr(
+        git_worker,
+        "_REPO_PROCESS_LOCK_WAIT_TIMEOUT_SECONDS",
+        0.05,
+    )
+    monkeypatch.setattr(git_worker, "_REPO_PROCESS_LOCK_RETRY_SLEEP_SECONDS", 0.01)
+    monkeypatch.setattr(git_worker.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(
+        git_worker.time,
+        "sleep",
+        lambda seconds: clock.__setitem__("t", clock["t"] + seconds),
+    )
+
+    calls = {"ran": 0}
+
+    def _run_fn():
+        calls["ran"] += 1
+        return True
+
+    assert git_worker._with_repo_process_lock(str(repo_root), _run_fn) is False
+    assert calls["ran"] == 0
+    assert lock_path.exists()
+
+
+def test_with_repo_process_lock_removes_stale_dead_owner_and_runs(tmp_path):
+    repo_root = tmp_path / "repo"
+    git_dir = repo_root / ".git"
+    git_dir.mkdir(parents=True)
+    lock_path = git_dir / "lucy-sync.lock"
+    lock_path.write_text("pid=999999\n", encoding="utf-8")
+
+    calls = {"ran": 0}
+
+    def _run_fn():
+        calls["ran"] += 1
+        return True
+
+    assert git_worker._with_repo_process_lock(str(repo_root), _run_fn) is True
+    assert calls["ran"] == 1
+    assert not lock_path.exists()
+
+
+def test_with_repo_process_lock_removes_legacy_lock_without_pid(tmp_path):
+    repo_root = tmp_path / "repo"
+    git_dir = repo_root / ".git"
+    git_dir.mkdir(parents=True)
+    lock_path = git_dir / "lucy-sync.lock"
+    lock_path.write_text("", encoding="utf-8")
+    stale_timestamp = time.time() - 120.0
+    os.utime(lock_path, (stale_timestamp, stale_timestamp))
+
+    calls = {"ran": 0}
+
+    def _run_fn():
+        calls["ran"] += 1
+        return True
+
+    assert git_worker._with_repo_process_lock(str(repo_root), _run_fn) is True
+    assert calls["ran"] == 1
+    assert not lock_path.exists()
+
+
+def test_stage_retries_after_corrupted_index_recovery(git_module, monkeypatch):
+    calls: list[list[str]] = []
+    notifications: list[dict] = []
+    state = {"add_attempt": 0}
+
+    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        calls.append(list(arguments))
+        if arguments == ["add", "-A"]:
+            state["add_attempt"] += 1
+            if state["add_attempt"] == 1:
+                return subprocess.CompletedProcess(
+                    args=["git"] + arguments,
+                    returncode=1,
+                    stdout="",
+                    stderr="fatal: .git/index: index file smaller than expected",
+                )
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        if arguments == ["reset", "--mixed", "-q"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        if arguments == ["status", "--porcelain"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+
+    staged_ok, porcelain_text, changed_paths = git_worker._stage_and_collect_changes(
+        self=git_module,
+        repo_root="/repo",
+        environment={},
+        git_timeout_seconds=5.0,
+        notify_config=_NOTIFY_CFG,
+    )
+
+    assert staged_ok is True
+    assert porcelain_text == ""
+    assert changed_paths == []
+    assert calls[:3] == [["add", "-A"], ["reset", "--mixed", "-q"], ["add", "-A"]]
+    assert notifications == []
+
+
+def test_stage_handles_index_lock_as_transient_without_addfail_notification(
+    git_module, monkeypatch
+):
+    notifications: list[dict] = []
+    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker,
+        "run_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["git", "add", "-A"],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "fatal: Unable to create '/repo/.git/index.lock': File exists.\n"
+                "Another git process seems to be running."
+            ),
+        ),
+    )
+
+    staged_ok, _porcelain_text, _changed_paths = git_worker._stage_and_collect_changes(
+        self=git_module,
+        repo_root="/repo",
+        environment={},
+        git_timeout_seconds=5.0,
+        notify_config=_NOTIFY_CFG,
+    )
+
+    assert staged_ok is False
+    assert [item["name"] for item in notifications] == ["git-sync:/repo"]
+
+
 def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypatch):
     captured = {}
     monkeypatch.setattr(
@@ -1031,6 +1198,54 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
     assert batch.repo_root == "/repo"
     assert batch.event_type == "modified"
     assert batch.hinted_paths == ["/repo/note.md"]
+
+
+def test_merge_cleanup_retries_abort_after_index_recovery(git_module, monkeypatch):
+    notifications: list[dict] = []
+    abort_calls = {"count": 0}
+    run_calls: list[list[str]] = []
+
+    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(git_worker, "merge_in_progress", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_worker,
+        "resolve_merge_conflicts_with_fallback",
+        lambda *_args, **_kwargs: False,
+    )
+
+    def _abort_merge_safely(**_kwargs):
+        abort_calls["count"] += 1
+        return abort_calls["count"] >= 2
+
+    monkeypatch.setattr(git_worker, "abort_merge_safely", _abort_merge_safely)
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        run_calls.append(list(arguments))
+        if arguments == ["reset", "--mixed", "-q"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+
+    result = git_worker._ensure_merge_state_clean(
+        self=git_module,
+        repo_root="/repo",
+        environment={},
+        git_timeout_seconds=5.0,
+        autoresolve_mode="union",
+        notify_config=_NOTIFY_CFG,
+    )
+
+    assert result is False
+    assert abort_calls["count"] == 2
+    assert run_calls == [["reset", "--mixed", "-q"]]
+    assert [item["name"] for item in notifications] == ["git-sync:/repo"]
 
 
 def test_process_event_serializes_operations_per_repo(git_module, monkeypatch):
@@ -1252,7 +1467,7 @@ def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypat
         notify_config=_NOTIFY_CFG,
     )
 
-    push_fail_notifications = [item for item in notifications if item["name"] == "pushfail:/repo"]
+    push_fail_notifications = [item for item in notifications if item["name"] == "git-sync:/repo"]
     assert len(push_fail_notifications) == 1
     assert "second push failed" in push_fail_notifications[0]["message"]
     assert "non-fast-forward" not in push_fail_notifications[0]["message"]
