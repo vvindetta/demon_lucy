@@ -21,6 +21,7 @@ from lucy_notes_manager.modules.git.operations import (
     run_git,
     safe_pull_merge,
 )
+from lucy_notes_manager.modules.git.sync_marker import write_sync_success_timestamp
 from lucy_notes_manager.modules.git.types import _RepoBatch
 
 logger = logging.getLogger(__name__)
@@ -562,7 +563,7 @@ def process_batch(self, batch: _RepoBatch) -> bool:
     ):
         return False
 
-    return _attempt_push_with_retry(
+    pushed_ok = _attempt_push_with_retry(
         self=self,
         batch=batch,
         repo_root=repo_root,
@@ -572,3 +573,9 @@ def process_batch(self, batch: _RepoBatch) -> bool:
         git_timeout_seconds=git_timeout_seconds,
         notify_config=notify_config,
     )
+    if not pushed_ok:
+        return False
+
+    if not write_sync_success_timestamp(repo_root):
+        logger.warning("failed to write git sync success marker | repo=%s", repo_root)
+    return True

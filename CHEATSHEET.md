@@ -142,6 +142,9 @@ Examples:
 | `--status-banner-speed-milliseconds` | `int` | Animation step duration for `--status-banner`. |
 | `--status-banner-max-characters` | `int` | Visible banner width. `0` means unlimited. |
 | `--status-prefix` | `str` | Prefix inserted before the first filename status token. |
+| `--status-ascii-animation-frames` | `str[]` | Frame list for pass-based ASCII animation in filename status. |
+| `--status-ascii-animation-speed-milliseconds` | `int` | Minimum delay between frame switches for `--status-ascii-animation-frames`. |
+| `--status-opened-events-disable` | `bool` | Disable status module processing for `opened` events. |
 
 Examples:
 
@@ -149,6 +152,9 @@ Examples:
 --status date time
 --status git update
 --status-banner "Working"
+--status-ascii-animation-frames "pri" "prive" "privet"
+--status-ascii-animation-speed-milliseconds 800
+--status-opened-events-disable
 ```
 
 ## Linker

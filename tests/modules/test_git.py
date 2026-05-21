@@ -15,6 +15,7 @@ import lucy_notes_manager.modules.git.operations as git_ops
 import lucy_notes_manager.modules.git.worker as git_worker
 from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.git import Git, _RepoBatch
+from lucy_notes_manager.modules.git.sync_marker import read_sync_success_timestamp
 from lucy_notes_manager.modules.git.types import (
     GitPolicy,
     MergeAutoresolveMode,
@@ -890,6 +891,71 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
     batch = _mk_batch(event_type="opened")
 
     assert git_worker.process_batch(git_module, batch) is True
+    assert calls[0] == ["add", "-A"]
+    assert calls[1] == ["status", "--porcelain"]
+    assert calls[2][:2] == ["commit", "-m"]
+    assert calls[3] == ["push"]
+
+
+def test_process_batch_writes_sync_success_marker_on_push_success(
+    git_module, monkeypatch, tmp_path
+):
+    calls: list[list[str]] = []
+    repo_root = tmp_path / "repo"
+    (repo_root / ".git").mkdir(parents=True)
+
+    monkeypatch.setattr(git_worker, "merge_in_progress", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        git_worker,
+        "safe_pull_merge",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("safe_pull_merge must not run for a successful push")
+        ),
+    )
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        calls.append(list(arguments))
+        if arguments == ["add", "-A"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        if arguments == ["status", "--porcelain"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout=" M note.md\n",
+                stderr="",
+            )
+        if arguments[:2] == ["commit", "-m"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="[main abc123] Auto commit",
+                stderr="",
+            )
+        if arguments == ["push"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="Everything up-to-date",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+
+    batch = _mk_batch(repo_root=str(repo_root), event_type="opened")
+    before_ts = time.time()
+    assert git_worker.process_batch(git_module, batch) is True
+    after_ts = time.time()
+
+    marker_ts = read_sync_success_timestamp(str(repo_root))
+    assert marker_ts is not None
+    assert before_ts - 1.0 <= marker_ts <= after_ts + 1.0
     assert calls[0] == ["add", "-A"]
     assert calls[1] == ["status", "--porcelain"]
     assert calls[2][:2] == ["commit", "-m"]

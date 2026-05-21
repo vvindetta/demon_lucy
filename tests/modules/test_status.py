@@ -5,10 +5,11 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from watchdog.events import FileModifiedEvent
+from watchdog.events import FileModifiedEvent, FileOpenedEvent
 
 import lucy_notes_manager.modules.status as status_mod
 from lucy_notes_manager.modules.abstract_module import Context, System
+from lucy_notes_manager.modules.git.sync_marker import write_sync_success_timestamp
 from lucy_notes_manager.modules.status import Status
 
 
@@ -45,6 +46,9 @@ def _ctx_for(
     status_banner_speed_milliseconds: int = status_mod._DEFAULT_BANNER_SPEED_MS,
     status_banner_max_characters: int = status_mod._DEFAULT_BANNER_MAX_CHARS,
     status_prefix: str = "",
+    status_ascii_animation_frames: list[str] | None = None,
+    status_ascii_animation_speed_milliseconds: int = status_mod._DEFAULT_ASCII_ANIMATION_SPEED_MS,
+    status_opened_events_disable: bool = False,
 ) -> Context:
     return Context(
         path=str(path),
@@ -54,6 +58,11 @@ def _ctx_for(
             "status_banner_speed_milliseconds": status_banner_speed_milliseconds,
             "status_banner_max_characters": status_banner_max_characters,
             "status_prefix": status_prefix,
+            "status_ascii_animation_frames": list(status_ascii_animation_frames or []),
+            "status_ascii_animation_speed_milliseconds": (
+                status_ascii_animation_speed_milliseconds
+            ),
+            "status_opened_events_disable": status_opened_events_disable,
         },
         arg_lines={},
     )
@@ -374,6 +383,59 @@ def test_status_git_update_falls_back_to_head_when_upstream_missing(
     assert new_path.exists()
 
 
+def test_status_git_update_uses_recent_sync_success_marker(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / ".git").mkdir(parents=True)
+    path = repo_root / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    assert write_sync_success_timestamp(
+        str(repo_root),
+        timestamp_seconds=now_state["value"] - (7.0 * 60.0),
+    )
+
+    def _unexpected_git_call(_cmd, **_kwargs):
+        raise AssertionError("git subprocess should not run when sync marker is available")
+
+    monkeypatch.setattr(status_mod.subprocess, "run", _unexpected_git_call)
+
+    module = Status()
+    system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
+    changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
+
+    new_path = repo_root / _inv("7m")
+    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert new_path.exists()
+
+
+def test_status_git_prefers_sync_success_marker_timestamp(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / ".git").mkdir(parents=True)
+    path = repo_root / "note.md"
+    path.write_text("--status git\n", encoding="utf-8")
+
+    marker_timestamp = 1800000123.0
+    assert write_sync_success_timestamp(
+        str(repo_root),
+        timestamp_seconds=marker_timestamp,
+    )
+
+    def _unexpected_git_call(_cmd, **_kwargs):
+        raise AssertionError("git subprocess should not run when sync marker is available")
+
+    monkeypatch.setattr(status_mod.subprocess, "run", _unexpected_git_call)
+
+    module = Status()
+    system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
+    changed = module.modified(_ctx_for(path, status_values=["git"]), system)
+
+    new_path = repo_root / _inv(str(int(marker_timestamp)))
+    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert new_path.exists()
+
+
 def test_status_ticker_interval_keeps_git_fast_window_temporary(monkeypatch) -> None:
     now_state = {"value": 1000.0}
     monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
@@ -428,6 +490,100 @@ def test_status_prefix_prepends_status_output(tmp_path: Path, monkeypatch) -> No
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
+
+
+def test_status_ascii_animation_frames_advance_per_pass_with_speed_and_prefix(
+    tmp_path: Path, monkeypatch
+) -> None:
+    now_state = {"value": 10.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+
+    path = tmp_path / "note.md"
+    path.write_text(
+        '--status-ascii-animation-frames "pri" "prive" "privet"\n'
+        "--status-ascii-animation-speed-milliseconds 1000\n"
+        '--status-prefix ">>> "\n',
+        encoding="utf-8",
+    )
+
+    module = Status()
+    system = System(event=FileModifiedEvent(str(path)), global_template=[], modules=[module])
+
+    changed_first = module.modified(
+        _ctx_for(
+            path,
+            status_prefix=">>> ",
+            status_ascii_animation_frames=["pri", "prive", "privet"],
+            status_ascii_animation_speed_milliseconds=1000,
+        ),
+        system,
+    )
+    first_path = tmp_path / _inv(">>> pri")
+    assert changed_first == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    changed_second = module.modified(
+        _ctx_for(
+            first_path,
+            status_prefix=">>> ",
+            status_ascii_animation_frames=["pri", "prive", "privet"],
+            status_ascii_animation_speed_milliseconds=1000,
+        ),
+        system,
+    )
+    assert changed_second is None
+    assert first_path.exists()
+
+    now_state["value"] = 11.1
+    changed_third = module.modified(
+        _ctx_for(
+            first_path,
+            status_prefix=">>> ",
+            status_ascii_animation_frames=["pri", "prive", "privet"],
+            status_ascii_animation_speed_milliseconds=1000,
+        ),
+        system,
+    )
+    second_path = tmp_path / _inv(">>> prive")
+    assert changed_third == {str(first_path.resolve()): 1, str(second_path.resolve()): 1}
+    assert second_path.exists()
+
+    now_state["value"] = 12.2
+    changed_fourth = module.modified(
+        _ctx_for(
+            second_path,
+            status_prefix=">>> ",
+            status_ascii_animation_frames=["pri", "prive", "privet"],
+            status_ascii_animation_speed_milliseconds=1000,
+        ),
+        system,
+    )
+    third_path = tmp_path / _inv(">>> privet")
+    assert changed_fourth == {str(second_path.resolve()): 1, str(third_path.resolve()): 1}
+    assert third_path.exists()
+
+
+def test_status_opened_events_disable_flag_skips_opened_handler(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
+
+    path = tmp_path / "note.md"
+    path.write_text("--status time\n", encoding="utf-8")
+
+    module = Status()
+    ctx = _ctx_for(
+        path,
+        status_values=["time"],
+        status_opened_events_disable=True,
+    )
+    system = System(event=FileOpenedEvent(str(path)), global_template=[], modules=[module])
+
+    changed = module.opened(ctx, system)
+
+    assert changed is None
+    assert path.exists()
+    assert not (tmp_path / _inv("08:09")).exists()
 
 
 def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> None:
@@ -608,6 +764,42 @@ def test_status_bootstrap_scans_dot_space_status_dir_after_restart_like_event(
     changed = module.modified(_ctx_for(trigger_file), system)
 
     revived_path = status_dir / "08:09"
+    assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
+    assert revived_path.exists()
+    assert not status_file.exists()
+
+
+def test_status_bootstrap_applies_ascii_animation_from_status_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    now_state = {"value": 10.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+
+    notes_root = tmp_path / "notes"
+    status_dir = notes_root / ".status"
+    status_dir.mkdir(parents=True, exist_ok=True)
+
+    status_file = status_dir / "dead.md"
+    status_file.write_text(
+        '--status-ascii-animation-frames "pri" "prive" "privet"\n'
+        "--status-ascii-animation-speed-milliseconds 1000\n"
+        '--status-prefix ">>> "\n',
+        encoding="utf-8",
+    )
+
+    trigger_file = notes_root / "random.md"
+    trigger_file.write_text("body\n", encoding="utf-8")
+
+    module = Status()
+    system = System(
+        event=FileModifiedEvent(str(trigger_file)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.modified(_ctx_for(trigger_file), system)
+
+    revived_path = status_dir / ">>> pri"
     assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
     assert revived_path.exists()
     assert not status_file.exists()

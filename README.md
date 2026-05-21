@@ -153,7 +153,7 @@ Hot reload and module install/uninstall commands are not implemented yet; restar
 - `formatter`: formats note text, including todo list conversion and blank-space padding.
 - `banner`: inserts ASCII banner text or date banners into notes.
 - `renamer`: renames notes manually or by simple date-based create rules.
-- `status`: adds date, time, Git, or animated status markers to filenames. Useful when the filename itself should show what state the note is in without opening it.
+- `status`: adds date, time, Git, or animated status markers to filenames. Supports rolling ASCII frame animations via `--status-ascii-animation-frames` and optional opened-event skip via `--status-opened-events-disable`.
 - `linker`: creates or cleans repository-root symlinks for active notes.
 - `dropdir`: handles moved files in configured drop directories. Useful for temporary inbox/drop folders where moving a file should immediately trigger a follow-up action.
 - `today`: archives stale active notes into a past/archive note. Useful for keeping one current daily scratch note while automatically moving old content into history.

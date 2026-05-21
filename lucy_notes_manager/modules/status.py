@@ -16,6 +16,7 @@ from lucy_notes_manager.modules.abstract_module import (
     IgnoreMap,
     System,
 )
+from lucy_notes_manager.modules.git.sync_marker import read_sync_success_timestamp
 
 _SECONDS_TICK_INTERVAL = 1.0
 _GIT_FAST_TICK_INTERVAL = 2.0
@@ -23,6 +24,7 @@ _DEFAULT_TICK_INTERVAL = 60.0
 _GIT_FAST_TICK_WINDOW_SECONDS = 120.0
 _DEFAULT_BANNER_SPEED_MS = 500
 _DEFAULT_BANNER_MAX_CHARS = 0
+_DEFAULT_ASCII_ANIMATION_SPEED_MS = 1000
 
 
 class Status(AbstractModule):
@@ -65,6 +67,27 @@ class Status(AbstractModule):
             "Prefix text inserted at the very beginning of the filename status. Example: --status-prefix 'Inbox: '",
             False,
         ),
+        (
+            "--status-ascii-animation-frames",
+            str,
+            [],
+            "ASCII animation frames for filename status. Example: --status-ascii-animation-frames \"pri\" \"prive\" \"privet\"",
+            False,
+        ),
+        (
+            "--status-ascii-animation-speed-milliseconds",
+            int,
+            _DEFAULT_ASCII_ANIMATION_SPEED_MS,
+            "ASCII animation frame switch speed in milliseconds. Default: 1000",
+            False,
+        ),
+        (
+            "--status-opened-events-disable",
+            bool,
+            False,
+            "Disable status updates for opened events.",
+            False,
+        ),
     ]
 
     def __init__(self) -> None:
@@ -74,6 +97,9 @@ class Status(AbstractModule):
         self._tracked_prefixes: dict[str, str] = {}
         self._banner_offsets: dict[str, int] = {}
         self._banner_last_slots: dict[str, int] = {}
+        self._tracked_ascii_animations: dict[str, tuple[list[str], int]] = {}
+        self._ascii_frame_indices: dict[str, int] = {}
+        self._ascii_last_switch_seconds: dict[str, float] = {}
         self._track_lock = threading.Lock()
         self._rename_lock = threading.Lock()
         self._bootstrap_lock = threading.Lock()
@@ -239,6 +265,28 @@ class Status(AbstractModule):
             return None, safe_speed_ms, safe_max_chars
         return banner_text, safe_speed_ms, safe_max_chars
 
+    def _normalize_ascii_animation_settings(
+        self,
+        frames_value: Any,
+        speed_ms_value: Any,
+    ) -> tuple[list[str], int]:
+        raw_frames: list[Any]
+        if frames_value is None:
+            raw_frames = []
+        elif isinstance(frames_value, (list, tuple)):
+            raw_frames = list(frames_value)
+        else:
+            raw_frames = [frames_value]
+
+        frames = [str(frame) for frame in raw_frames if str(frame) != ""]
+
+        try:
+            speed_ms = int(speed_ms_value)
+        except (TypeError, ValueError):
+            speed_ms = _DEFAULT_ASCII_ANIMATION_SPEED_MS
+        safe_speed_ms = max(1, speed_ms)
+        return frames, safe_speed_ms
+
     @staticmethod
     def _rotate_banner_text(text: str, offset: int) -> str:
         if not text:
@@ -269,6 +317,10 @@ class Status(AbstractModule):
         repo_root = find_parent_with(path, ".git")
         if not repo_root:
             return None
+
+        sync_marker_ts = read_sync_success_timestamp(repo_root)
+        if sync_marker_ts is not None:
+            return sync_marker_ts
 
         for revision in ("@{u}", "HEAD"):
             try:
@@ -317,12 +369,13 @@ class Status(AbstractModule):
         path: str,
         parts: list[str],
         existing_git_sync_token: str | None,
+        ascii_frame_text: str | None,
         banner_text: str | None,
         banner_offset: int,
         banner_max_chars: int,
         status_prefix: str,
     ) -> list[str]:
-        if not parts and not banner_text:
+        if not parts and not banner_text and ascii_frame_text is None:
             return []
 
         now = datetime.now()
@@ -348,6 +401,9 @@ class Status(AbstractModule):
                 else:
                     tokens.append(git_sync_token)
 
+        if ascii_frame_text is not None:
+            tokens.append(ascii_frame_text)
+
         if banner_text:
             banner_frame = self._render_banner_frame(
                 text=banner_text,
@@ -372,6 +428,32 @@ class Status(AbstractModule):
             for part in parts
         )
 
+    def _pick_ascii_frame(
+        self,
+        path: str,
+        ascii_frames: list[str],
+        ascii_speed_ms: int,
+        *,
+        advance_frame: bool,
+    ) -> str | None:
+        if not ascii_frames:
+            return None
+
+        with self._track_lock:
+            current_index = self._ascii_frame_indices.get(path, 0) % len(ascii_frames)
+            now_seconds = time.time()
+            if advance_frame:
+                last_switch_seconds = self._ascii_last_switch_seconds.get(path, 0.0)
+                if last_switch_seconds <= 0.0:
+                    self._ascii_last_switch_seconds[path] = now_seconds
+                else:
+                    speed_seconds = max(1, int(ascii_speed_ms)) / 1000.0
+                    if now_seconds - last_switch_seconds >= speed_seconds:
+                        current_index = (current_index + 1) % len(ascii_frames)
+                        self._ascii_frame_indices[path] = current_index
+                        self._ascii_last_switch_seconds[path] = now_seconds
+            return ascii_frames[current_index]
+
     def _set_tracked_parts(
         self,
         path: str,
@@ -380,9 +462,25 @@ class Status(AbstractModule):
         banner_speed_ms: int = _DEFAULT_BANNER_SPEED_MS,
         banner_max_chars: int = _DEFAULT_BANNER_MAX_CHARS,
         status_prefix: str = "",
+        ascii_animation_frames: list[str] | None = None,
+        ascii_animation_speed_ms: int = _DEFAULT_ASCII_ANIMATION_SPEED_MS,
     ) -> None:
         abs_path = os.path.abspath(path)
+        animation_frames = list(ascii_animation_frames or [])
+        animation_speed_ms = max(1, int(ascii_animation_speed_ms))
         with self._track_lock:
+            if animation_frames:
+                previous_animation = self._tracked_ascii_animations.get(abs_path)
+                next_animation = (list(animation_frames), animation_speed_ms)
+                if previous_animation != next_animation:
+                    self._ascii_frame_indices[abs_path] = 0
+                    self._ascii_last_switch_seconds[abs_path] = 0.0
+                self._tracked_ascii_animations[abs_path] = next_animation
+            else:
+                self._tracked_ascii_animations.pop(abs_path, None)
+                self._ascii_frame_indices.pop(abs_path, None)
+                self._ascii_last_switch_seconds.pop(abs_path, None)
+
             if self._needs_background_updates(parts, banner_text):
                 self._tracked_paths[abs_path] = list(parts)
                 self._tracked_prefixes[abs_path] = str(status_prefix or "")
@@ -440,6 +538,18 @@ class Status(AbstractModule):
             last_slot = self._banner_last_slots.pop(old_abs, None)
             if last_slot is not None:
                 self._banner_last_slots[new_abs] = last_slot
+            animation_state = self._tracked_ascii_animations.pop(old_abs, None)
+            if animation_state is not None:
+                self._tracked_ascii_animations[new_abs] = (
+                    list(animation_state[0]),
+                    int(animation_state[1]),
+                )
+            frame_index = self._ascii_frame_indices.pop(old_abs, None)
+            if frame_index is not None:
+                self._ascii_frame_indices[new_abs] = int(frame_index)
+            last_switch_seconds = self._ascii_last_switch_seconds.pop(old_abs, None)
+            if last_switch_seconds is not None:
+                self._ascii_last_switch_seconds[new_abs] = float(last_switch_seconds)
 
     def _tick_once(self) -> None:
         now_ts = time.time()
@@ -454,6 +564,9 @@ class Status(AbstractModule):
                     self._tracked_prefixes.pop(path, None)
                     self._banner_offsets.pop(path, None)
                     self._banner_last_slots.pop(path, None)
+                    self._tracked_ascii_animations.pop(path, None)
+                    self._ascii_frame_indices.pop(path, None)
+                    self._ascii_last_switch_seconds.pop(path, None)
                 continue
 
             banner_text: str | None = None
@@ -484,6 +597,7 @@ class Status(AbstractModule):
                 banner_offset=banner_offset,
                 banner_max_chars=banner_max_chars,
                 status_prefix=status_prefix,
+                advance_ascii_frame=False,
             )
 
     def _ticker_interval_seconds(self) -> float:
@@ -552,18 +666,31 @@ class Status(AbstractModule):
 
         return result
 
-    def _status_from_file(self, path: str) -> tuple[list[str], str | None, int, int, str]:
+    def _status_from_file(
+        self,
+        path: str,
+    ) -> tuple[list[str], str | None, int, int, str, list[str], int]:
         try:
             with open(path, "r", encoding="utf-8") as handle:
                 lines = handle.readlines()
         except (OSError, UnicodeDecodeError):
-            return [], None, _DEFAULT_BANNER_SPEED_MS, _DEFAULT_BANNER_MAX_CHARS, ""
+            return (
+                [],
+                None,
+                _DEFAULT_BANNER_SPEED_MS,
+                _DEFAULT_BANNER_MAX_CHARS,
+                "",
+                [],
+                _DEFAULT_ASCII_ANIMATION_SPEED_MS,
+            )
 
         status_values: list[str] = []
         banner_text_value: Any = ""
         banner_speed_value: Any = _DEFAULT_BANNER_SPEED_MS
         banner_max_chars_value: Any = _DEFAULT_BANNER_MAX_CHARS
         status_prefix = ""
+        ascii_animation_frames_value: list[str] = []
+        ascii_animation_speed_value: Any = _DEFAULT_ASCII_ANIMATION_SPEED_MS
         for line in lines:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
@@ -574,6 +701,8 @@ class Status(AbstractModule):
                 and "--status-banner-speed-milliseconds" not in stripped
                 and "--status-banner-max-characters" not in stripped
                 and "--status-prefix" not in stripped
+                and "--status-ascii-animation-frames" not in stripped
+                and "--status-ascii-animation-speed-milliseconds" not in stripped
             ):
                 continue
             try:
@@ -590,6 +719,8 @@ class Status(AbstractModule):
                     "--status-banner-speed-milliseconds",
                     "--status-banner-max-characters",
                     "--status-prefix",
+                    "--status-ascii-animation-frames",
+                    "--status-ascii-animation-speed-milliseconds",
                 ):
                     i += 1
                     continue
@@ -626,6 +757,25 @@ class Status(AbstractModule):
                         i += 1
                     continue
 
+                if token_head == "--status-ascii-animation-speed-milliseconds":
+                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                        ascii_animation_speed_value = tokens[i + 1]
+                        i += 2
+                    else:
+                        i += 1
+                    continue
+
+                if token_head == "--status-ascii-animation-frames":
+                    j = i + 1
+                    while j < len(tokens):
+                        token = tokens[j]
+                        if token.startswith("--"):
+                            break
+                        ascii_animation_frames_value.append(token)
+                        j += 1
+                    i = j
+                    continue
+
                 j = i + 1
                 while j < len(tokens):
                     token = tokens[j]
@@ -641,9 +791,23 @@ class Status(AbstractModule):
             banner_speed_value,
             banner_max_chars_value,
         )
+        ascii_animation_frames, ascii_animation_speed_ms = (
+            self._normalize_ascii_animation_settings(
+                ascii_animation_frames_value,
+                ascii_animation_speed_value,
+            )
+        )
         if banner_text and not status_prefix:
             status_prefix = "."
-        return parts, banner_text, banner_speed_ms, banner_max_chars, status_prefix
+        return (
+            parts,
+            banner_text,
+            banner_speed_ms,
+            banner_max_chars,
+            status_prefix,
+            ascii_animation_frames,
+            ascii_animation_speed_ms,
+        )
 
     def _bootstrap_from_status_dirs(self, event_path: str) -> Optional[IgnoreMap]:
         status_dirs = self._discover_status_dirs_from_path(event_path)
@@ -661,8 +825,15 @@ class Status(AbstractModule):
                         banner_speed_ms,
                         banner_max_chars,
                         status_prefix,
+                        ascii_animation_frames,
+                        ascii_animation_speed_ms,
                     ) = self._status_from_file(file_path)
-                    if not parts and not banner_text and not status_prefix:
+                    if (
+                        not parts
+                        and not banner_text
+                        and not status_prefix
+                        and not ascii_animation_frames
+                    ):
                         self._set_tracked_parts(path=file_path, parts=[], banner_text=None)
                         continue
                     self._set_tracked_parts(
@@ -672,6 +843,8 @@ class Status(AbstractModule):
                         banner_speed_ms=banner_speed_ms,
                         banner_max_chars=banner_max_chars,
                         status_prefix=status_prefix,
+                        ascii_animation_frames=ascii_animation_frames,
+                        ascii_animation_speed_ms=ascii_animation_speed_ms,
                     )
                     with self._track_lock:
                         banner_offset = self._banner_offsets.get(file_path, 0)
@@ -682,6 +855,9 @@ class Status(AbstractModule):
                         banner_offset=banner_offset,
                         banner_max_chars=banner_max_chars,
                         status_prefix=status_prefix,
+                        ascii_animation_frames=ascii_animation_frames,
+                        ascii_animation_speed_ms=ascii_animation_speed_ms,
+                        advance_ascii_frame=True,
                     )
                     merged = self._merge_ignore_maps(merged, changed)
         return merged
@@ -704,6 +880,9 @@ class Status(AbstractModule):
         banner_offset: int = 0,
         banner_max_chars: int = _DEFAULT_BANNER_MAX_CHARS,
         status_prefix: str | None = None,
+        ascii_animation_frames: list[str] | None = None,
+        ascii_animation_speed_ms: int = _DEFAULT_ASCII_ANIMATION_SPEED_MS,
+        advance_ascii_frame: bool = False,
     ) -> Optional[IgnoreMap]:
         with self._rename_lock:
             old_path = os.path.abspath(path)
@@ -726,11 +905,25 @@ class Status(AbstractModule):
             if status_prefix is None:
                 with self._track_lock:
                     status_prefix = self._tracked_prefixes.get(old_path, "")
+            if ascii_animation_frames is None:
+                with self._track_lock:
+                    tracked_ascii_animation = self._tracked_ascii_animations.get(old_path)
+                if tracked_ascii_animation:
+                    ascii_animation_frames = list(tracked_ascii_animation[0])
+                    ascii_animation_speed_ms = int(tracked_ascii_animation[1])
+
+            ascii_frame_text = self._pick_ascii_frame(
+                path=old_path,
+                ascii_frames=list(ascii_animation_frames or []),
+                ascii_speed_ms=ascii_animation_speed_ms,
+                advance_frame=advance_ascii_frame,
+            )
 
             tokens = self._build_tokens(
                 path=old_path,
                 parts=parts,
                 existing_git_sync_token=existing_tokens.get("g_sync"),
+                ascii_frame_text=ascii_frame_text,
                 banner_text=banner_text,
                 banner_offset=banner_offset,
                 banner_max_chars=banner_max_chars,
@@ -768,6 +961,15 @@ class Status(AbstractModule):
             ctx.config.get("status_banner_max_characters", _DEFAULT_BANNER_MAX_CHARS),
         )
         status_prefix = str(ctx.config.get("status_prefix", ""))
+        ascii_animation_frames, ascii_animation_speed_ms = (
+            self._normalize_ascii_animation_settings(
+                ctx.config.get("status_ascii_animation_frames", []),
+                ctx.config.get(
+                    "status_ascii_animation_speed_milliseconds",
+                    _DEFAULT_ASCII_ANIMATION_SPEED_MS,
+                ),
+            )
+        )
         if banner_text and not status_prefix:
             status_prefix = "."
         self._set_tracked_parts(
@@ -777,6 +979,8 @@ class Status(AbstractModule):
             banner_speed_ms=banner_speed_ms,
             banner_max_chars=banner_max_chars,
             status_prefix=status_prefix,
+            ascii_animation_frames=ascii_animation_frames,
+            ascii_animation_speed_ms=ascii_animation_speed_ms,
         )
         with self._track_lock:
             banner_offset = self._banner_offsets.get(os.path.abspath(ctx.path), 0)
@@ -787,6 +991,9 @@ class Status(AbstractModule):
             banner_offset=banner_offset,
             banner_max_chars=banner_max_chars,
             status_prefix=status_prefix,
+            ascii_animation_frames=ascii_animation_frames,
+            ascii_animation_speed_ms=ascii_animation_speed_ms,
+            advance_ascii_frame=True,
         )
         return self._merge_ignore_maps(bootstrap_changed, current_changed)
 
@@ -804,4 +1011,6 @@ class Status(AbstractModule):
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         _ = system
+        if ctx.config.get("status_opened_events_disable", False):
+            return None
         return self._handle_event(ctx)
