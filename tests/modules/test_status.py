@@ -901,7 +901,7 @@ def test_status_uses_fallback_name_when_target_exists(
     assert not status_file.exists()
 
 
-def test_status_ascii_animation_advances_on_any_external_event(
+def test_status_ascii_animation_advances_via_ticker_without_external_events(
     tmp_path: Path, monkeypatch
 ) -> None:
     now_state = {"value": 10.0}
@@ -919,29 +919,38 @@ def test_status_ascii_animation_advances_on_any_external_event(
         encoding="utf-8",
     )
 
-    first_trigger = notes_root / "random-a.md"
-    first_trigger.write_text("body\n", encoding="utf-8")
-    second_trigger = notes_root / "random-b.md"
-    second_trigger.write_text("body\n", encoding="utf-8")
+    trigger_file = notes_root / "random.md"
+    trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
     system = System(
-        event=FileModifiedEvent(str(first_trigger)),
+        event=FileModifiedEvent(str(trigger_file)),
         global_template=[],
         modules=[module],
     )
 
-    first_changed = module.modified(_ctx_for(first_trigger), system)
+    first_changed = module.modified(_ctx_for(trigger_file), system)
     first_path = status_dir / ">>> pri"
     assert first_changed == {str(status_file.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     now_state["value"] = 11.2
-    second_changed = module.modified(_ctx_for(second_trigger), system)
+    module._tick_once()
     second_path = status_dir / ">>> prive"
-    assert second_changed == {str(first_path.resolve()): 1, str(second_path.resolve()): 1}
     assert second_path.exists()
     assert not first_path.exists()
+
+    now_state["value"] = 12.4
+    module._tick_once()
+    third_path = status_dir / ">>> privet"
+    assert third_path.exists()
+    assert not second_path.exists()
+
+    now_state["value"] = 13.6
+    module._tick_once()
+    looped_path = status_dir / ">>> pri"
+    assert looped_path.exists()
+    assert not third_path.exists()
 
 
 def test_status_bootstrap_parses_ascii_frame_that_starts_with_double_dash(
@@ -960,27 +969,24 @@ def test_status_bootstrap_parses_ascii_frame_that_starts_with_double_dash(
         encoding="utf-8",
     )
 
-    first_trigger = notes_root / "random-a.md"
-    first_trigger.write_text("body\n", encoding="utf-8")
-    second_trigger = notes_root / "random-b.md"
-    second_trigger.write_text("body\n", encoding="utf-8")
+    trigger_file = notes_root / "random.md"
+    trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
     system = System(
-        event=FileModifiedEvent(str(first_trigger)),
+        event=FileModifiedEvent(str(trigger_file)),
         global_template=[],
         modules=[module],
     )
 
-    first_changed = module.modified(_ctx_for(first_trigger), system)
+    first_changed = module.modified(_ctx_for(trigger_file), system)
     first_path = status_dir / "-- --- --"
     assert first_changed == {str(status_file.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     now_state["value"] = 11.2
-    second_changed = module.modified(_ctx_for(second_trigger), system)
+    module._tick_once()
     second_path = status_dir / "-< --- >-"
-    assert second_changed == {str(first_path.resolve()): 1, str(second_path.resolve()): 1}
     assert second_path.exists()
     assert not first_path.exists()
 

@@ -581,6 +581,15 @@ class Status(AbstractModule):
                     )
                 self._ensure_ticker_started()
                 return
+
+            if animation_frames:
+                self._ensure_ticker_started()
+                self._tracked_paths.pop(abs_path, None)
+                self._tracked_banners.pop(abs_path, None)
+                self._banner_offsets.pop(abs_path, None)
+                self._banner_last_slots.pop(abs_path, None)
+                return
+
             self._tracked_paths.pop(abs_path, None)
             self._tracked_banners.pop(abs_path, None)
             self._banner_offsets.pop(abs_path, None)
@@ -630,9 +639,18 @@ class Status(AbstractModule):
     def _tick_once(self) -> None:
         now_ts = time.time()
         with self._track_lock:
-            tracked_items = list(self._tracked_paths.items())
+            tracked_items = [
+                (
+                    path,
+                    list(self._tracked_paths.get(path, [])),
+                    self._tracked_ascii_animations.get(path),
+                )
+                for path in (
+                    set(self._tracked_paths.keys()) | set(self._tracked_ascii_animations.keys())
+                )
+            ]
 
-        for path, parts in tracked_items:
+        for path, parts, ascii_animation_state in tracked_items:
             if not os.path.exists(path):
                 with self._track_lock:
                     self._tracked_paths.pop(path, None)
@@ -649,6 +667,8 @@ class Status(AbstractModule):
             banner_offset = 0
             banner_max_chars = _DEFAULT_BANNER_MAX_CHARS
             status_prefix = ""
+            ascii_frames: list[str] = []
+            ascii_speed_ms = _DEFAULT_ASCII_ANIMATION_SPEED_MS
             with self._track_lock:
                 banner_state = self._tracked_banners.get(path)
                 if banner_state:
@@ -665,6 +685,11 @@ class Status(AbstractModule):
                         self._banner_offsets[path] = next_offset
                     banner_offset = self._banner_offsets.get(path, 0)
                 status_prefix = self._tracked_prefixes.get(path, "")
+                if ascii_animation_state is None:
+                    ascii_animation_state = self._tracked_ascii_animations.get(path)
+                if ascii_animation_state is not None:
+                    ascii_frames = list(ascii_animation_state[0])
+                    ascii_speed_ms = int(ascii_animation_state[1])
 
             self._apply(
                 path=path,
@@ -673,7 +698,9 @@ class Status(AbstractModule):
                 banner_offset=banner_offset,
                 banner_max_chars=banner_max_chars,
                 status_prefix=status_prefix,
-                advance_ascii_frame=False,
+                ascii_animation_frames=ascii_frames,
+                ascii_animation_speed_ms=ascii_speed_ms,
+                advance_ascii_frame=bool(ascii_frames),
             )
 
     def _ticker_interval_seconds(self) -> float:
@@ -681,6 +708,7 @@ class Status(AbstractModule):
         with self._track_lock:
             tracked_parts = list(self._tracked_paths.values())
             tracked_banners = list(self._tracked_banners.values())
+            tracked_ascii_animations = list(self._tracked_ascii_animations.values())
             has_seconds = any("time_with_seconds" in parts for parts in tracked_parts)
             has_git_update = any("git_update" in parts for parts in tracked_parts)
             fast_until = self._git_fast_tick_until
@@ -695,6 +723,11 @@ class Status(AbstractModule):
                 max(1, speed_ms) / 1000.0 for _text, speed_ms, _max_chars in tracked_banners
             )
             interval = min(interval, float(min_banner_speed))
+        if tracked_ascii_animations:
+            min_ascii_speed = min(
+                max(1, speed_ms) / 1000.0 for _frames, speed_ms in tracked_ascii_animations
+            )
+            interval = min(interval, float(min_ascii_speed))
         return interval
 
     def _ticker_loop(self) -> None:
@@ -722,50 +755,6 @@ class Status(AbstractModule):
                     continue
                 merged[path] = merged.get(path, 0) + int(times)
         return merged or None
-
-    def _advance_tracked_ascii_animations(self, event_path: str) -> Optional[IgnoreMap]:
-        event_abs_path = os.path.abspath(event_path)
-        with self._track_lock:
-            tracked_items = [
-                (path, list(animation[0]), int(animation[1]))
-                for path, animation in self._tracked_ascii_animations.items()
-            ]
-            tracked_parts = {
-                path: list(self._tracked_paths.get(path, []))
-                for path, _frames, _speed_ms in tracked_items
-            }
-            tracked_prefixes = {
-                path: str(self._tracked_prefixes.get(path, ""))
-                for path, _frames, _speed_ms in tracked_items
-            }
-
-        merged: Optional[IgnoreMap] = None
-        for path, ascii_frames, ascii_speed_ms in tracked_items:
-            if path == event_abs_path:
-                continue
-
-            if not os.path.exists(path):
-                with self._track_lock:
-                    self._tracked_paths.pop(path, None)
-                    self._tracked_banners.pop(path, None)
-                    self._tracked_prefixes.pop(path, None)
-                    self._banner_offsets.pop(path, None)
-                    self._banner_last_slots.pop(path, None)
-                    self._tracked_ascii_animations.pop(path, None)
-                    self._ascii_frame_indices.pop(path, None)
-                    self._ascii_last_switch_seconds.pop(path, None)
-                continue
-
-            changed = self._apply(
-                path=path,
-                parts=tracked_parts.get(path, []),
-                status_prefix=tracked_prefixes.get(path, ""),
-                ascii_animation_frames=ascii_frames,
-                ascii_animation_speed_ms=ascii_speed_ms,
-                advance_ascii_frame=True,
-            )
-            merged = self._merge_ignore_maps(merged, changed)
-        return merged
 
     @staticmethod
     def _discover_status_dirs_from_path(path: str) -> list[str]:
@@ -1080,7 +1069,6 @@ class Status(AbstractModule):
 
     def _handle_event(self, ctx: Context) -> Optional[IgnoreMap]:
         bootstrap_changed = self._bootstrap_once(ctx.path)
-        tracked_ascii_changed = self._advance_tracked_ascii_animations(ctx.path)
         parts = self._parse_status_parts(list(ctx.config.get("status", [])))
         banner_text, banner_speed_ms, banner_max_chars = self._normalize_banner_settings(
             ctx.config.get("status_banner", ""),
@@ -1122,8 +1110,7 @@ class Status(AbstractModule):
             ascii_animation_speed_ms=ascii_animation_speed_ms,
             advance_ascii_frame=True,
         )
-        changed_with_tracked = self._merge_ignore_maps(bootstrap_changed, tracked_ascii_changed)
-        return self._merge_ignore_maps(changed_with_tracked, current_changed)
+        return self._merge_ignore_maps(bootstrap_changed, current_changed)
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         _ = system
