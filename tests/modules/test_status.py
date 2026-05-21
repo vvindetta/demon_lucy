@@ -474,6 +474,17 @@ def test_status_ticker_interval_uses_banner_speed(monkeypatch) -> None:
     assert module._ticker_interval_seconds() == 5.0
 
 
+def test_status_ascii_animation_default_speed_is_500_ms() -> None:
+    module = Status()
+    frames, speed_ms = module._normalize_ascii_animation_settings(
+        ["a", "b"],
+        None,
+    )
+
+    assert frames == ["a", "b"]
+    assert speed_ms == 500
+
+
 def test_status_prefix_prepends_status_output(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
 
@@ -901,7 +912,7 @@ def test_status_uses_fallback_name_when_target_exists(
     assert not status_file.exists()
 
 
-def test_status_ascii_animation_advances_via_ticker_without_external_events(
+def test_status_ascii_animation_advances_once_then_returns_to_first_frame(
     tmp_path: Path, monkeypatch
 ) -> None:
     now_state = {"value": 10.0}
@@ -948,9 +959,13 @@ def test_status_ascii_animation_advances_via_ticker_without_external_events(
 
     now_state["value"] = 13.6
     module._tick_once()
-    looped_path = status_dir / ">>> pri"
-    assert looped_path.exists()
+    restarted_first_path = status_dir / ">>> pri"
+    assert restarted_first_path.exists()
     assert not third_path.exists()
+
+    now_state["value"] = 14.8
+    module._tick_once()
+    assert restarted_first_path.exists()
 
 
 def test_status_bootstrap_parses_ascii_frame_that_starts_with_double_dash(

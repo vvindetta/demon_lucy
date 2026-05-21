@@ -24,7 +24,7 @@ _DEFAULT_TICK_INTERVAL = 60.0
 _GIT_FAST_TICK_WINDOW_SECONDS = 120.0
 _DEFAULT_BANNER_SPEED_MS = 500
 _DEFAULT_BANNER_MAX_CHARS = 0
-_DEFAULT_ASCII_ANIMATION_SPEED_MS = 1000
+_DEFAULT_ASCII_ANIMATION_SPEED_MS = 500
 
 
 class Status(AbstractModule):
@@ -78,7 +78,7 @@ class Status(AbstractModule):
             "--status-ascii-animation-speed-milliseconds",
             int,
             _DEFAULT_ASCII_ANIMATION_SPEED_MS,
-            "ASCII animation frame switch speed in milliseconds. Default: 1000",
+            "ASCII animation frame switch speed in milliseconds. Default: 500",
             False,
         ),
         (
@@ -100,6 +100,7 @@ class Status(AbstractModule):
         self._tracked_ascii_animations: dict[str, tuple[list[str], int]] = {}
         self._ascii_frame_indices: dict[str, int] = {}
         self._ascii_last_switch_seconds: dict[str, float] = {}
+        self._ascii_cycle_finished: dict[str, bool] = {}
         self._track_lock = threading.Lock()
         self._rename_lock = threading.Lock()
         self._bootstrap_lock = threading.Lock()
@@ -512,17 +513,28 @@ class Status(AbstractModule):
             return None
 
         with self._track_lock:
-            current_index = self._ascii_frame_indices.get(path, 0) % len(ascii_frames)
+            current_index = self._ascii_frame_indices.get(path, 0)
+            if current_index < 0:
+                current_index = 0
+            if current_index >= len(ascii_frames):
+                current_index = len(ascii_frames) - 1
             now_seconds = time.time()
             if advance_frame:
+                if self._ascii_cycle_finished.get(path, False):
+                    return ascii_frames[current_index]
                 last_switch_seconds = self._ascii_last_switch_seconds.get(path, 0.0)
                 if last_switch_seconds <= 0.0:
                     self._ascii_last_switch_seconds[path] = now_seconds
                 else:
                     speed_seconds = max(1, int(ascii_speed_ms)) / 1000.0
                     if now_seconds - last_switch_seconds >= speed_seconds:
-                        current_index = (current_index + 1) % len(ascii_frames)
-                        self._ascii_frame_indices[path] = current_index
+                        if current_index < len(ascii_frames) - 1:
+                            current_index += 1
+                            self._ascii_frame_indices[path] = current_index
+                        else:
+                            current_index = 0
+                            self._ascii_frame_indices[path] = current_index
+                            self._ascii_cycle_finished[path] = True
                         self._ascii_last_switch_seconds[path] = now_seconds
             return ascii_frames[current_index]
 
@@ -548,11 +560,13 @@ class Status(AbstractModule):
                 if previous_animation != next_animation:
                     self._ascii_frame_indices[abs_path] = 0
                     self._ascii_last_switch_seconds[abs_path] = 0.0
+                    self._ascii_cycle_finished[abs_path] = False
                 self._tracked_ascii_animations[abs_path] = next_animation
             else:
                 self._tracked_ascii_animations.pop(abs_path, None)
                 self._ascii_frame_indices.pop(abs_path, None)
                 self._ascii_last_switch_seconds.pop(abs_path, None)
+                self._ascii_cycle_finished.pop(abs_path, None)
 
             if needs_background_updates or animation_frames:
                 self._tracked_prefixes[abs_path] = str(status_prefix or "")
@@ -635,6 +649,9 @@ class Status(AbstractModule):
             last_switch_seconds = self._ascii_last_switch_seconds.pop(old_abs, None)
             if last_switch_seconds is not None:
                 self._ascii_last_switch_seconds[new_abs] = float(last_switch_seconds)
+            cycle_finished = self._ascii_cycle_finished.pop(old_abs, None)
+            if cycle_finished is not None:
+                self._ascii_cycle_finished[new_abs] = bool(cycle_finished)
 
     def _tick_once(self) -> None:
         now_ts = time.time()
@@ -661,6 +678,7 @@ class Status(AbstractModule):
                     self._tracked_ascii_animations.pop(path, None)
                     self._ascii_frame_indices.pop(path, None)
                     self._ascii_last_switch_seconds.pop(path, None)
+                    self._ascii_cycle_finished.pop(path, None)
                 continue
 
             banner_text: str | None = None
