@@ -9,11 +9,26 @@ import lucy_notes_manager.lib as lib_mod
 _TERMUX_CONFIG = {
     "sys_notification_provider": "termuxapi",
     "sys_notification_min_interval_seconds": 10.0,
+    "sys_notification_error_backoff_base_seconds": 10.0,
+    "sys_notification_error_backoff_max_seconds": 1800.0,
+    "sys_notification_error_burst_limit": 3,
+    "sys_notification_error_burst_window_seconds": 600.0,
 }
 _AUTO_CONFIG = {
     "sys_notification_provider": "auto",
     "sys_notification_min_interval_seconds": 10.0,
+    "sys_notification_error_backoff_base_seconds": 10.0,
+    "sys_notification_error_backoff_max_seconds": 1800.0,
+    "sys_notification_error_burst_limit": 3,
+    "sys_notification_error_burst_window_seconds": 600.0,
 }
+
+
+def _reset_notify_state() -> None:
+    lib_mod._NOTIFY_LAST.clear()
+    lib_mod._ERROR_NOTIFY_LAST.clear()
+    lib_mod._ERROR_NOTIFY_LEVEL.clear()
+    lib_mod._ERROR_NOTIFY_HISTORY.clear()
 
 
 def test_safe_notify_throttles_per_key(monkeypatch):
@@ -26,7 +41,7 @@ def test_safe_notify_throttles_per_key(monkeypatch):
         lambda message, title="Lucy Note Manager", config=None: calls.append(message),
     )
     monkeypatch.setattr(lib_mod.time, "time", lambda: next(times))
-    lib_mod._NOTIFY_LAST.clear()
+    _reset_notify_state()
 
     lib_mod.safe_notify("k1", "first", config=_TERMUX_CONFIG)
     lib_mod.safe_notify("k2", "second", config=_TERMUX_CONFIG)
@@ -34,6 +49,55 @@ def test_safe_notify_throttles_per_key(monkeypatch):
     lib_mod.safe_notify("k1", "fourth", config=_TERMUX_CONFIG)
 
     assert calls == ["first", "second", "fourth"]
+
+
+def test_safe_notify_error_uses_exponential_backoff(monkeypatch):
+    calls: list[str] = []
+    times = iter([0.0, 5.0, 10.0, 21.0, 45.0])
+
+    monkeypatch.setattr(
+        lib_mod,
+        "notify",
+        lambda message, title="Lucy Note Manager", config=None: calls.append(message),
+    )
+    monkeypatch.setattr(lib_mod.time, "time", lambda: next(times))
+    _reset_notify_state()
+
+    lib_mod.safe_notify("err:key", "m1", config=_TERMUX_CONFIG, is_error=True)
+    lib_mod.safe_notify("err:key", "m2", config=_TERMUX_CONFIG, is_error=True)
+    lib_mod.safe_notify("err:key", "m3", config=_TERMUX_CONFIG, is_error=True)
+    lib_mod.safe_notify("err:key", "m4", config=_TERMUX_CONFIG, is_error=True)
+    lib_mod.safe_notify("err:key", "m5", config=_TERMUX_CONFIG, is_error=True)
+
+    assert calls == ["m1", "m3", "m5"]
+
+
+def test_safe_notify_error_burst_limit_applies_globally(monkeypatch):
+    calls: list[str] = []
+    times = iter([0.0, 1.0, 2.0, 61.0])
+    cfg = {
+        "sys_notification_provider": "termuxapi",
+        "sys_notification_min_interval_seconds": 0.0,
+        "sys_notification_error_backoff_base_seconds": 0.0,
+        "sys_notification_error_backoff_max_seconds": 0.0,
+        "sys_notification_error_burst_limit": 2,
+        "sys_notification_error_burst_window_seconds": 60.0,
+    }
+
+    monkeypatch.setattr(
+        lib_mod,
+        "notify",
+        lambda message, title="Lucy Note Manager", config=None: calls.append(message),
+    )
+    monkeypatch.setattr(lib_mod.time, "time", lambda: next(times))
+    _reset_notify_state()
+
+    lib_mod.safe_notify("err:a", "a1", config=cfg, is_error=True)
+    lib_mod.safe_notify("err:b", "b1", config=cfg, is_error=True)
+    lib_mod.safe_notify("err:c", "c1", config=cfg, is_error=True)
+    lib_mod.safe_notify("err:d", "d1", config=cfg, is_error=True)
+
+    assert calls == ["a1", "b1", "d1"]
 
 
 def test_notify_termux_provider_uses_termux_api(monkeypatch):

@@ -25,6 +25,10 @@ Used by `main_daemon.py` and config files.
 | `--sys-disable-opened-events` | `bool` | Ignore `opened` events completely. Useful on Termux. |
 | `--sys-notification-provider` | `str` | Notification backend: `auto`, `termuxapi`, `desktop`, or `disable`. |
 | `--sys-notification-min-interval-seconds` | `float` | Minimum interval before repeating the same notification. |
+| `--sys-notification-error-backoff-base-seconds` | `float` | Base interval for exponential backoff of error notifications. |
+| `--sys-notification-error-backoff-max-seconds` | `float` | Maximum interval cap for exponential backoff of error notifications. |
+| `--sys-notification-error-burst-limit` | `int` | Maximum number of error notifications inside one burst window. |
+| `--sys-notification-error-burst-window-seconds` | `float` | Burst window length used for global error notification limiting. |
 | `--sys-ignore-paths` | `str[]` | Paths where modules should not run. |
 
 Example:
@@ -65,6 +69,10 @@ These can be set globally or inside notes.
 | `--sys-parse-note-first-line-only` | `bool` | Parse flags only from the first line of a note. Faster, but ignores lower lines. |
 | `--sys-notification-provider` | `str` | Override notification backend for modules (`auto`, `termuxapi`, `desktop`, `disable`). |
 | `--sys-notification-min-interval-seconds` | `float` | Override module notification throttle interval. |
+| `--sys-notification-error-backoff-base-seconds` | `float` | Override base interval for exponential backoff of error notifications. |
+| `--sys-notification-error-backoff-max-seconds` | `float` | Override max interval cap for exponential backoff of error notifications. |
+| `--sys-notification-error-burst-limit` | `int` | Override max number of error notifications in one burst window. |
+| `--sys-notification-error-burst-window-seconds` | `float` | Override burst window length for global error notification limiting. |
 | `--sys-ignore-paths` | `str[]` | Override ignored paths for module execution. |
 
 Example:

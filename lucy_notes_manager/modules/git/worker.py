@@ -9,6 +9,7 @@ from typing import Any
 from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.modules.git.batch_factory import make_repo_batch
 from lucy_notes_manager.modules.git.helpers import (
+    failure_looks_like_network_issue,
     parse_porcelain_paths,
     push_rejected_needs_pull,
 )
@@ -31,6 +32,25 @@ def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
         "sys_notification_provider": batch.notify_provider,
         "sys_notification_min_interval_seconds": batch.notify_min_interval_sec,
     }
+
+
+def _notify_git_network_issue(
+    repo_root: str,
+    command_text: str,
+    reason_text: str,
+    notify_config: dict[str, Any],
+) -> None:
+    safe_notify(
+        name=f"git-network:{repo_root}",
+        message=(
+            f"Repository:\n{repo_root}\n\n"
+            f"Git sync waiting for network.\n\n"
+            f"Command:\n{command_text}\n\n"
+            f"Reason:\n{reason_text[:1200]}"
+        ),
+        config=notify_config,
+        is_error=True,
+    )
 
 
 def _build_batch(
@@ -195,6 +215,7 @@ def _ensure_merge_state_clean(
             f"Found unfinished merge; auto-resolve failed; merge aborted.{abort_note}"
         ),
         config=notify_config,
+        is_error=True,
     )
     return False
 
@@ -247,6 +268,7 @@ def _stage_and_collect_changes(
             name=f"timeout:add:{repo_root}",
             message=f"git add timed out:\n{repo_root}",
             config=notify_config,
+            is_error=True,
         )
         return False, "", []
 
@@ -257,6 +279,7 @@ def _stage_and_collect_changes(
             name=f"addfail:{repo_root}",
             message=f"Repository:\n{repo_root}\n\nError:\n{add_error[:1200]}",
             config=notify_config,
+            is_error=True,
         )
         return False, "", []
 
@@ -274,6 +297,7 @@ def _stage_and_collect_changes(
             name=f"timeout:status:{repo_root}",
             message=f"git status timed out:\n{repo_root}",
             config=notify_config,
+            is_error=True,
         )
         return False, "", []
 
@@ -284,6 +308,7 @@ def _stage_and_collect_changes(
             name=f"statusfail:{repo_root}",
             message=f"Repository:\n{repo_root}\n\nError:\n{status_error[:1200]}",
             config=notify_config,
+            is_error=True,
         )
         return False, "", []
 
@@ -319,6 +344,7 @@ def _commit_if_needed(
             name=f"timeout:commit:{repo_root}",
             message=f"git commit timed out:\n{repo_root}",
             config=notify_config,
+            is_error=True,
         )
         return False
 
@@ -339,6 +365,7 @@ def _commit_if_needed(
         name=f"commitfail:{repo_root}",
         message=f"Repository:\n{repo_root}\n\nError:\n{commit_error[:1200]}",
         config=notify_config,
+        is_error=True,
     )
     return False
 
@@ -458,10 +485,11 @@ def _attempt_push_with_retry(
         )
     except subprocess.TimeoutExpired:
         logger.error("git push timed out | repo=%s", repo_root)
-        safe_notify(
-            name=f"timeout:push:{repo_root}",
-            message=f"git push timed out:\n{repo_root}",
-            config=notify_config,
+        _notify_git_network_issue(
+            repo_root=repo_root,
+            command_text="git push",
+            reason_text="git push timed out.",
+            notify_config=notify_config,
         )
         return False
 
@@ -474,6 +502,18 @@ def _attempt_push_with_retry(
         repo_root,
         push_error[:1200],
     )
+    if failure_looks_like_network_issue(
+        output_text=push_error,
+        error_markers=list(batch.policy.pull_offline_error_markers),
+    ):
+        _notify_git_network_issue(
+            repo_root=repo_root,
+            command_text="git push",
+            reason_text=push_error,
+            notify_config=notify_config,
+        )
+        return False
+
     safe_notify(
         name=f"pushfail:{repo_root}",
         message=(
@@ -482,6 +522,7 @@ def _attempt_push_with_retry(
             f"Error:\n{push_error[:1200]}"
         ),
         config=notify_config,
+        is_error=True,
     )
     return False
 

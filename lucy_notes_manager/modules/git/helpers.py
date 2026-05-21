@@ -5,6 +5,21 @@ from typing import Optional
 
 from lucy_notes_manager.modules.git.types import PathLike
 
+_DEFAULT_NETWORK_ERROR_MARKERS = (
+    "could not resolve host",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "network is unreachable",
+    "no route to host",
+    "connection timed out",
+    "operation timed out",
+    "failed to connect",
+    "connection refused",
+    "connection reset by peer",
+    "connection reset",
+    "kex_exchange_identification",
+)
+
 
 def to_str(path_value: PathLike) -> str:
     if isinstance(path_value, bytes):
@@ -60,6 +75,19 @@ def push_rejected_needs_pull(output_text: str) -> bool:
         "rejected",
     ]
     return any(indicator in output_lower for indicator in indicators)
+
+
+def failure_looks_like_network_issue(
+    output_text: str,
+    error_markers: list[str] | tuple[str, ...] | None = None,
+) -> bool:
+    output_lower = (output_text or "").lower()
+    markers: list[str] = list(_DEFAULT_NETWORK_ERROR_MARKERS)
+    for marker in (error_markers or ()):
+        marker_text = str(marker).strip().lower()
+        if marker_text:
+            markers.append(marker_text)
+    return any(marker in output_lower for marker in markers)
 
 
 def union_resolve_text(file_content: str) -> Optional[str]:

@@ -24,6 +24,10 @@ from lucy_notes_manager.modules.git.types import (
 _NOTIFY_CFG = {
     "sys_notification_provider": "termuxapi",
     "sys_notification_min_interval_seconds": 10.0,
+    "sys_notification_error_backoff_base_seconds": 10.0,
+    "sys_notification_error_backoff_max_seconds": 1800.0,
+    "sys_notification_error_burst_limit": 3,
+    "sys_notification_error_burst_window_seconds": 600.0,
 }
 
 
@@ -359,7 +363,7 @@ def test_safe_pull_merge_waits_for_network_and_notifies_when_upstream(git_module
     )
 
     assert pulled is False
-    assert [item["name"] for item in notifications] == ["pullwait:/repo"]
+    assert [item["name"] for item in notifications] == ["git-network:/repo"]
 
 
 def test_safe_pull_merge_skips_remote_branch_lookup_and_notifies_when_offline(
@@ -392,7 +396,7 @@ def test_safe_pull_merge_skips_remote_branch_lookup_and_notifies_when_offline(
     )
 
     assert pulled is False
-    assert [item["name"] for item in notifications] == ["pullwait:/repo"]
+    assert [item["name"] for item in notifications] == ["git-network:/repo"]
 
 
 def test_safe_pull_merge_timeout_while_offline_notifies_waiting_state(git_module, monkeypatch):
@@ -428,7 +432,7 @@ def test_safe_pull_merge_timeout_while_offline_notifies_waiting_state(git_module
     )
 
     assert pulled is False
-    assert [item["name"] for item in notifications] == ["pullwait:/repo"]
+    assert [item["name"] for item in notifications] == ["git-network:/repo"]
 
 
 def test_safe_pull_merge_offline_marker_notifies_waiting_state(git_module, monkeypatch):
@@ -462,7 +466,7 @@ def test_safe_pull_merge_offline_marker_notifies_waiting_state(git_module, monke
     )
 
     assert pulled is False
-    assert [item["name"] for item in notifications] == ["pullwait:/repo"]
+    assert [item["name"] for item in notifications] == ["git-network:/repo"]
 
 
 def test_run_git_retries_after_stale_index_lock(git_module, monkeypatch, tmp_path):
@@ -1010,7 +1014,7 @@ def test_attempt_push_with_retry_second_push_timeout_notifies_once(
         notify_config=_NOTIFY_CFG,
     )
 
-    assert [item["name"] for item in notifications] == ["timeout:push:/repo"]
+    assert [item["name"] for item in notifications] == ["git-network:/repo"]
 
 
 def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypatch):

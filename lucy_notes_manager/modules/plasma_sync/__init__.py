@@ -198,6 +198,7 @@ def _restore_previous_writes(
                 "write_rollback:" + write.path,
                 f"Rollback failed for file:\n{write.path}",
                 config=config,
+                is_error=True,
             )
 
 
@@ -390,6 +391,7 @@ class PlasmaSync(AbstractModule):
                 "md_missing:" + markdown_path,
                 f"Markdown note file not found:\n{markdown_path}",
                 config=config,
+                is_error=True,
             )
             return None
 

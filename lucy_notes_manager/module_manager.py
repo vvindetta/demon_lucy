@@ -81,6 +81,34 @@ class ModuleManager:
                 False,
             ),
             (
+                "--sys-notification-error-backoff-base-seconds",
+                float,
+                10.0,
+                "Base interval (seconds) for exponential error notification backoff.",
+                False,
+            ),
+            (
+                "--sys-notification-error-backoff-max-seconds",
+                float,
+                1800.0,
+                "Maximum interval cap (seconds) for exponential error notification backoff.",
+                False,
+            ),
+            (
+                "--sys-notification-error-burst-limit",
+                int,
+                3,
+                "Maximum number of error notifications allowed inside one burst window.",
+                False,
+            ),
+            (
+                "--sys-notification-error-burst-window-seconds",
+                float,
+                600.0,
+                "Burst window length (seconds) used for global error notification limiting.",
+                False,
+            ),
+            (
                 "--sys-ignore-paths",
                 str,
                 [],
@@ -189,6 +217,7 @@ class ModuleManager:
                     f"module_missing_required:{module.name}",
                     message,
                     config=config,
+                    is_error=True,
                 )
                 continue
 

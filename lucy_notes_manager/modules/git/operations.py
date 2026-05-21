@@ -9,6 +9,7 @@ from typing import Any, Dict, Mapping, Optional
 from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.modules.git.executor import GitExecutor, combined_output
 from lucy_notes_manager.modules.git.helpers import union_resolve_text
+from lucy_notes_manager.modules.git.helpers import failure_looks_like_network_issue
 from lucy_notes_manager.modules.git.ops import command_ops, conflict_ops, network_ops
 
 logger = logging.getLogger(__name__)
@@ -224,10 +225,10 @@ def pull_failure_looks_offline(
     output_text: str,
     offline_error_markers: list[str] | None = None,
 ) -> bool:
-    output_lower = (output_text or "").lower()
-    if not offline_error_markers:
-        return False
-    return any(indicator.lower() in output_lower for indicator in offline_error_markers)
+    return failure_looks_like_network_issue(
+        output_text=output_text,
+        error_markers=offline_error_markers,
+    )
 
 
 def remote_branch_exists(
@@ -347,14 +348,15 @@ def _notify_pull_waiting_for_network(
 ) -> None:
     remote_label = remote_name or "unknown"
     safe_notify(
-        name=f"pullwait:{repo_root}",
+        name=f"git-network:{repo_root}",
         message=(
             f"Repository:\n{repo_root}\n\n"
             f"Remote:\n{remote_label}\n\n"
-            f"Pull waiting for network.\n\n"
+            f"Git sync waiting for network.\n\n"
             f"Reason:\n{reason[:600]}"
         ),
         config=notify_config,
+        is_error=True,
     )
 
 
@@ -425,6 +427,7 @@ def _resolve_pull_plan(
                 f"No upstream configured and cannot infer remote/branch; skip pull."
             ),
             config=notify_config,
+            is_error=True,
         )
         return None
 
@@ -468,6 +471,7 @@ def _resolve_pull_plan(
                 f"Skip pull."
             ),
             config=notify_config,
+            is_error=True,
         )
         return None
 
@@ -518,10 +522,11 @@ def _handle_pull_timeout(
         return False
 
     logger.error("git pull timed out | repo=%s", repo_root)
-    safe_notify(
-        name=f"timeout:pull:{repo_root}",
-        message=f"git pull timed out:\n{repo_root}",
-        config=notify_config,
+    _notify_pull_waiting_for_network(
+        repo_root=repo_root,
+        remote_name=remote_name,
+        reason="git pull timed out.",
+        notify_config=notify_config,
     )
     return False
 
@@ -584,6 +589,7 @@ def _handle_pull_failure(
                 f"{merge_abort_note}"
             ),
             config=notify_config,
+            is_error=True,
         )
         return False
 
@@ -613,6 +619,7 @@ def _handle_pull_failure(
             f"Error:\n{pull_error[:1200]}"
         ),
         config=notify_config,
+        is_error=True,
     )
     return False
 

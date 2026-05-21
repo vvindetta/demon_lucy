@@ -121,7 +121,7 @@ def test_run_skips_module_when_required_args_missing_and_notifies(tmp_path: Path
     monkeypatch.setattr(
         module_manager_mod,
         "safe_notify",
-        lambda name, message, config: notifications.append((name, message)),
+        lambda name, message, config, **_kwargs: notifications.append((name, message)),
     )
 
     required_mod = _RequiredMod()

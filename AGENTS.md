@@ -35,6 +35,22 @@ without reading the manual:
 - `bool` currently works as `store_true`; `true`/`false` values after the flag
   are not supported.
 
+## Config Usage
+
+- Reuse the existing typed `config[...]` values from templates.
+- Do not re-parse or re-typecast config values in module logic
+- Keep defaults only in templates. Do not add fallback defaults in module logic.
+- If a new config key is needed, add it to templates first, then read it via
+  `config[...]` in code.
+
+## Notification Guide (New Modules)
+
+- For failures, call `safe_notify(..., is_error=True)`.
+- Use one stable root-cause key per incident scope (for example per repo/path), snot separate keys per command step.
+- Do not send multiple notifications for cause + symptoms. Send one consolidatez error notification with the root cause.
+- Key naming should be domain-level, for example `git-network:<repo_root>`,
+  instead of command-level keys like `pull-timeout:*` and `push-fail:*` for the same network outage.
+
 ## When Renaming Args
 
 When renaming a flag, update all related places at once:
