@@ -24,7 +24,6 @@ from lucy_notes_manager.modules.git.operations import (
 from lucy_notes_manager.modules.git.types import _RepoBatch
 
 logger = logging.getLogger(__name__)
-_PULL_ONLY_EVENT_TYPES = {"opened"}
 
 
 def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
@@ -67,7 +66,6 @@ def _build_batch(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    wants_pull: bool,
 ) -> _RepoBatch:
     return make_repo_batch(
         repo_root=repo_root,
@@ -75,7 +73,6 @@ def _build_batch(
         paths=paths,
         config_snapshot=config_snapshot,
         environment=git_environment(self, config_snapshot),
-        wants_pull=wants_pull,
     )
 
 
@@ -85,7 +82,6 @@ def _process_event_once(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    wants_pull: bool,
 ) -> bool:
     batch = _build_batch(
         self=self,
@@ -93,7 +89,6 @@ def _process_event_once(
         event_type=event_type,
         paths=paths,
         config_snapshot=config_snapshot,
-        wants_pull=wants_pull,
     )
     return process_batch(self, batch)
 
@@ -104,7 +99,6 @@ def _run_event_with_retry_window(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    wants_pull: bool,
 ) -> None:
     retry_window_seconds = max(
         0.0, float(config_snapshot.get("git_sync_retry_window_seconds", 0.0))
@@ -130,7 +124,6 @@ def _run_event_with_retry_window(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
-            wants_pull=wants_pull,
         )
         if success:
             return
@@ -154,7 +147,6 @@ def process_event(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    wants_pull: bool,
     run_in_background: bool = False,
 ) -> bool:
     if not run_in_background:
@@ -164,7 +156,6 @@ def process_event(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
-            wants_pull=wants_pull,
         )
 
     runner = threading.Thread(
@@ -175,7 +166,6 @@ def process_event(
             "event_type": event_type,
             "paths": list(paths),
             "config_snapshot": dict(config_snapshot),
-            "wants_pull": wants_pull,
         },
         daemon=True,
     )
@@ -226,33 +216,6 @@ def _ensure_merge_state_clean(
         use_rare_mode=True,
     )
     return False
-
-
-def _handle_pull_only_event(
-    self,
-    batch: _RepoBatch,
-    repo_root: str,
-    environment: dict[str, str],
-    pull_timeout_seconds: float,
-    git_timeout_seconds: float,
-) -> bool:
-    if not batch.wants_pull:
-        return False
-    if batch.event_type not in _PULL_ONLY_EVENT_TYPES:
-        return False
-
-    return safe_pull_merge(
-        self,
-        repo_root,
-        environment,
-        pull_timeout_seconds=pull_timeout_seconds,
-        operation_timeout_seconds=git_timeout_seconds,
-        autoresolve_mode=batch.policy.autoresolve_mode.value,
-        notify_config=_notify_config_from_batch(batch),
-        auto_set_upstream=batch.policy.auto_set_upstream,
-        network_probe_timeout_seconds=batch.policy.network_probe_timeout_seconds,
-        pull_offline_error_markers=list(batch.policy.pull_offline_error_markers),
-    )
 
 
 def _stage_and_collect_changes(
@@ -376,31 +339,6 @@ def _commit_if_needed(
         use_rare_mode=True,
     )
     return False
-
-
-def _maybe_pull_before_push(
-    self,
-    batch: _RepoBatch,
-    repo_root: str,
-    environment: dict[str, str],
-    pull_timeout_seconds: float,
-    git_timeout_seconds: float,
-) -> bool:
-    if not batch.wants_pull:
-        return True
-
-    return safe_pull_merge(
-        self,
-        repo_root,
-        environment,
-        pull_timeout_seconds=pull_timeout_seconds,
-        operation_timeout_seconds=git_timeout_seconds,
-        autoresolve_mode=batch.policy.autoresolve_mode.value,
-        notify_config=_notify_config_from_batch(batch),
-        auto_set_upstream=batch.policy.auto_set_upstream,
-        network_probe_timeout_seconds=batch.policy.network_probe_timeout_seconds,
-        pull_offline_error_markers=list(batch.policy.pull_offline_error_markers),
-    )
 
 
 def _run_push_once(
@@ -553,16 +491,6 @@ def process_batch(self, batch: _RepoBatch) -> bool:
     ):
         return False
 
-    if batch.event_type in _PULL_ONLY_EVENT_TYPES and batch.wants_pull:
-        return _handle_pull_only_event(
-        self=self,
-        batch=batch,
-        repo_root=repo_root,
-        environment=environment,
-        pull_timeout_seconds=pull_timeout_seconds,
-        git_timeout_seconds=git_timeout_seconds,
-    )
-
     staged_ok, porcelain_text, changed_paths = _stage_and_collect_changes(
         self=self,
         repo_root=repo_root,
@@ -583,17 +511,6 @@ def process_batch(self, batch: _RepoBatch) -> bool:
         changed_paths=changed_paths,
         notify_config=notify_config,
     ):
-        return False
-
-    pulled_ok = _maybe_pull_before_push(
-        self=self,
-        batch=batch,
-        repo_root=repo_root,
-        environment=environment,
-        pull_timeout_seconds=pull_timeout_seconds,
-        git_timeout_seconds=git_timeout_seconds,
-    )
-    if not pulled_ok:
         return False
 
     return _attempt_push_with_retry(

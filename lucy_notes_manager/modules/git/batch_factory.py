@@ -18,7 +18,6 @@ def _repo_batch_kwargs(
     paths: list[str],
     config_snapshot: ConfigSnapshot,
     environment: dict[str, str],
-    wants_pull: bool,
 ) -> dict[str, Any]:
     hinted_paths = [path_item for path_item in paths if path_item]
     policy = GitPolicy(
@@ -36,7 +35,6 @@ def _repo_batch_kwargs(
         "repo_root": repo_root,
         "event_type": event_type,
         "hinted_paths": hinted_paths,
-        "wants_pull": bool(wants_pull),
         "base_message": config_snapshot["git_commit_message"],
         "add_timestamp_to_message": config_snapshot["git_commit_message_timestamp"],
         "timestamp_format": config_snapshot["git_commit_message_timestamp_format"],
@@ -74,7 +72,6 @@ def make_repo_batch(
     paths: list[str],
     config_snapshot: ConfigSnapshot,
     environment: dict[str, str],
-    wants_pull: bool,
 ) -> _RepoBatch:
     kwargs = _repo_batch_kwargs(
         repo_root=repo_root,
@@ -82,6 +79,5 @@ def make_repo_batch(
         paths=paths,
         config_snapshot=config_snapshot,
         environment=environment,
-        wants_pull=wants_pull,
     )
     return _RepoBatch(**kwargs)

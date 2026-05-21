@@ -37,7 +37,6 @@ class _RepoBatch:
     repo_root: str
     event_type: str
     hinted_paths: list[str]
-    wants_pull: bool
 
     base_message: str
     add_timestamp_to_message: bool

@@ -75,7 +75,7 @@ class Git(AbstractModule):
         if not repo_root:
             return None
 
-        if not ctx.config["git_pull_on_opened_event"]:
+        if ctx.config["git_sync_on_opened_disable"]:
             return None
 
         process_event(
@@ -84,7 +84,6 @@ class Git(AbstractModule):
             event_type="opened",
             paths=[to_str(ctx.path)],
             config_snapshot=ctx.config,
-            wants_pull=True,
             run_in_background=self._should_run_in_background(system),
         )
         return None
@@ -145,7 +144,6 @@ class Git(AbstractModule):
             event_type=event_type,
             paths=paths_to_hint,
             config_snapshot=ctx.config,
-            wants_pull=False,
             run_in_background=self._should_run_in_background(system),
         )
         return None

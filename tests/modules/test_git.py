@@ -80,7 +80,6 @@ def _mk_batch(**overrides) -> _RepoBatch:
         "repo_root": "/repo",
         "event_type": "modified",
         "hinted_paths": ["/repo/note.md"],
-        "wants_pull": False,
         "base_message": "Auto",
         "add_timestamp_to_message": False,
         "timestamp_format": "%Y",
@@ -251,7 +250,7 @@ def test_build_commit_message_sanitizes_git_escaped_file_names(git_module):
     assert message == "Auto: modified now.md"
 
 
-def test_opened_processes_pull_when_repo_exists(git_module, monkeypatch):
+def test_opened_processes_sync_when_repo_exists(git_module, monkeypatch):
     recorded = {}
     monkeypatch.setattr(git_mod, "find_parent_with", lambda _p, _m: "/repo")
     monkeypatch.setattr(
@@ -260,7 +259,11 @@ def test_opened_processes_pull_when_repo_exists(git_module, monkeypatch):
         lambda _self, **kwargs: recorded.update(kwargs),
     )
 
-    ctx = Context(path="/repo/note.md", config={"git_pull_on_opened_event": True}, arg_lines={})
+    ctx = Context(
+        path="/repo/note.md",
+        config={"git_sync_on_opened_disable": False},
+        arg_lines={},
+    )
     system = System(
         event=FileOpenedEvent("/repo/note.md"),
         global_template=[],
@@ -270,12 +273,11 @@ def test_opened_processes_pull_when_repo_exists(git_module, monkeypatch):
 
     assert recorded["repo_root"] == "/repo"
     assert recorded["event_type"] == "opened"
-    assert recorded["wants_pull"] is True
     assert recorded["paths"] == ["/repo/note.md"]
     assert recorded["run_in_background"] is True
 
 
-def test_opened_skips_when_pull_on_opened_disabled(git_module, monkeypatch):
+def test_opened_skips_when_sync_on_opened_disabled(git_module, monkeypatch):
     recorded = {"called": False}
     monkeypatch.setattr(git_mod, "find_parent_with", lambda _p, _m: "/repo")
     monkeypatch.setattr(
@@ -284,7 +286,11 @@ def test_opened_skips_when_pull_on_opened_disabled(git_module, monkeypatch):
         lambda *_args, **_kwargs: recorded.__setitem__("called", True),
     )
 
-    ctx = Context(path="/repo/note.md", config={"git_pull_on_opened_event": False}, arg_lines={})
+    ctx = Context(
+        path="/repo/note.md",
+        config={"git_sync_on_opened_disable": True},
+        arg_lines={},
+    )
     system = System(
         event=FileOpenedEvent("/repo/note.md"),
         global_template=[],
@@ -306,7 +312,7 @@ def test_opened_runs_sync_in_oneshot_mode(git_module, monkeypatch):
 
     ctx = Context(
         path="/repo/note.md",
-        config={"git_pull_on_opened_event": True},
+        config={"git_sync_on_opened_disable": False},
         arg_lines={},
     )
     system = System(
@@ -830,38 +836,60 @@ def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkey
     assert any(item["name"] == "merge-stuck:/repo" for item in notifications)
 
 
-def test_pull_only_batch_runs_pull_and_skips_add_commit_push(git_module, monkeypatch):
-    pull_calls: list[tuple[str, float, float]] = []
+def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
+    calls: list[list[str]] = []
 
     monkeypatch.setattr(git_worker, "merge_in_progress", lambda *_args, **_kwargs: False)
-
-    def _safe_pull_merge(
-        _self,
-        repo_root,
-        _environment,
-        pull_timeout_seconds,
-        operation_timeout_seconds,
-        **_kwargs,
-    ):
-        pull_calls.append((repo_root, pull_timeout_seconds, operation_timeout_seconds))
-        return True
-
-    monkeypatch.setattr(git_worker, "safe_pull_merge", _safe_pull_merge)
     monkeypatch.setattr(
         git_worker,
-        "run_git",
+        "safe_pull_merge",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("pull-only opened event must not run add/commit/push")
+            AssertionError("safe_pull_merge must not run for opened sync pipeline")
         ),
     )
 
-    batch = _mk_batch(
-        event_type="opened",
-        wants_pull=True,
-    )
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        calls.append(list(arguments))
+        if arguments == ["add", "-A"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        if arguments == ["status", "--porcelain"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout=" M note.md\n",
+                stderr="",
+            )
+        if arguments[:2] == ["commit", "-m"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="[main abc123] Auto commit",
+                stderr="",
+            )
+        if arguments == ["push"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="Everything up-to-date",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
 
-    git_worker.process_batch(git_module, batch)
-    assert pull_calls == [("/repo", 6.0, 5.0)]
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+
+    batch = _mk_batch(event_type="opened")
+
+    assert git_worker.process_batch(git_module, batch) is True
+    assert calls[0] == ["add", "-A"]
+    assert calls[1] == ["status", "--porcelain"]
+    assert calls[2][:2] == ["commit", "-m"]
+    assert calls[3] == ["push"]
 
 
 def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypatch):
@@ -904,7 +932,6 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
             "git_upstream_auto_set": True,
             "git_merge_autoresolve": "union",
         },
-        wants_pull=False,
         run_in_background=False,
     )
 
@@ -945,7 +972,6 @@ def test_process_event_runs_repo_operations_concurrently(git_module, monkeypatch
         event_type="modified",
         paths=[f"{repo_root}/a.md"],
         config_snapshot=config_snapshot,
-        wants_pull=False,
         run_in_background=True,
     )
     git_worker.process_event(
@@ -954,7 +980,6 @@ def test_process_event_runs_repo_operations_concurrently(git_module, monkeypatch
         event_type="modified",
         paths=[f"{repo_root}/b.md"],
         config_snapshot=config_snapshot,
-        wants_pull=False,
         run_in_background=True,
     )
 
@@ -994,7 +1019,6 @@ def test_retry_window_retries_with_backoff_until_success(git_module, monkeypatch
             "git_sync_retry_backoff_start_seconds": 1.0,
             "git_sync_retry_backoff_max_seconds": 4.0,
         },
-        wants_pull=False,
     )
 
     assert attempts["count"] == 3

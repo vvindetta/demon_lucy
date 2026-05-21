@@ -25,10 +25,10 @@ GIT_TEMPLATE: Template = [
         False,
     ),
     (
-        "--git-pull-on-opened-event",
+        "--git-sync-on-opened-disable",
         bool,
-        True,
-        "Run 'git pull --no-rebase' for opened events. Never uses rebase or force.",
+        False,
+        "Disable git sync reaction for opened events. If enabled, opened events are ignored.",
         False,
     ),
     (

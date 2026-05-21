@@ -99,7 +99,7 @@ Examples:
 
 ```text
 --man git
---man --git-pull-on-opened-event
+--man --git-sync-on-opened-disable
 ```
 
 
@@ -203,7 +203,7 @@ Example:
 | `--git-commit-message` | `str` | Base commit message. |
 | `--git-commit-message-timestamp` | `bool` | Append timestamp to commit message. |
 | `--git-commit-message-timestamp-format` | `str` | Python `strftime` format for commit message timestamp. |
-| `--git-pull-on-opened-event` | `bool` | Run pull-only sync when a repository receives an `opened` event. |
+| `--git-sync-on-opened-disable` | `bool` | Disable git sync reaction when a repository receives an `opened` event. |
 | `--git-push-auto-merge` | `bool` | If push is rejected because remote is ahead, pull/merge and retry push. |
 | `--git-upstream-auto-set` | `bool` | Try to set upstream automatically when branch has none. |
 | `--git-merge-autoresolve` | `str` | Conflict strategy: `none`, `ours`, `theirs`, `union`, `markers` (commit with conflict markers). |
