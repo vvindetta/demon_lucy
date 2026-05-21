@@ -146,7 +146,7 @@ def test_setup_config_and_cli_args_keeps_config_values_when_cli_uses_defaults(
     template = [
         ("--sys-config-path", str, "config.txt", "", False),
         ("--sys-watch-paths", str, [], "", False),
-        ("--sys-log-level", str, "info", "", False),
+        ("--sys-log-level", str, "warning", "", False),
     ]
 
     monkeypatch.setattr(

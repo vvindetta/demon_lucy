@@ -313,6 +313,78 @@ class Status(AbstractModule):
         step = offset % cycle_len
         return stream[step : step + width].ljust(width)
 
+    @staticmethod
+    def _sanitize_filename_text(name_text: str) -> str:
+        invalid_chars = [os.sep, "\x00"]
+        if os.altsep:
+            invalid_chars.append(os.altsep)
+
+        safe_name = str(name_text)
+        for item in invalid_chars:
+            safe_name = safe_name.replace(item, "_")
+        return safe_name
+
+    @staticmethod
+    def _filename_max_bytes(dir_path: str) -> int:
+        try:
+            value = int(os.pathconf(dir_path, "PC_NAME_MAX"))
+            return max(32, value)
+        except (AttributeError, OSError, ValueError):
+            return 255
+
+    @staticmethod
+    def _truncate_utf8_to_bytes(text: str, max_bytes: int) -> str:
+        if max_bytes <= 0:
+            return ""
+
+        encoded = text.encode("utf-8")
+        if len(encoded) <= max_bytes:
+            return text
+
+        clipped = encoded[:max_bytes]
+        while clipped:
+            try:
+                return clipped.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                clipped = clipped[: exc.start]
+        return ""
+
+    def _make_filename_candidate(self, dir_path: str, name_text: str) -> str:
+        sanitized = self._sanitize_filename_text(name_text)
+        max_bytes = self._filename_max_bytes(dir_path)
+        clipped = self._truncate_utf8_to_bytes(sanitized, max_bytes)
+        if clipped.strip():
+            return clipped
+        return " - "
+
+    def _pick_available_new_path(
+        self,
+        *,
+        old_path: str,
+        dir_path: str,
+        base_name: str,
+    ) -> str | None:
+        candidate_path = os.path.abspath(os.path.join(dir_path, base_name))
+        if candidate_path == old_path or not os.path.exists(candidate_path):
+            return candidate_path
+
+        max_bytes = self._filename_max_bytes(dir_path)
+        for index in range(2, 1000):
+            suffix = f" ({index})"
+            suffix_bytes = len(suffix.encode("utf-8"))
+            if suffix_bytes >= max_bytes:
+                return None
+
+            prefix = self._truncate_utf8_to_bytes(base_name, max_bytes - suffix_bytes)
+            if not prefix.strip():
+                continue
+            candidate_name = f"{prefix}{suffix}"
+            candidate_path = os.path.abspath(os.path.join(dir_path, candidate_name))
+            if candidate_path == old_path or not os.path.exists(candidate_path):
+                return candidate_path
+
+        return None
+
     def _git_last_synced_timestamp(self, path: str) -> Optional[float]:
         repo_root = find_parent_with(path, ".git")
         if not repo_root:
@@ -739,6 +811,15 @@ class Status(AbstractModule):
         status_prefix = ""
         ascii_animation_frames_value: list[str] = []
         ascii_animation_speed_value: Any = _DEFAULT_ASCII_ANIMATION_SPEED_MS
+        status_flags = (
+            "--status",
+            "--status-banner",
+            "--status-banner-speed-milliseconds",
+            "--status-banner-max-characters",
+            "--status-prefix",
+            "--status-ascii-animation-frames",
+            "--status-ascii-animation-speed-milliseconds",
+        )
         for line in lines:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
@@ -761,20 +842,12 @@ class Status(AbstractModule):
             i = 0
             while i < len(tokens):
                 token_head = tokens[i]
-                if token_head not in (
-                    "--status",
-                    "--status-banner",
-                    "--status-banner-speed-milliseconds",
-                    "--status-banner-max-characters",
-                    "--status-prefix",
-                    "--status-ascii-animation-frames",
-                    "--status-ascii-animation-speed-milliseconds",
-                ):
+                if token_head not in status_flags:
                     i += 1
                     continue
 
                 if token_head == "--status-prefix":
-                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
                         status_prefix = tokens[i + 1]
                         i += 2
                     else:
@@ -782,7 +855,7 @@ class Status(AbstractModule):
                     continue
 
                 if token_head == "--status-banner":
-                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
                         banner_text_value = tokens[i + 1]
                         i += 2
                     else:
@@ -790,7 +863,7 @@ class Status(AbstractModule):
                     continue
 
                 if token_head == "--status-banner-speed-milliseconds":
-                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
                         banner_speed_value = tokens[i + 1]
                         i += 2
                     else:
@@ -798,7 +871,7 @@ class Status(AbstractModule):
                     continue
 
                 if token_head == "--status-banner-max-characters":
-                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
                         banner_max_chars_value = tokens[i + 1]
                         i += 2
                     else:
@@ -806,7 +879,7 @@ class Status(AbstractModule):
                     continue
 
                 if token_head == "--status-ascii-animation-speed-milliseconds":
-                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
                         ascii_animation_speed_value = tokens[i + 1]
                         i += 2
                     else:
@@ -817,7 +890,7 @@ class Status(AbstractModule):
                     j = i + 1
                     while j < len(tokens):
                         token = tokens[j]
-                        if token.startswith("--"):
+                        if token in status_flags:
                             break
                         ascii_animation_frames_value.append(token)
                         j += 1
@@ -827,7 +900,7 @@ class Status(AbstractModule):
                 j = i + 1
                 while j < len(tokens):
                     token = tokens[j]
-                    if token.startswith("--"):
+                    if token in status_flags:
                         break
                     status_values.append(token)
                     j += 1
@@ -984,12 +1057,17 @@ class Status(AbstractModule):
             new_name = " ".join(tokens)
             if not new_name.strip():
                 new_name = " - "
-            new_path = os.path.abspath(os.path.join(os.path.dirname(old_path), new_name))
-
-            if new_path == old_path:
+            dir_path = os.path.dirname(old_path)
+            safe_new_name = self._make_filename_candidate(dir_path, new_name)
+            new_path = self._pick_available_new_path(
+                old_path=old_path,
+                dir_path=dir_path,
+                base_name=safe_new_name,
+            )
+            if new_path is None:
                 return None
 
-            if os.path.exists(new_path):
+            if new_path == old_path:
                 return None
 
             try:

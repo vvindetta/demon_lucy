@@ -599,9 +599,10 @@ def test_run_git_waits_on_recent_index_lock_without_removing(git_module, monkeyp
     )
 
     assert result.returncode != 0
-    assert attempts["count"] == 4
+    assert attempts["count"] == 16
     assert lock_path.exists()
-    assert sleeps == [1.0, 1.0, 1.0]
+    assert len(sleeps) == 15
+    assert all(item == 1.0 for item in sleeps)
 
 
 def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(
@@ -960,6 +961,27 @@ def test_process_batch_writes_sync_success_marker_on_push_success(
     assert calls[1] == ["status", "--porcelain"]
     assert calls[2][:2] == ["commit", "-m"]
     assert calls[3] == ["push"]
+
+
+def test_process_batch_wraps_pipeline_with_repo_process_lock(git_module, monkeypatch):
+    calls = {"with_lock": 0, "unlocked": 0}
+    batch = _mk_batch(repo_root="/repo")
+
+    def _with_repo_process_lock(repo_root: str, run_fn):
+        calls["with_lock"] += 1
+        assert repo_root == "/repo"
+        return run_fn()
+
+    def _process_batch_unlocked(_self, _batch):
+        calls["unlocked"] += 1
+        assert _batch is batch
+        return True
+
+    monkeypatch.setattr(git_worker, "_with_repo_process_lock", _with_repo_process_lock)
+    monkeypatch.setattr(git_worker, "_process_batch_unlocked", _process_batch_unlocked)
+
+    assert git_worker.process_batch(git_module, batch) is True
+    assert calls == {"with_lock": 1, "unlocked": 1}
 
 
 def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypatch):

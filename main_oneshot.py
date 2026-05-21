@@ -18,6 +18,7 @@ from lucy_notes_manager.module_manager import ModuleManager
 from lucy_notes_manager.runtime import (
     LUCY_STARTUP_TEMPLATE,
     configure_logging,
+    log_startup_message,
     normalize_name_list,
     select_lucy_modules,
 )
@@ -146,6 +147,17 @@ def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
     )
 
     plan = _build_event_plan(config)
+    first_event_type = plan[0][1].event_type if plan else "none"
+    log_startup_message(
+        run_mode="oneshot",
+        modules=modules,
+        config=config,
+        unknown_args=list(unknown_args),
+        extra_items=[
+            ("events", len(plan)),
+            ("event_type", first_event_type),
+        ],
+    )
     for path_value, event in plan:
         logging.info("ONESHOT EVENT: %s %s", event.event_type, path_value)
         manager.run(path=path_value, event=event)

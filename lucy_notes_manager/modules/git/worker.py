@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import fcntl
 import logging
+import os
 import subprocess
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.modules.git.batch_factory import make_repo_batch
@@ -108,6 +110,26 @@ def _notify_git_network_issue(
         config=notify_config,
         use_rare_mode=True,
     )
+
+
+def _repo_process_lock_path(repo_root: str) -> str:
+    return os.path.join(repo_root, ".git", "lucy-sync.lock")
+
+
+def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
+    lock_path = _repo_process_lock_path(repo_root)
+    lock_dir = os.path.dirname(lock_path)
+    try:
+        os.makedirs(lock_dir, exist_ok=True)
+        with open(lock_path, "a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                return run_fn()
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        logger.exception("failed to acquire repo process lock; running without lock | repo=%s", repo_root)
+        return run_fn()
 
 
 def _build_batch(
@@ -523,7 +545,7 @@ def _attempt_push_with_retry(
     return False
 
 
-def process_batch(self, batch: _RepoBatch) -> bool:
+def _process_batch_unlocked(self, batch: _RepoBatch) -> bool:
     repo_root = batch.repo_root
     environment = batch.environment
     git_timeout_seconds = batch.git_timeout_seconds
@@ -579,3 +601,10 @@ def process_batch(self, batch: _RepoBatch) -> bool:
     if not write_sync_success_timestamp(repo_root):
         logger.warning("failed to write git sync success marker | repo=%s", repo_root)
     return True
+
+
+def process_batch(self, batch: _RepoBatch) -> bool:
+    return _with_repo_process_lock(
+        batch.repo_root,
+        lambda: _process_batch_unlocked(self, batch),
+    )

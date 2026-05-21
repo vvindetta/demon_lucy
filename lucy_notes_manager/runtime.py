@@ -28,8 +28,8 @@ LUCY_STARTUP_TEMPLATE: Template = [
     (
         "--sys-log-level",
         str,
-        "info",
-        "Logging level: debug, info, warning, error, critical. Default: info.",
+        "warning",
+        "Logging level: debug, info, warning, error, critical. Default: warning.",
         False,
     ),
     (
@@ -138,6 +138,30 @@ def configure_logging(config: dict) -> None:
         format=config["sys_log_format"],
         datefmt="%Y-%m-%d %H:%M:%S",
         force=True,
+    )
+
+
+def log_startup_message(
+    *,
+    run_mode: str,
+    modules: list[AbstractModule],
+    config: dict,
+    unknown_args: list[str] | None = None,
+    extra_items: list[tuple[str, object]] | None = None,
+) -> None:
+    details: list[str] = [
+        f"watch_paths={len(config.get('sys_watch_paths') or [])}",
+        f"opened_events={'off' if config.get('sys_disable_opened_events') else 'on'}",
+        f"log_level={config.get('sys_log_level', '')}",
+        *([f"unknown_args={len(unknown_args)}"] if unknown_args else []),
+        *(f"{key}={value}" for key, value in (extra_items or [])),
+    ]
+
+    logging.warning(
+        "LUCY START | mode=%s | modules=[%s] | %s",
+        run_mode,
+        ", ".join(module.name for module in modules) or "-",
+        " | ".join(details),
     )
 
 

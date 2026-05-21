@@ -10,6 +10,7 @@ from lucy_notes_manager.module_manager import ModuleManager
 from lucy_notes_manager.runtime import (
     LUCY_STARTUP_TEMPLATE,
     configure_logging,
+    log_startup_message,
     select_lucy_modules,
 )
 
@@ -36,6 +37,12 @@ def main() -> int:
         args=list(unknown_args),
         system_config=config,
         run_mode="daemon",
+    )
+    log_startup_message(
+        run_mode="daemon",
+        modules=modules.modules,
+        config=config,
+        unknown_args=list(unknown_args),
     )
 
     observer = Observer()

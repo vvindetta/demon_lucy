@@ -14,7 +14,7 @@ from lucy_notes_manager.modules.git.ops import command_ops, conflict_ops, networ
 
 logger = logging.getLogger(__name__)
 _MIN_STALE_INDEX_LOCK_AGE_SECONDS = 60.0
-_RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS = 3
+_RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS = 15
 _RECENT_INDEX_LOCK_RETRY_SLEEP_SECONDS = 1.0
 
 
