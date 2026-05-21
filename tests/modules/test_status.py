@@ -805,6 +805,49 @@ def test_status_bootstrap_applies_ascii_animation_from_status_file(
     assert not status_file.exists()
 
 
+def test_status_ascii_animation_advances_on_any_external_event(
+    tmp_path: Path, monkeypatch
+) -> None:
+    now_state = {"value": 10.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+
+    notes_root = tmp_path / "notes"
+    status_dir = notes_root / ".status"
+    status_dir.mkdir(parents=True, exist_ok=True)
+
+    status_file = status_dir / "dead.md"
+    status_file.write_text(
+        '--status-ascii-animation-frames "pri" "prive" "privet"\n'
+        "--status-ascii-animation-speed-milliseconds 1000\n"
+        '--status-prefix ">>> "\n',
+        encoding="utf-8",
+    )
+
+    first_trigger = notes_root / "random-a.md"
+    first_trigger.write_text("body\n", encoding="utf-8")
+    second_trigger = notes_root / "random-b.md"
+    second_trigger.write_text("body\n", encoding="utf-8")
+
+    module = Status()
+    system = System(
+        event=FileModifiedEvent(str(first_trigger)),
+        global_template=[],
+        modules=[module],
+    )
+
+    first_changed = module.modified(_ctx_for(first_trigger), system)
+    first_path = status_dir / ">>> pri"
+    assert first_changed == {str(status_file.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    now_state["value"] = 11.2
+    second_changed = module.modified(_ctx_for(second_trigger), system)
+    second_path = status_dir / ">>> prive"
+    assert second_changed == {str(first_path.resolve()): 1, str(second_path.resolve()): 1}
+    assert second_path.exists()
+    assert not first_path.exists()
+
+
 def test_status_bootstrap_scans_only_once_even_if_first_scan_found_nothing(
     tmp_path: Path, monkeypatch
 ) -> None:
