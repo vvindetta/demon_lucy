@@ -26,6 +26,55 @@ from lucy_notes_manager.modules.git.types import _RepoBatch
 logger = logging.getLogger(__name__)
 
 
+_REPO_EVENT_LOCKS_GUARD = threading.Lock()
+_REPO_EVENT_LOCKS: dict[str, threading.Lock] = {}
+
+
+def _repo_event_lock(repo_root: str) -> threading.Lock:
+    with _REPO_EVENT_LOCKS_GUARD:
+        lock_obj = _REPO_EVENT_LOCKS.get(repo_root)
+        if lock_obj is None:
+            lock_obj = threading.Lock()
+            _REPO_EVENT_LOCKS[repo_root] = lock_obj
+        return lock_obj
+
+
+def _run_event_with_repo_lock(
+    self,
+    repo_root: str,
+    event_type: str,
+    paths: list[str],
+    config_snapshot: dict,
+) -> bool:
+    repo_lock = _repo_event_lock(repo_root)
+    with repo_lock:
+        return _process_event_once(
+            self=self,
+            repo_root=repo_root,
+            event_type=event_type,
+            paths=paths,
+            config_snapshot=config_snapshot,
+        )
+
+
+def _run_event_with_retry_window_repo_locked(
+    self,
+    repo_root: str,
+    event_type: str,
+    paths: list[str],
+    config_snapshot: dict,
+) -> None:
+    repo_lock = _repo_event_lock(repo_root)
+    with repo_lock:
+        _run_event_with_retry_window(
+            self=self,
+            repo_root=repo_root,
+            event_type=event_type,
+            paths=paths,
+            config_snapshot=config_snapshot,
+        )
+
+
 def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
     return {
         "sys_notification_provider": batch.notify_provider,
@@ -150,7 +199,7 @@ def process_event(
     run_in_background: bool = False,
 ) -> bool:
     if not run_in_background:
-        return _process_event_once(
+        return _run_event_with_repo_lock(
             self=self,
             repo_root=repo_root,
             event_type=event_type,
@@ -159,7 +208,7 @@ def process_event(
         )
 
     runner = threading.Thread(
-        target=_run_event_with_retry_window,
+        target=_run_event_with_retry_window_repo_locked,
         kwargs={
             "self": self,
             "repo_root": repo_root,

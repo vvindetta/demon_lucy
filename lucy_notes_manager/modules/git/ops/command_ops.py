@@ -19,8 +19,19 @@ def clear_stale_index_lock(
     min_stale_age_seconds: float,
     logger,
 ) -> bool:
-    _ = min_stale_age_seconds
     lock_path = index_lock_path(repo_root)
+
+    try:
+        lock_mtime_seconds = os.path.getmtime(lock_path)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        logger.exception("failed to inspect git index.lock | repo=%s", repo_root)
+        return False
+
+    lock_age_seconds = max(0.0, time.time() - lock_mtime_seconds)
+    if lock_age_seconds < min_stale_age_seconds:
+        return False
 
     try:
         os.remove(lock_path)
@@ -34,8 +45,9 @@ def clear_stale_index_lock(
         return False
 
     logger.warning(
-        "removed git index.lock before retrying command | repo=%s",
+        "removed stale git index.lock before retrying command | repo=%s | age_seconds=%.1f",
         repo_root,
+        lock_age_seconds,
     )
     return True
 

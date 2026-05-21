@@ -553,7 +553,7 @@ def test_run_git_retries_after_stale_index_lock(git_module, monkeypatch, tmp_pat
     assert not lock_path.exists()
 
 
-def test_run_git_removes_recent_index_lock(git_module, monkeypatch, tmp_path):
+def test_run_git_waits_on_recent_index_lock_without_removing(git_module, monkeypatch, tmp_path):
     repo_root = tmp_path / "repo"
     git_dir = repo_root / ".git"
     git_dir.mkdir(parents=True)
@@ -561,6 +561,8 @@ def test_run_git_removes_recent_index_lock(git_module, monkeypatch, tmp_path):
     lock_path.write_text("", encoding="utf-8")
 
     attempts = {"count": 0}
+
+    sleeps: list[float] = []
 
     class _FakeExecutor:
         def __init__(self, repo_root: str, environment: dict[str, str]):
@@ -585,6 +587,7 @@ def test_run_git_removes_recent_index_lock(git_module, monkeypatch, tmp_path):
             )
 
     monkeypatch.setattr(git_ops, "GitExecutor", _FakeExecutor)
+    monkeypatch.setattr(git_ops.command_ops.time, "sleep", lambda seconds: sleeps.append(seconds))
 
     result = git_ops.run_git(
         git_module,
@@ -595,8 +598,9 @@ def test_run_git_removes_recent_index_lock(git_module, monkeypatch, tmp_path):
     )
 
     assert result.returncode != 0
-    assert attempts["count"] == 2
-    assert not lock_path.exists()
+    assert attempts["count"] == 4
+    assert lock_path.exists()
+    assert sleeps == [1.0, 1.0, 1.0]
 
 
 def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(
@@ -941,7 +945,7 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
     assert batch.hinted_paths == ["/repo/note.md"]
 
 
-def test_process_event_runs_repo_operations_concurrently(git_module, monkeypatch):
+def test_process_event_serializes_operations_per_repo(git_module, monkeypatch):
     state = {
         "inflight": 0,
         "max_inflight": 0,
@@ -979,6 +983,57 @@ def test_process_event_runs_repo_operations_concurrently(git_module, monkeypatch
         repo_root=repo_root,
         event_type="modified",
         paths=[f"{repo_root}/b.md"],
+        config_snapshot=config_snapshot,
+        run_in_background=True,
+    )
+
+    deadline = time.monotonic() + 2.0
+    while state["calls"] < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert state["calls"] == 2
+    assert state["max_inflight"] == 1
+
+
+def test_process_event_allows_parallel_operations_across_repos(git_module, monkeypatch):
+    state = {
+        "inflight": 0,
+        "max_inflight": 0,
+        "calls": 0,
+    }
+
+    monkeypatch.setattr(git_worker, "_build_batch", lambda **_kwargs: object())
+
+    def _process_batch(_self, _batch):
+        state["calls"] += 1
+        state["inflight"] += 1
+        state["max_inflight"] = max(state["max_inflight"], state["inflight"])
+        time.sleep(0.05)
+        state["inflight"] -= 1
+        return True
+
+    monkeypatch.setattr(git_worker, "process_batch", _process_batch)
+    first_repo_root = f"/repo-queue-a-{time.time_ns()}"
+    second_repo_root = f"/repo-queue-b-{time.time_ns()}"
+    config_snapshot = {
+        "git_sync_retry_window_seconds": 0.0,
+        "git_sync_retry_backoff_start_seconds": 0.01,
+        "git_sync_retry_backoff_max_seconds": 0.01,
+    }
+
+    git_worker.process_event(
+        self=git_module,
+        repo_root=first_repo_root,
+        event_type="modified",
+        paths=[f"{first_repo_root}/a.md"],
+        config_snapshot=config_snapshot,
+        run_in_background=True,
+    )
+    git_worker.process_event(
+        self=git_module,
+        repo_root=second_repo_root,
+        event_type="modified",
+        paths=[f"{second_repo_root}/b.md"],
         config_snapshot=config_snapshot,
         run_in_background=True,
     )
