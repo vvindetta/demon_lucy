@@ -653,6 +653,17 @@ class Status(AbstractModule):
             if cycle_finished is not None:
                 self._ascii_cycle_finished[new_abs] = bool(cycle_finished)
 
+    def _restart_tracked_ascii_cycles(self, trigger_path: str) -> None:
+        trigger_abs = os.path.abspath(trigger_path)
+        now_seconds = time.time()
+        with self._track_lock:
+            for path in list(self._tracked_ascii_animations.keys()):
+                if path == trigger_abs:
+                    continue
+                self._ascii_frame_indices[path] = 0
+                self._ascii_last_switch_seconds[path] = now_seconds
+                self._ascii_cycle_finished[path] = False
+
     def _tick_once(self) -> None:
         now_ts = time.time()
         with self._track_lock:
@@ -1087,6 +1098,7 @@ class Status(AbstractModule):
 
     def _handle_event(self, ctx: Context) -> Optional[IgnoreMap]:
         bootstrap_changed = self._bootstrap_once(ctx.path)
+        self._restart_tracked_ascii_cycles(ctx.path)
         parts = self._parse_status_parts(list(ctx.config.get("status", [])))
         banner_text, banner_speed_ms, banner_max_chars = self._normalize_banner_settings(
             ctx.config.get("status_banner", ""),

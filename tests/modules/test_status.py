@@ -912,7 +912,7 @@ def test_status_uses_fallback_name_when_target_exists(
     assert not status_file.exists()
 
 
-def test_status_ascii_animation_advances_once_then_returns_to_first_frame(
+def test_status_ascii_animation_advances_once_returns_to_first_and_restarts_on_new_event(
     tmp_path: Path, monkeypatch
 ) -> None:
     now_state = {"value": 10.0}
@@ -966,6 +966,18 @@ def test_status_ascii_animation_advances_once_then_returns_to_first_frame(
     now_state["value"] = 14.8
     module._tick_once()
     assert restarted_first_path.exists()
+
+    second_trigger = notes_root / "random-2.md"
+    second_trigger.write_text("body\n", encoding="utf-8")
+    now_state["value"] = 20.0
+    module.modified(_ctx_for(second_trigger), system)
+    assert restarted_first_path.exists()
+
+    now_state["value"] = 21.2
+    module._tick_once()
+    restarted_second_path = status_dir / ">>> prive"
+    assert restarted_second_path.exists()
+    assert not restarted_first_path.exists()
 
 
 def test_status_bootstrap_parses_ascii_frame_that_starts_with_double_dash(
