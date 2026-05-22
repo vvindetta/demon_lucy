@@ -140,10 +140,9 @@ Examples:
 | `--status-banner-speed-milliseconds` | `int` | Animation step duration for `--status-banner`. |
 | `--status-banner-max-characters` | `int` | Visible banner width. `0` means unlimited. |
 | `--status-prefix` | `str` | Prefix inserted before the first filename status token. |
-| `--status-animation` | `str[]` | Frame list for pass-based ASCII animation in filename status. |
+| `--status-animation` | `str[]` | Frame list for pass-based animation in filename status. |
 | `--status-animation-speed-milliseconds` | `int` | Minimum delay between frame switches for `--status-animation`. |
 | `--status-tick-interval-seconds` | `float` | Base ticker interval for status updates. |
-| `--status-time-with-seconds-tick-interval-seconds` | `float` | Ticker interval when `time-with-seconds` is active. |
 | `--status-git-fast-tick-interval-seconds` | `float` | Fast ticker interval used for recent `git update` status. |
 | `--status-git-fast-tick-window-seconds` | `float` | Duration of fast ticker mode after `git update` activity. |
 | `--status-opened-events-disable` | `bool` | Disable status module processing for `opened` events. |

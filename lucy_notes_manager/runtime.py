@@ -50,8 +50,8 @@ LUCY_STARTUP_TEMPLATE: Template = [
     (
         "--sys-opened-event-cooldown-seconds",
         int,
-        30,
-        "Cooldown for 'opened' events per file, in seconds. Prevents editor spam. Default: 30 seconds).",
+        60,
+        "Cooldown for 'opened' events per file, in seconds. Prevents editor spam. Default: 60 seconds).",
         False,
     ),
     (

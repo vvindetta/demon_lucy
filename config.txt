@@ -1,1 +1,1 @@
---sys-notes-dirs "/path/to/note/dir"
+# --sys-watch-paths "/path/to/note/dir"

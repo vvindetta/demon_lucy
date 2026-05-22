@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import threading
@@ -16,9 +17,11 @@ from lucy_notes_manager.modules.abstract_module import (
     System,
 )
 from lucy_notes_manager.modules.git.sync_marker import read_sync_success_timestamp
-from .files import StatusFileMixin
-from .parsing import StatusParsingMixin
-from .rendering import StatusRenderingMixin
+from lucy_notes_manager.modules.status.files import StatusFileMixin
+from lucy_notes_manager.modules.status.parsing import StatusParsingMixin
+from lucy_notes_manager.modules.status.rendering import StatusRenderingMixin
+
+logger = logging.getLogger(__name__)
 
 
 class Status(
@@ -29,6 +32,7 @@ class Status(
 ):
     name: str = "status"
     priority: int = 21
+    _SECONDS_TICK_INTERVAL_SECONDS = 1.0
 
     template: Template = [
         (
@@ -77,7 +81,7 @@ class Status(
             "--status-animation-speed-milliseconds",
             int,
             500,
-            "ASCII animation frame switch speed in milliseconds. Default: 500",
+            "Animation frame switch speed in milliseconds. Default: 500",
             False,
         ),
         (
@@ -85,13 +89,6 @@ class Status(
             float,
             60.0,
             "Base ticker interval for status updates in seconds. Default: 60.0",
-            False,
-        ),
-        (
-            "--status-time-with-seconds-tick-interval-seconds",
-            float,
-            1.0,
-            "Ticker interval for --status time-with-seconds in seconds. Default: 1.0",
             False,
         ),
         (
@@ -120,15 +117,14 @@ class Status(
     def __init__(self) -> None:
         super().__init__()
         defaults = self._template_defaults()
-        self._default_banner_speed_ms = int(defaults["status_banner_speed_milliseconds"])
+        self._default_banner_speed_ms = int(
+            defaults["status_banner_speed_milliseconds"]
+        )
         self._default_banner_max_chars = int(defaults["status_banner_max_characters"])
         self._default_animation_speed_ms = int(
             defaults["status_animation_speed_milliseconds"]
         )
         self._tick_interval_seconds = float(defaults["status_tick_interval_seconds"])
-        self._seconds_tick_interval_seconds = float(
-            defaults["status_time_with_seconds_tick_interval_seconds"]
-        )
         self._git_fast_tick_interval_seconds = float(
             defaults["status_git_fast_tick_interval_seconds"]
         )
@@ -384,7 +380,13 @@ class Status(
 
     def _ensure_ticker_started(self) -> None:
         if self._ticker_thread is not None:
-            return
+            try:
+                if self._ticker_thread.is_alive():
+                    return
+            except Exception:
+                pass
+
+        self._last_tick_key = None
         self._ticker_thread = threading.Thread(
             target=self._ticker_loop,
             daemon=True,
@@ -421,7 +423,9 @@ class Status(
                 self._animation_frame_indices[new_abs] = int(frame_index)
             last_switch_seconds = self._animation_last_switch_seconds.pop(old_abs, None)
             if last_switch_seconds is not None:
-                self._animation_last_switch_seconds[new_abs] = float(last_switch_seconds)
+                self._animation_last_switch_seconds[new_abs] = float(
+                    last_switch_seconds
+                )
             cycle_finished = self._animation_cycle_finished.pop(old_abs, None)
             if cycle_finished is not None:
                 self._animation_cycle_finished[new_abs] = bool(cycle_finished)
@@ -518,7 +522,7 @@ class Status(
 
         interval = self._tick_interval_seconds
         if has_seconds:
-            interval = min(interval, self._seconds_tick_interval_seconds)
+            interval = min(interval, self._SECONDS_TICK_INTERVAL_SECONDS)
         if has_git_update and now_ts < fast_until:
             interval = min(interval, self._git_fast_tick_interval_seconds)
         if tracked_banners:
@@ -537,16 +541,23 @@ class Status(
 
     def _ticker_loop(self) -> None:
         while not self._ticker_stop.is_set():
-            interval_seconds = self._ticker_interval_seconds()
-            current_slot = int(time.time() // interval_seconds)
-            tick_key = (interval_seconds, current_slot)
-            if tick_key != self._last_tick_key:
-                self._last_tick_key = tick_key
-                self._tick_once()
-            wait_seconds = (
-                0.25 if interval_seconds <= self._git_fast_tick_interval_seconds else 1.0
-            )
-            self._ticker_stop.wait(wait_seconds)
+            try:
+                interval_seconds = max(0.1, float(self._ticker_interval_seconds()))
+                current_slot = int(time.time() // interval_seconds)
+                tick_key = (interval_seconds, current_slot)
+                if tick_key != self._last_tick_key:
+                    self._last_tick_key = tick_key
+                    self._tick_once()
+                wait_seconds = (
+                    0.25
+                    if interval_seconds <= self._git_fast_tick_interval_seconds
+                    else 1.0
+                )
+                self._ticker_stop.wait(wait_seconds)
+            except Exception as exc:
+                logger.warning("status ticker iteration failed: %s", exc)
+                self._last_tick_key = None
+                self._ticker_stop.wait(1.0)
 
     def _bootstrap_from_status_dirs(self, event_path: str) -> Optional[IgnoreMap]:
         status_dirs = self._discover_status_dirs_from_path(event_path)
@@ -652,9 +663,7 @@ class Status(
                     status_prefix = self._tracked_prefixes.get(old_path, "")
             if ascii_animation_frames is None:
                 with self._track_lock:
-                    tracked_ascii_animation = self._tracked_animations.get(
-                        old_path
-                    )
+                    tracked_ascii_animation = self._tracked_animations.get(old_path)
                 if tracked_ascii_animation:
                     ascii_animation_frames = list(tracked_ascii_animation[0])
                     ascii_animation_speed_ms = int(tracked_ascii_animation[1])
@@ -705,9 +714,8 @@ class Status(
             return {old_path: 1, new_path: 1}
 
     def _handle_event(self, ctx: Context) -> Optional[IgnoreMap]:
-        self._tick_interval_seconds = max(0.1, float(ctx.config["status_tick_interval_seconds"]))
-        self._seconds_tick_interval_seconds = max(
-            0.1, float(ctx.config["status_time_with_seconds_tick_interval_seconds"])
+        self._tick_interval_seconds = max(
+            0.1, float(ctx.config["status_tick_interval_seconds"])
         )
         self._git_fast_tick_interval_seconds = max(
             0.1, float(ctx.config["status_git_fast_tick_interval_seconds"])

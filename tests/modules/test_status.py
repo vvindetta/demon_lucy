@@ -64,7 +64,6 @@ def _ctx_for(
             ),
             "status_opened_events_disable": status_opened_events_disable,
             "status_tick_interval_seconds": 60.0,
-            "status_time_with_seconds_tick_interval_seconds": 1.0,
             "status_git_fast_tick_interval_seconds": 2.0,
             "status_git_fast_tick_window_seconds": 120.0,
         },

@@ -1,13 +1,20 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 from lucy_notes_manager.lib.args import flag_to_dest, parse_template_item
 
 
+class _StatusParsingHost(Protocol):
+    template: Any
+    _default_banner_speed_ms: int
+    _default_banner_max_chars: int
+    _default_animation_speed_ms: int
+
+
 class StatusParsingMixin:
     @classmethod
-    def _template_defaults(cls) -> dict[str, Any]:
+    def _template_defaults(cls: type[_StatusParsingHost]) -> dict[str, Any]:
         defaults: dict[str, Any] = {}
         for item in cls.template:
             flag, _typ, default, _desc, _required = parse_template_item(item)
@@ -156,7 +163,7 @@ class StatusParsingMixin:
         return parts
 
     def _normalize_banner_settings(
-        self,
+        self: _StatusParsingHost,
         text_value: Any,
         speed_ms_value: Any,
         max_chars_value: Any,
@@ -178,7 +185,7 @@ class StatusParsingMixin:
         return banner_text, safe_speed_ms, safe_max_chars
 
     def _normalize_animation_settings(
-        self,
+        self: _StatusParsingHost,
         frames_value: Any,
         speed_ms_value: Any,
     ) -> tuple[list[str], int]:
