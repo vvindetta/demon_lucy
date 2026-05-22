@@ -113,7 +113,7 @@ def test_main_schedules_observer_and_modules(
         "sys",
         "kdeconnect_sync",
         "git",
-        "plasma_sync",
+        "plasma_widget",
     ]
 
 

@@ -12,7 +12,7 @@ from lucy_notes_manager.modules.formatter import Formatter
 from lucy_notes_manager.modules.git import Git
 from lucy_notes_manager.modules.kdeconnect_sync import KdeconnectSync
 from lucy_notes_manager.modules.linker import Linker
-from lucy_notes_manager.modules.plasma_sync import PlasmaSync
+from lucy_notes_manager.modules.plasma_widget import PlasmaWidget
 from lucy_notes_manager.modules.renamer import Renamer
 from lucy_notes_manager.modules.status import Status
 from lucy_notes_manager.modules.sys import Sys
@@ -202,7 +202,7 @@ def select_lucy_modules(
         Sys,
         KdeconnectSync,
         Git,
-        PlasmaSync,
+        PlasmaWidget,
     ]
     include_set = set(normalize_name_list(include_names or []))
     exclude_set = set(normalize_name_list(exclude_names or []))

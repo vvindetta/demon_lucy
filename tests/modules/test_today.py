@@ -61,7 +61,7 @@ def test_supports_custom_today_now_file(tmp_path: Path, monkeypatch) -> None:
     past_path = tmp_path / "past.md"
     assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
     assert now_path.read_text(encoding="utf-8") == ""
-    assert past_path.read_text(encoding="utf-8") == "-- 02.05\ncustom active\n"
+    assert past_path.read_text(encoding="utf-8") == "-- 02.05.2026\ncustom active\n"
 
 
 def _make_stale(path: Path, hours: float) -> None:
@@ -81,8 +81,8 @@ def _freeze_now(monkeypatch, year: int, month: int, day: int) -> None:
 @pytest.mark.parametrize(
     ("event_target_name", "expected_past_text"),
     [
-        ("now.md", "-- 01.05\nsomething\nmore coffee\n"),
-        ("other.md", "-- 01.05\narchive me\n"),
+        ("now.md", "-- 01.05.2026\nsomething\nmore coffee\n"),
+        ("other.md", "-- 01.05.2026\narchive me\n"),
     ],
 )
 def test_archives_stale_now_md_when_triggered_by_now_or_sibling_event(
@@ -156,7 +156,7 @@ def test_force_today_past_archives_even_when_not_stale(
     past_path = tmp_path / "past.md"
     assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
     assert now_path.read_text(encoding="utf-8") == ""
-    assert past_path.read_text(encoding="utf-8") == "-- 01.05\nmove now\n"
+    assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nmove now\n"
 
 
 def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -> None:
@@ -176,7 +176,7 @@ def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -
     )
     module.modified(ctx, system)
 
-    expected = "-- 12.04\nsomethiung\n\n-- 01.05\nmore coffe\n"
+    expected = "-- 12.04\nsomethiung\n\n-- 01.05.2026\nmore coffe\n"
     assert past_path.read_text(encoding="utf-8") == expected
     assert now_path.read_text(encoding="utf-8") == ""
 
@@ -199,7 +199,7 @@ def test_normalizes_blank_lines_before_archiving(tmp_path: Path, monkeypatch) ->
     past_path = tmp_path / "past.md"
     assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
     assert now_path.read_text(encoding="utf-8") == ""
-    assert past_path.read_text(encoding="utf-8") == "-- 01.05\nalpha\n\n\n\nbeta\n"
+    assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nalpha\n\n\n\nbeta\n"
 
 
 def test_keeps_first_line_with_lucy_flags_when_archiving(
@@ -227,7 +227,7 @@ def test_keeps_first_line_with_lucy_flags_when_archiving(
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
-        == "-- 01.05\n--fmt-blank up --fmt-todo\nalpha\nbeta\n"
+        == "-- 01.05.2026\n--fmt-blank up --fmt-todo\nalpha\nbeta\n"
     )
 
 
@@ -273,7 +273,7 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
     past_path = tmp_path / "past.md"
     assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
     assert now_path.read_text(encoding="utf-8") == ""
-    assert past_path.read_text(encoding="utf-8") == "-- 02.06\nfrom git clock\n"
+    assert past_path.read_text(encoding="utf-8") == "-- 02.06.2026\nfrom git clock\n"
 
 
 def test_force_fs_flag_skips_git_even_in_repo(tmp_path: Path, monkeypatch) -> None:

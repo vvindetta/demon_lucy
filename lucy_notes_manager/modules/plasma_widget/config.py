@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from lucy_notes_manager.lib.args import Template
 
-PLASMA_SYNC_TEMPLATE: Template = [
+PLASMA_WIDGET_TEMPLATE: Template = [
     (
         "--plasma-widget-path",
         str,

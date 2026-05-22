@@ -140,8 +140,12 @@ Examples:
 | `--status-banner-speed-milliseconds` | `int` | Animation step duration for `--status-banner`. |
 | `--status-banner-max-characters` | `int` | Visible banner width. `0` means unlimited. |
 | `--status-prefix` | `str` | Prefix inserted before the first filename status token. |
-| `--status-ascii-animation-frames` | `str[]` | Frame list for pass-based ASCII animation in filename status. |
-| `--status-ascii-animation-speed-milliseconds` | `int` | Minimum delay between frame switches for `--status-ascii-animation-frames`. |
+| `--status-animation` | `str[]` | Frame list for pass-based ASCII animation in filename status. |
+| `--status-animation-speed-milliseconds` | `int` | Minimum delay between frame switches for `--status-animation`. |
+| `--status-tick-interval-seconds` | `float` | Base ticker interval for status updates. |
+| `--status-time-with-seconds-tick-interval-seconds` | `float` | Ticker interval when `time-with-seconds` is active. |
+| `--status-git-fast-tick-interval-seconds` | `float` | Fast ticker interval used for recent `git update` status. |
+| `--status-git-fast-tick-window-seconds` | `float` | Duration of fast ticker mode after `git update` activity. |
 | `--status-opened-events-disable` | `bool` | Disable status module processing for `opened` events. |
 
 Examples:
@@ -150,8 +154,8 @@ Examples:
 --status date time
 --status git update
 --status-banner "Working"
---status-ascii-animation-frames "pri" "prive" "privet"
---status-ascii-animation-speed-milliseconds 800
+--status-animation "loading" "loading." "loading.."
+--status-animation-speed-milliseconds 800
 --status-opened-events-disable
 ```
 
@@ -160,9 +164,9 @@ Examples:
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--linker-root` | `bool` | Create a symlink in the repo root with the current note filename. |
-| `--linker-clean-root-symlinks` | `bool` | If `--linker-root` is not set, remove symlinks from the repo root. |
+| `--linker-auto-clean-root-links` | `bool` | If `--linker-root` is not set, remove symlinks from the repo root. |
 | `--linker-ignore` | `str[]` | Ignore files/links for linker actions (basename or absolute/repo-relative path). |
-| `--linker-update-references-on-move` | `bool` | On move/rename, scan markdown files in repo and update links to moved note. |
+| `--linker-auto-update-md-links` | `bool` | On move/rename, scan markdown files in repo and update links to moved note. |
 
 ## Dropdir
 
@@ -242,11 +246,11 @@ Common examples:
 | `--kdeconnect-mount-retry-seconds` | `float` | Delay between mount retries when device is temporarily unavailable. |
 | `--kdeconnect-dry-run` | `bool` | Build patch packets without transferring to phone. |
 
-## Plasma Sync
+## Plasma Widget
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--plasma-widget-path` | `str` | Main Plasma note HTML widget path. Required for plasma sync. |
+| `--plasma-widget-path` | `str` | Main Plasma note HTML widget path. Required for plasma widget sync. |
 | `--plasma-bold-widget-path` | `str` | Optional bold-only mirror widget path. |
 | `--plasma-markdown-note-path` | `str` | Markdown note path synced with Plasma widget content. Required. |
 | `--plasma-css-style` | `bool` | Render with CSS checkbox markers and real `ul/li` output. |

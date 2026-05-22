@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from lucy_notes_manager.modules.plasma_sync.model import (
+from lucy_notes_manager.modules.plasma_widget.model import (
     DocLine,
     _hash_text,
     _segs_has_bold,
     _segs_plain,
 )
-from lucy_notes_manager.modules.plasma_sync.plasma_html_codec import (
+from lucy_notes_manager.modules.plasma_widget.plasma_html_codec import (
     _doc_to_plasma_html,
     _html_to_doc,
 )

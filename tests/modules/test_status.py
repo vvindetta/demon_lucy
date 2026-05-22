@@ -43,11 +43,11 @@ def _ctx_for(
     *,
     status_values: list[str] | None = None,
     status_banner_text: str = "",
-    status_banner_speed_milliseconds: int = status_mod._DEFAULT_BANNER_SPEED_MS,
-    status_banner_max_characters: int = status_mod._DEFAULT_BANNER_MAX_CHARS,
+    status_banner_speed_milliseconds: int = 500,
+    status_banner_max_characters: int = 0,
     status_prefix: str = "",
-    status_ascii_animation_frames: list[str] | None = None,
-    status_ascii_animation_speed_milliseconds: int = status_mod._DEFAULT_ASCII_ANIMATION_SPEED_MS,
+    status_animation: list[str] | None = None,
+    status_animation_speed_milliseconds: int = 500,
     status_opened_events_disable: bool = False,
 ) -> Context:
     return Context(
@@ -58,11 +58,15 @@ def _ctx_for(
             "status_banner_speed_milliseconds": status_banner_speed_milliseconds,
             "status_banner_max_characters": status_banner_max_characters,
             "status_prefix": status_prefix,
-            "status_ascii_animation_frames": list(status_ascii_animation_frames or []),
-            "status_ascii_animation_speed_milliseconds": (
-                status_ascii_animation_speed_milliseconds
+            "status_animation": list(status_animation or []),
+            "status_animation_speed_milliseconds": (
+                status_animation_speed_milliseconds
             ),
             "status_opened_events_disable": status_opened_events_disable,
+            "status_tick_interval_seconds": 60.0,
+            "status_time_with_seconds_tick_interval_seconds": 1.0,
+            "status_git_fast_tick_interval_seconds": 2.0,
+            "status_git_fast_tick_window_seconds": 120.0,
         },
         arg_lines={},
     )
@@ -518,9 +522,9 @@ def test_status_ticker_interval_uses_banner_speed(monkeypatch) -> None:
     assert module._ticker_interval_seconds() == 5.0
 
 
-def test_status_ascii_animation_default_speed_is_500_ms() -> None:
+def test_status_animation_default_speed_is_500_ms() -> None:
     module = Status()
-    frames, speed_ms = module._normalize_ascii_animation_settings(
+    frames, speed_ms = module._normalize_animation_settings(
         ["a", "b"],
         None,
     )
@@ -549,7 +553,7 @@ def test_status_prefix_prepends_status_output(tmp_path: Path, monkeypatch) -> No
     assert not path.exists()
 
 
-def test_status_ascii_animation_frames_advance_per_pass_with_speed_and_prefix(
+def test_status_animation_advance_per_pass_with_speed_and_prefix(
     tmp_path: Path, monkeypatch
 ) -> None:
     now_state = {"value": 10.0}
@@ -557,8 +561,8 @@ def test_status_ascii_animation_frames_advance_per_pass_with_speed_and_prefix(
 
     path = tmp_path / "note.md"
     path.write_text(
-        '--status-ascii-animation-frames "pri" "prive" "privet"\n'
-        "--status-ascii-animation-speed-milliseconds 1000\n"
+        '--status-animation "pri" "prive" "privet"\n'
+        "--status-animation-speed-milliseconds 1000\n"
         '--status-prefix ">>> "\n',
         encoding="utf-8",
     )
@@ -572,8 +576,8 @@ def test_status_ascii_animation_frames_advance_per_pass_with_speed_and_prefix(
         _ctx_for(
             path,
             status_prefix=">>> ",
-            status_ascii_animation_frames=["pri", "prive", "privet"],
-            status_ascii_animation_speed_milliseconds=1000,
+            status_animation=["pri", "prive", "privet"],
+            status_animation_speed_milliseconds=1000,
         ),
         system,
     )
@@ -585,8 +589,8 @@ def test_status_ascii_animation_frames_advance_per_pass_with_speed_and_prefix(
         _ctx_for(
             first_path,
             status_prefix=">>> ",
-            status_ascii_animation_frames=["pri", "prive", "privet"],
-            status_ascii_animation_speed_milliseconds=1000,
+            status_animation=["pri", "prive", "privet"],
+            status_animation_speed_milliseconds=1000,
         ),
         system,
     )
@@ -598,8 +602,8 @@ def test_status_ascii_animation_frames_advance_per_pass_with_speed_and_prefix(
         _ctx_for(
             first_path,
             status_prefix=">>> ",
-            status_ascii_animation_frames=["pri", "prive", "privet"],
-            status_ascii_animation_speed_milliseconds=1000,
+            status_animation=["pri", "prive", "privet"],
+            status_animation_speed_milliseconds=1000,
         ),
         system,
     )
@@ -615,8 +619,8 @@ def test_status_ascii_animation_frames_advance_per_pass_with_speed_and_prefix(
         _ctx_for(
             second_path,
             status_prefix=">>> ",
-            status_ascii_animation_frames=["pri", "prive", "privet"],
-            status_ascii_animation_speed_milliseconds=1000,
+            status_animation=["pri", "prive", "privet"],
+            status_animation_speed_milliseconds=1000,
         ),
         system,
     )
@@ -651,6 +655,29 @@ def test_status_opened_events_disable_flag_skips_opened_handler(
     assert changed is None
     assert path.exists()
     assert not (tmp_path / _inv("08:09")).exists()
+
+
+def test_status_from_file_does_not_treat_opened_disable_as_ascii_frame(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "status-source.md"
+    path.write_text(
+        '--status-animation "pri" "prive" --status-opened-events-disable\n',
+        encoding="utf-8",
+    )
+
+    module = Status()
+    (
+        _parts,
+        _banner_text,
+        _banner_speed_ms,
+        _banner_max_chars,
+        _status_prefix,
+        ascii_frames,
+        _ascii_speed_ms,
+    ) = module._status_from_file(str(path))
+
+    assert ascii_frames == ["pri", "prive"]
 
 
 def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> None:
@@ -862,8 +889,8 @@ def test_status_bootstrap_applies_ascii_animation_from_status_file(
 
     status_file = status_dir / "dead.md"
     status_file.write_text(
-        '--status-ascii-animation-frames "pri" "prive" "privet"\n'
-        "--status-ascii-animation-speed-milliseconds 1000\n"
+        '--status-animation "pri" "prive" "privet"\n'
+        "--status-animation-speed-milliseconds 1000\n"
         '--status-prefix ">>> "\n',
         encoding="utf-8",
     )
@@ -928,7 +955,7 @@ def test_status_sanitizes_unnameable_filename_tokens(
 
     status_file = status_dir / "dead.md"
     status_file.write_text(
-        '--status-ascii-animation-frames "pri/ve"\n' '--status-prefix "A/B "\n',
+        '--status-animation "pri/ve"\n' '--status-prefix "A/B "\n',
         encoding="utf-8",
     )
 
@@ -981,7 +1008,7 @@ def test_status_uses_fallback_name_when_target_exists(
     assert not status_file.exists()
 
 
-def test_status_ascii_animation_advances_once_returns_to_first_and_restarts_on_new_event(
+def test_status_animation_advances_once_returns_to_first_and_restarts_on_new_event(
     tmp_path: Path, monkeypatch
 ) -> None:
     now_state = {"value": 10.0}
@@ -993,8 +1020,8 @@ def test_status_ascii_animation_advances_once_returns_to_first_and_restarts_on_n
 
     status_file = status_dir / "dead.md"
     status_file.write_text(
-        '--status-ascii-animation-frames "pri" "prive" "privet"\n'
-        "--status-ascii-animation-speed-milliseconds 1000\n"
+        '--status-animation "pri" "prive" "privet"\n'
+        "--status-animation-speed-milliseconds 1000\n"
         '--status-prefix ">>> "\n',
         encoding="utf-8",
     )
@@ -1064,7 +1091,7 @@ def test_status_bootstrap_parses_ascii_frame_that_starts_with_double_dash(
 
     status_file = status_dir / "dead.md"
     status_file.write_text(
-        '--status-ascii-animation-frames "-- --- --" "-< --- >-"\n',
+        '--status-animation "-- --- --" "-< --- >-"\n',
         encoding="utf-8",
     )
 

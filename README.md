@@ -30,7 +30,7 @@ Then press ```CTRL+S``` - Lucy will detect the change and run the modules.
 - Sync notes between formats and programs
 - Git auto-commit
 - Calendar integration
-- Sync your system widgets: [KDE Plasma demo](media/plasma_sync.mp4)
+- Sync your system widgets: [KDE Plasma demo](media/plasma_widget.mp4)
 - Write your own module!
 
 ### How to sync with mobile?
@@ -63,7 +63,7 @@ For a compact list of all current arguments, see args [CHEATSHEET.md](CHEATSHEET
 * banner (10)
 * todo (10)
 * renamer (20)
-* plasma_sync (30)
+* plasma_widget (30)
 * cmd (50)
 ```
 
@@ -153,7 +153,7 @@ Hot reload and module install/uninstall commands are not implemented yet; restar
 - `formatter`: formats note text, including todo list conversion and blank-space padding.
 - `banner`: inserts ASCII banner text or date banners into notes.
 - `renamer`: renames notes manually or by simple date-based create rules.
-- `status`: adds date, time, Git, or animated status markers to filenames. Supports rolling ASCII frame animations via `--status-ascii-animation-frames` and optional opened-event skip via `--status-opened-events-disable`.
+
 - `linker`: creates or cleans repository-root symlinks for active notes.
 - `dropdir`: handles moved files in configured drop directories. Useful for temporary inbox/drop folders where moving a file should immediately trigger a follow-up action.
 - `today`: archives stale active notes into a past/archive note. Useful for keeping one current daily scratch note while automatically moving old content into history.
@@ -161,6 +161,6 @@ Hot reload and module install/uninstall commands are not implemented yet; restar
 
 **Integrations:**
 - `git`: syncs notes with a remote Git repository.
-- `plasma_sync`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_sync.mp4)).
+- `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
 For a compact list of all current arguments, see args [CHEATSHEET.md](CHEATSHEET.md).

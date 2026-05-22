@@ -218,7 +218,7 @@ class Today(AbstractModule):
         if not body:
             return None
 
-        date_label = datetime.now().strftime("%d.%m")
+        date_label = datetime.now().strftime("%d.%m.%Y")
         entry = f"-- {date_label}\n{body}\n"
 
         if not self._append_entry(past_path, entry):

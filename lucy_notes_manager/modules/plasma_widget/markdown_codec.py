@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from lucy_notes_manager.modules.plasma_sync.model import (
+from lucy_notes_manager.modules.plasma_widget.model import (
     DocLine,
     _hash_text,
     _merge_segs,

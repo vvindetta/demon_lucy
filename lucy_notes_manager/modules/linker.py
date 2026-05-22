@@ -4,7 +4,7 @@ import os
 import re
 from typing import Optional
 
-from lucy_notes_manager.lib.args import Template
+from lucy_notes_manager.lib.args import Template, get_args_from_file
 from lucy_notes_manager.lib.path import canonical_path, find_parent_with
 from lucy_notes_manager.modules.abstract_module import (
     AbstractModule,
@@ -14,6 +14,7 @@ from lucy_notes_manager.modules.abstract_module import (
 )
 
 INLINE_LINK_PATTERN = r"(!?\[[^\]\r\n]*\]\()([^\)\r\n]*)(\))"
+REFERENCE_LINK_FILE_EXTENSIONS = {".md", ".markdown", ".mdx"}
 
 
 class Linker(AbstractModule):
@@ -29,7 +30,7 @@ class Linker(AbstractModule):
             False,
         ),
         (
-            "--linker-clean-root-symlinks",
+            "--linker-auto-clean-root-links",
             bool,
             False,
             "If enabled and --linker-root is not set, delete all symlinks from repository root.",
@@ -43,7 +44,7 @@ class Linker(AbstractModule):
             False,
         ),
         (
-            "--linker-update-references-on-move",
+            "--linker-auto-update-md-links",
             bool,
             False,
             "If enabled, when a note is moved/renamed scan repo markdown files and update links that point to that note.",
@@ -160,6 +161,8 @@ class Linker(AbstractModule):
                 ignore_selectors=ignore_selectors,
             ):
                 continue
+            if self._linked_source_has_linker_root_flag(abs_path):
+                continue
 
             try:
                 os.unlink(abs_path)
@@ -169,6 +172,19 @@ class Linker(AbstractModule):
             deleted[abs_path] = 1
 
         return deleted or None
+
+    def _linked_source_has_linker_root_flag(self, link_path: str) -> bool:
+        try:
+            source_path = os.path.realpath(link_path)
+        except OSError:
+            return False
+        if not os.path.isfile(source_path):
+            return False
+        known_args, _unknown_args, _arg_lines = get_args_from_file(
+            path=source_path,
+            template=self.template,
+        )
+        return bool(known_args.get("linker_root"))
 
     @staticmethod
     def _merge_ignore_maps(
@@ -192,9 +208,9 @@ class Linker(AbstractModule):
         return path_abs == root_abs or path_abs.startswith(root_abs + os.sep)
 
     @staticmethod
-    def _is_markdown_path(path_value: str) -> bool:
-        lowered = os.path.basename(path_value).lower()
-        return lowered.endswith(".md") or lowered.endswith(".markdown")
+    def _is_supported_reference_file(path_value: str) -> bool:
+        _, ext = os.path.splitext(path_value.lower())
+        return ext in REFERENCE_LINK_FILE_EXTENSIONS
 
     @staticmethod
     def _split_link_destination_and_suffix(destination: str) -> tuple[str, str]:
@@ -355,6 +371,10 @@ class Linker(AbstractModule):
         moved_to_abs = canonical_path(dest_path_raw)
         if moved_from_abs == moved_to_abs:
             return None
+        if not self._is_supported_reference_file(moved_from_abs):
+            return None
+        if not self._is_supported_reference_file(moved_to_abs):
+            return None
 
         repo_root = find_parent_with(moved_to_abs, ".git") or find_parent_with(
             moved_from_abs, ".git"
@@ -383,9 +403,9 @@ class Linker(AbstractModule):
         for root, dirs, files in os.walk(repo_root):
             dirs[:] = [name for name in dirs if name != ".git"]
             for file_name in files:
-                if not self._is_markdown_path(file_name):
-                    continue
                 markdown_path = os.path.abspath(os.path.join(root, file_name))
+                if not self._is_supported_reference_file(markdown_path):
+                    continue
                 if self._is_ignored_path(
                     path_value=markdown_path,
                     repo_root=repo_root,
@@ -404,7 +424,7 @@ class Linker(AbstractModule):
 
     def _apply(self, *, path: str, config: dict) -> Optional[IgnoreMap]:
         use_link_top = bool(config["linker_root"])
-        auto_cleanup = bool(config["linker_clean_root_symlinks"])
+        auto_cleanup = bool(config["linker_auto_clean_root_links"])
         ignore_selectors = list(config["linker_ignore"])
 
         if not use_link_top and not auto_cleanup:
@@ -442,6 +462,6 @@ class Linker(AbstractModule):
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         link_changed = self._apply(path=ctx.path, config=ctx.config)
         moved_links_changed = None
-        if bool(ctx.config["linker_update_references_on_move"]):
+        if bool(ctx.config["linker_auto_update_md_links"]):
             moved_links_changed = self._update_moved_links(ctx=ctx, system=system)
         return self._merge_ignore_maps(link_changed, moved_links_changed)

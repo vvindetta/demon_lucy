@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-import lucy_notes_manager.modules.plasma_sync as plasma_mod
+import lucy_notes_manager.modules.plasma_widget as plasma_mod
 from lucy_notes_manager.modules.abstract_module import Context
-from lucy_notes_manager.modules.plasma_sync.mirror_mapper import (
+from lucy_notes_manager.modules.plasma_widget.mirror_mapper import (
     _bold_items_to_plasma_html,
 )
-from lucy_notes_manager.modules.plasma_sync import DocLine, PlasmaSync
+from lucy_notes_manager.modules.plasma_widget import DocLine, PlasmaWidget
 
 _NOTIFY_CFG = {
     "sys_notification_provider": "termuxapi",
@@ -112,7 +112,7 @@ def test_cfg_parses_paths_and_boolean_values(tmp_path: Path):
         arg_lines={},
     )
 
-    module = PlasmaSync()
+    module = PlasmaWidget()
     widget_path, md_path, mirror_path, css_style = module._cfg(ctx)
     assert widget_path == str(widget.resolve())
     assert md_path == str(md.resolve())
@@ -126,7 +126,7 @@ def test_from_markdown_writes_widget_and_mirror(tmp_path: Path):
     mirror = tmp_path / "mirror.html"
     md.write_text("Line\n**Bold**\n", encoding="utf-8")
 
-    module = PlasmaSync()
+    module = PlasmaWidget()
     ignore = module._from_markdown(
         markdown_path=str(md),
         widget_path=str(widget),
@@ -150,7 +150,7 @@ def test_from_main_plasma_updates_markdown(tmp_path: Path):
         plasma_mod._doc_to_plasma_html(doc, css_style=False), encoding="utf-8"
     )
 
-    module = PlasmaSync()
+    module = PlasmaWidget()
     ignore = module._from_main_plasma(
         widget_path=str(widget),
         markdown_path=str(md),
@@ -206,7 +206,7 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
     md_path = tmp_path / "todo.md"
     widget_path = tmp_path / "widget.html"
     mirror_path = tmp_path / "mirror.html"
-    module = PlasmaSync()
+    module = PlasmaWidget()
 
     texts = [
         "- [ ] **Task 1**\nline\n- [x] done",
@@ -292,7 +292,7 @@ def test_css_toggle_rewrites_widget_structure_on_same_doc(tmp_path: Path):
     md_path = tmp_path / "todo.md"
     widget_path = tmp_path / "widget.html"
     mirror_path = tmp_path / "mirror.html"
-    module = PlasmaSync()
+    module = PlasmaWidget()
 
     md_path.write_text("- [ ] **Task**\n", encoding="utf-8")
 
@@ -326,7 +326,7 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
     md_path = tmp_path / "todo.md"
     widget_path = tmp_path / "widget.html"
     mirror_path = tmp_path / "mirror.html"
-    module = PlasmaSync()
+    module = PlasmaWidget()
 
     # bootstrap files
     md_path.write_text("**seed**\n", encoding="utf-8")
@@ -393,7 +393,7 @@ def test_mirror_deleted_line_does_not_reappear_after_sync(tmp_path: Path):
     md_path = tmp_path / "todo.md"
     widget_path = tmp_path / "widget.html"
     mirror_path = tmp_path / "mirror.html"
-    module = PlasmaSync()
+    module = PlasmaWidget()
 
     md_path.write_text("**one**\n**two**\n", encoding="utf-8")
     module._from_markdown(
@@ -435,7 +435,7 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
     md_path = tmp_path / "todo.md"
     widget_path = tmp_path / "widget.html"
     mirror_path = tmp_path / "mirror.html"
-    module = PlasmaSync()
+    module = PlasmaWidget()
 
     # bootstrap from markdown
     md_path.write_text("**a**\n**b**\n", encoding="utf-8")
@@ -601,7 +601,7 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(plasma_mod, "_write_text_atomic", fail_widget_write)
 
-    ignore = PlasmaSync()._from_markdown(
+    ignore = PlasmaWidget()._from_markdown(
         markdown_path=str(md_path),
         widget_path=str(widget_path),
         bold_widget_path=None,
@@ -638,7 +638,7 @@ def test_read_error_is_not_treated_as_empty_input(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(plasma_mod, "open", fail_markdown_read, raising=False)
 
-    ignore = PlasmaSync()._from_markdown(
+    ignore = PlasmaWidget()._from_markdown(
         markdown_path=str(md_path),
         widget_path=str(widget_path),
         bold_widget_path=None,
@@ -690,7 +690,7 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
 
     monkeypatch.setattr(plasma_mod, "_write_text_atomic", fail_mirror_write)
 
-    ignore = PlasmaSync()._from_markdown(
+    ignore = PlasmaWidget()._from_markdown(
         markdown_path=str(md_path),
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),

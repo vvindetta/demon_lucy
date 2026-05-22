@@ -64,7 +64,7 @@ def test_dropdir_forces_today_archive_when_now_moved_into_cleanup(
     }
     assert not now_path.exists()
     assert src_path.read_text(encoding="utf-8") == ""
-    assert past_path.read_text(encoding="utf-8") == "-- 03.05\nclean this now\n"
+    assert past_path.read_text(encoding="utf-8") == "-- 03.05.2026\nclean this now\n"
 
 
 def test_dropdir_ignores_non_today_filename(tmp_path: Path, monkeypatch) -> None:

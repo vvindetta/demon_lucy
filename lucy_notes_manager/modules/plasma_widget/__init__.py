@@ -7,8 +7,8 @@ from typing import Any, Dict, Mapping, Optional
 from lucy_notes_manager.lib import safe_notify
 from lucy_notes_manager.lib.path import canonical_path
 from lucy_notes_manager.modules.abstract_module import AbstractModule, Context, System
-from lucy_notes_manager.modules.plasma_sync.config import PLASMA_SYNC_TEMPLATE
-from lucy_notes_manager.modules.plasma_sync.engine import (
+from lucy_notes_manager.modules.plasma_widget.config import PLASMA_WIDGET_TEMPLATE
+from lucy_notes_manager.modules.plasma_widget.engine import (
     SyncPlan,
     SyncState,
     bootstrap_state,
@@ -16,30 +16,30 @@ from lucy_notes_manager.modules.plasma_sync.engine import (
     plan_from_main_plasma,
     plan_from_markdown,
 )
-from lucy_notes_manager.modules.plasma_sync.markdown_codec import (
+from lucy_notes_manager.modules.plasma_widget.markdown_codec import (
     _doc_hash,
     _doc_to_md,
     _md_to_doc,
 )
-from lucy_notes_manager.modules.plasma_sync.mirror_mapper import (
+from lucy_notes_manager.modules.plasma_widget.mirror_mapper import (
     _apply_mirror_items_to_doc,
     _extract_bold_items_from_doc,
     _items_hash,
     _mirror_html_to_items,
 )
-from lucy_notes_manager.modules.plasma_sync.model import (
+from lucy_notes_manager.modules.plasma_widget.model import (
     DocLine,
     _hash_text,
     _normalize_md,
 )
-from lucy_notes_manager.modules.plasma_sync.plasma_html_codec import (
+from lucy_notes_manager.modules.plasma_widget.plasma_html_codec import (
     _doc_to_plasma_html,
     _html_to_doc,
 )
 
 __all__ = [
     "DocLine",
-    "PlasmaSync",
+    "PlasmaWidget",
     "SyncPlan",
     "SyncState",
     "bootstrap_state",
@@ -135,7 +135,7 @@ def _write_text_atomic(
     try:
         os.makedirs(directory, exist_ok=True)
         file_descriptor, temp_path = tempfile.mkstemp(
-            prefix=".plasma_sync.",
+            prefix=".plasma_widget.",
             suffix=".tmp",
             dir=directory,
         )
@@ -288,11 +288,11 @@ def _apply_sync_plan(
 # ---------------- Module ---------------- #
 
 
-class PlasmaSync(AbstractModule):
-    name: str = "plasma_sync"
+class PlasmaWidget(AbstractModule):
+    name: str = "plasma_widget"
     priority: int = 30
 
-    template = PLASMA_SYNC_TEMPLATE
+    template = PLASMA_WIDGET_TEMPLATE
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         return self._handle(ctx)

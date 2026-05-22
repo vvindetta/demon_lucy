@@ -4,7 +4,7 @@ import html
 from html.parser import HTMLParser
 from typing import List, Optional, Tuple
 
-from lucy_notes_manager.modules.plasma_sync.model import (
+from lucy_notes_manager.modules.plasma_widget.model import (
     DocLine,
     _merge_segs,
     _segs_plain,
