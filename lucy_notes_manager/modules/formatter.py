@@ -63,12 +63,11 @@ class Formatter(AbstractModule):
         self, *, path: str, global_template: Template | None, fallback_arg_lines: dict
     ) -> bool:
         if global_template:
-            _known, _unknown, first_line_arg_lines = get_args_from_file(
+            _known, _unknown, parsed_arg_lines = get_args_from_file(
                 path=path,
                 template=global_template,
-                only_first_line=True,
             )
-            return self._arg_lines_has_first_line_flag(first_line_arg_lines)
+            return self._arg_lines_has_first_line_flag(parsed_arg_lines)
 
         return self._arg_lines_has_first_line_flag(fallback_arg_lines)
 
@@ -225,12 +224,16 @@ class Formatter(AbstractModule):
                 )
                 if first_non_empty is None:
                     return None
-                new_lines = ([newline] * blank_lines_count) + new_lines[first_non_empty:]
+                new_lines = ([newline] * blank_lines_count) + new_lines[
+                    first_non_empty:
+                ]
             changed = changed or (new_lines != lines)
 
         if use_down:
             newline = self._detect_newline(original_text)
-            last_non_empty = max(idx for idx, line in enumerate(new_lines) if self._has_text(line))
+            last_non_empty = max(
+                idx for idx, line in enumerate(new_lines) if self._has_text(line)
+            )
             head = new_lines[: last_non_empty + 1]
             if not head[-1].endswith(("\n", "\r")):
                 head[-1] = head[-1] + newline

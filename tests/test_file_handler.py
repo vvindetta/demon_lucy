@@ -4,7 +4,12 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from watchdog.events import FileModifiedEvent, FileMovedEvent, FileOpenedEvent, FileSystemEvent
+from watchdog.events import (
+    FileModifiedEvent,
+    FileMovedEvent,
+    FileOpenedEvent,
+    FileSystemEvent,
+)
 
 from lucy_notes_manager.file_handler import FileHandler
 from lucy_notes_manager.module_manager import ModuleManager

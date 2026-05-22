@@ -10,6 +10,7 @@ from lucy_notes_manager.modules.banner import Banner
 from lucy_notes_manager.modules.dropdir import DropDir
 from lucy_notes_manager.modules.formatter import Formatter
 from lucy_notes_manager.modules.git import Git
+from lucy_notes_manager.modules.kdeconnect_sync import KdeconnectSync
 from lucy_notes_manager.modules.linker import Linker
 from lucy_notes_manager.modules.plasma_sync import PlasmaSync
 from lucy_notes_manager.modules.renamer import Renamer
@@ -110,10 +111,25 @@ LUCY_STARTUP_TEMPLATE: Template = [
         "Skip module execution for files inside these paths. Example: --sys-ignore-paths ~/.cache ~/Notes/private",
         False,
     ),
+    (
+        "--sys-modules",
+        str,
+        ["banner", "renamer", "linker", "formatter", "today", "sys"],
+        "Run only selected modules by name. Example: --sys-modules git status",
+        False,
+    ),
+    (
+        "--sys-modules-exclude",
+        str,
+        [],
+        "Exclude modules from the selected/default module list. Example: --sys-modules-exclude status",
+        False,
+    ),
 ]
 
 
-def resolve_logging_level(raw_level: str) -> int:
+def configure_logging(config: dict) -> None:
+    raw_level = config["sys_log_level"]
     normalized = str(raw_level).strip().lower()
     by_name = {
         "debug": logging.DEBUG,
@@ -125,16 +141,9 @@ def resolve_logging_level(raw_level: str) -> int:
     }
     if normalized not in by_name:
         allowed = ", ".join(["debug", "info", "warning", "error", "critical"])
-        raise ValueError(
-            f"Unsupported --sys-log-level '{raw_level}'. Use: {allowed}."
-        )
-    return by_name[normalized]
-
-
-def configure_logging(config: dict) -> None:
-    log_level = resolve_logging_level(config["sys_log_level"])
+        raise ValueError(f"Unsupported --sys-log-level '{raw_level}'. Use: {allowed}.")
     logging.basicConfig(
-        level=log_level,
+        level=by_name[normalized],
         format=config["sys_log_format"],
         datefmt="%Y-%m-%d %H:%M:%S",
         force=True,
@@ -180,35 +189,50 @@ def normalize_name_list(values: Iterable[str]) -> list[str]:
 
 def select_lucy_modules(
     include_names: Iterable[str] | None = None,
+    exclude_names: Iterable[str] | None = None,
 ) -> List[AbstractModule]:
-    modules: List[AbstractModule] = [
-        Banner(),
-        Renamer(),
-        Status(),
-        Linker(),
-        DropDir(),
-        Formatter(),
-        Today(),
-        Sys(),
-        Git(),
-        PlasmaSync(),
+    module_classes = [
+        Banner,
+        Renamer,
+        Status,
+        Linker,
+        DropDir,
+        Formatter,
+        Today,
+        Sys,
+        KdeconnectSync,
+        Git,
+        PlasmaSync,
     ]
     include_set = set(normalize_name_list(include_names or []))
-    available_names = {module.name for module in modules}
+    exclude_set = set(normalize_name_list(exclude_names or []))
+    available_names = {cls.name for cls in module_classes}
 
     unknown_include = include_set - available_names
     if unknown_include:
-        available_sorted = ", ".join(sorted(available_names))
-        requested_sorted = ", ".join(sorted(unknown_include))
         raise ValueError(
             "Unknown modules in include list: "
-            f"{requested_sorted}. Available: {available_sorted}"
+            f"{', '.join(sorted(unknown_include))}. "
+            f"Available: {', '.join(sorted(available_names))}"
         )
 
-    if include_set:
-        modules = [module for module in modules if module.name in include_set]
+    unknown_exclude = exclude_set - available_names
+    if unknown_exclude:
+        raise ValueError(
+            "Unknown modules in exclude list: "
+            f"{', '.join(sorted(unknown_exclude))}. "
+            f"Available: {', '.join(sorted(available_names))}"
+        )
 
-    if not modules:
+    selected_classes = module_classes
+    if include_set:
+        selected_classes = [cls for cls in selected_classes if cls.name in include_set]
+    if exclude_set:
+        selected_classes = [
+            cls for cls in selected_classes if cls.name not in exclude_set
+        ]
+
+    if not selected_classes:
         raise ValueError("No modules selected after include filter.")
 
-    return modules
+    return [cls() for cls in selected_classes]

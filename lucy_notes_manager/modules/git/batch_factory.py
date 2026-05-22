@@ -29,7 +29,9 @@ def _repo_batch_kwargs(
         network_probe_timeout_seconds=float(
             config_snapshot["git_network_probe_timeout_seconds"]
         ),
-        pull_offline_error_markers=tuple(config_snapshot["git_pull_offline_error_markers"]),
+        pull_offline_error_markers=tuple(
+            config_snapshot["git_pull_offline_error_markers"]
+        ),
     )
     return {
         "repo_root": repo_root,
@@ -50,14 +52,18 @@ def _repo_batch_kwargs(
             "git_sync_retry_backoff_max_seconds"
         ],
         "notify_provider": config_snapshot["sys_notification_provider"],
-        "notify_min_interval_sec": config_snapshot["sys_notification_min_interval_seconds"],
+        "notify_min_interval_sec": config_snapshot[
+            "sys_notification_min_interval_seconds"
+        ],
         "notify_error_backoff_base_seconds": config_snapshot[
             "sys_notification_error_backoff_base_seconds"
         ],
         "notify_error_backoff_max_seconds": config_snapshot[
             "sys_notification_error_backoff_max_seconds"
         ],
-        "notify_error_burst_limit": config_snapshot["sys_notification_error_burst_limit"],
+        "notify_error_burst_limit": config_snapshot[
+            "sys_notification_error_burst_limit"
+        ],
         "notify_error_burst_window_seconds": config_snapshot[
             "sys_notification_error_burst_window_seconds"
         ],

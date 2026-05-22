@@ -78,11 +78,7 @@ def conflicted_files(
     if result.returncode != 0:
         return []
     raw_output = result.stdout or ""
-    return [
-        item
-        for item in raw_output.split("\x00")
-        if item
-    ]
+    return [item for item in raw_output.split("\x00") if item]
 
 
 def auto_resolve_merge_conflicts(

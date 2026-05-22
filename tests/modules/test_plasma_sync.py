@@ -6,7 +6,9 @@ import pytest
 
 import lucy_notes_manager.modules.plasma_sync as plasma_mod
 from lucy_notes_manager.modules.abstract_module import Context
-from lucy_notes_manager.modules.plasma_sync.mirror_mapper import _bold_items_to_plasma_html
+from lucy_notes_manager.modules.plasma_sync.mirror_mapper import (
+    _bold_items_to_plasma_html,
+)
 from lucy_notes_manager.modules.plasma_sync import DocLine, PlasmaSync
 
 _NOTIFY_CFG = {
@@ -26,7 +28,9 @@ def _reset_plasma_globals(monkeypatch):
 
 
 def _canonicalize_md(md_text: str) -> str:
-    return plasma_mod._doc_to_md(plasma_mod._md_to_doc(plasma_mod._normalize_md(md_text)))
+    return plasma_mod._doc_to_md(
+        plasma_mod._md_to_doc(plasma_mod._normalize_md(md_text))
+    )
 
 
 def _roundtrip_once(md_text: str, *, css_style: bool) -> str:
@@ -142,7 +146,9 @@ def test_from_main_plasma_updates_markdown(tmp_path: Path):
     widget = tmp_path / "widget.html"
     md = tmp_path / "todo.md"
     doc = [DocLine(kind="p", state=None, segs=[("Hello", True)])]
-    widget.write_text(plasma_mod._doc_to_plasma_html(doc, css_style=False), encoding="utf-8")
+    widget.write_text(
+        plasma_mod._doc_to_plasma_html(doc, css_style=False), encoding="utf-8"
+    )
 
     module = PlasmaSync()
     ignore = module._from_main_plasma(
@@ -168,7 +174,11 @@ def test_from_main_plasma_updates_markdown(tmp_path: Path):
             40,
         ),
         ("a\\*b\\*c\n**bold**\n\n- [ ] item", [False, True, False], 24),
-        ("plain\n\n- [x] **Checked** and plain suffix\n- [ ] second", [True, False], 26),
+        (
+            "plain\n\n- [x] **Checked** and plain suffix\n- [ ] second",
+            [True, False],
+            26,
+        ),
         ("**one** **two**\n- [ ] mix **x** y **z**", [False, True, False, True], 20),
         ("- [ ] first\n- [x] **second**", [True], 35),
         ("para **bold** text\n\n- [ ] list", [True, False, True], 22),
@@ -236,7 +246,9 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
             current_md = md_path.read_text(encoding="utf-8")
             assert current_md == last_expected_md
 
-            widget_doc = plasma_mod._html_to_doc(widget_path.read_text(encoding="utf-8"))
+            widget_doc = plasma_mod._html_to_doc(
+                widget_path.read_text(encoding="utf-8")
+            )
             expected_items = plasma_mod._extract_bold_items_from_doc(widget_doc)
             mirror_items = plasma_mod._mirror_html_to_items(
                 mirror_path.read_text(encoding="utf-8")
@@ -413,7 +425,9 @@ def test_mirror_deleted_line_does_not_reappear_after_sync(tmp_path: Path):
         html_path=str(widget_path),
         config=_NOTIFY_CFG,
     )
-    mirror_items = plasma_mod._mirror_html_to_items(mirror_path.read_text(encoding="utf-8"))
+    mirror_items = plasma_mod._mirror_html_to_items(
+        mirror_path.read_text(encoding="utf-8")
+    )
     assert mirror_items == ["one"]
 
 
@@ -449,7 +463,9 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
 
     widget_doc = plasma_mod._html_to_doc(widget_path.read_text(encoding="utf-8"))
     assert plasma_mod._extract_bold_items_from_doc(widget_doc) == ["a", "c"]
-    assert plasma_mod._mirror_html_to_items(mirror_path.read_text(encoding="utf-8")) == [
+    assert plasma_mod._mirror_html_to_items(
+        mirror_path.read_text(encoding="utf-8")
+    ) == [
         "a",
         "c",
     ]
@@ -471,7 +487,9 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
         config=_NOTIFY_CFG,
     )
     assert md_path.read_text(encoding="utf-8") == "**z**"
-    assert plasma_mod._mirror_html_to_items(mirror_path.read_text(encoding="utf-8")) == ["z"]
+    assert plasma_mod._mirror_html_to_items(
+        mirror_path.read_text(encoding="utf-8")
+    ) == ["z"]
 
     # markdown -> main/mirror: remove "z", add "x","y"
     md_path.write_text("**x**\n**y**\n", encoding="utf-8")
@@ -484,7 +502,9 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
     )
     widget_doc = plasma_mod._html_to_doc(widget_path.read_text(encoding="utf-8"))
     assert plasma_mod._extract_bold_items_from_doc(widget_doc) == ["x", "y"]
-    assert plasma_mod._mirror_html_to_items(mirror_path.read_text(encoding="utf-8")) == [
+    assert plasma_mod._mirror_html_to_items(
+        mirror_path.read_text(encoding="utf-8")
+    ) == [
         "x",
         "y",
     ]
@@ -568,7 +588,10 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
         *,
         notify_errors: bool = True,
     ) -> bool:
-        if plasma_mod.canonical_path(path) == str(widget_path.resolve()) and notify_errors:
+        if (
+            plasma_mod.canonical_path(path) == str(widget_path.resolve())
+            and notify_errors
+        ):
             return False
         return real_write(
             path,
@@ -607,9 +630,8 @@ def test_read_error_is_not_treated_as_empty_input(tmp_path: Path, monkeypatch):
     real_open = open
 
     def fail_markdown_read(path, mode="r", *args, **kwargs):
-        if (
-            "r" in mode
-            and plasma_mod.canonical_path(str(path)) == str(md_path.resolve())
+        if "r" in mode and plasma_mod.canonical_path(str(path)) == str(
+            md_path.resolve()
         ):
             raise PermissionError("denied")
         return real_open(path, mode, *args, **kwargs)

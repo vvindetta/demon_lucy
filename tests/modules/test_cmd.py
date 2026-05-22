@@ -12,7 +12,11 @@ from lucy_notes_manager.modules.cmd import Cmd
 @pytest.mark.parametrize(
     ("tokens", "lines", "expected"),
     [
-        (["echo", "hello", "ls", "-la"], [1, 1, 2, 2], [(1, ["echo", "hello"]), (2, ["ls", "-la"])]),
+        (
+            ["echo", "hello", "ls", "-la"],
+            [1, 1, 2, 2],
+            [(1, ["echo", "hello"]), (2, ["ls", "-la"])],
+        ),
         (["pwd", "whoami", "date"], [3, 4, 4], [(3, ["pwd"]), (4, ["whoami", "date"])]),
     ],
 )

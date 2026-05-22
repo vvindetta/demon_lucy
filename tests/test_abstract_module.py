@@ -22,7 +22,9 @@ def test_default_module_priority_is_15():
 def test_default_module_hooks_are_noops(hook_name: str):
     module = DemoModule()
     ctx = Context(path="/tmp/x", config={}, arg_lines={})
-    system = System(event=FileModifiedEvent("/tmp/x"), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent("/tmp/x"), global_template=[], modules=[module]
+    )
 
     hook = getattr(module, hook_name)
     assert hook(ctx, system) is None

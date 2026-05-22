@@ -53,7 +53,9 @@ def test_supports_custom_today_now_file(tmp_path: Path, monkeypatch) -> None:
 
     module = Today()
     ctx = _ctx_for(trigger_path, now_path="active.md")
-    system = System(event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
@@ -104,7 +106,9 @@ def test_archives_stale_now_md_when_triggered_by_now_or_sibling_event(
 
     module = Today()
     ctx = _ctx_for(trigger_path)
-    system = System(event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
 
     ignore = module.modified(ctx, system)
 
@@ -121,7 +125,9 @@ def test_does_not_archive_when_file_is_not_stale(tmp_path: Path) -> None:
 
     module = Today()
     ctx = _ctx_for(now_path)
-    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
 
     ignore = module.modified(ctx, system)
 
@@ -130,7 +136,9 @@ def test_does_not_archive_when_file_is_not_stale(tmp_path: Path) -> None:
     assert not (tmp_path / "past.md").exists()
 
 
-def test_force_today_past_archives_even_when_not_stale(tmp_path: Path, monkeypatch) -> None:
+def test_force_today_past_archives_even_when_not_stale(
+    tmp_path: Path, monkeypatch
+) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)
 
     now_path = tmp_path / "now.md"
@@ -139,7 +147,9 @@ def test_force_today_past_archives_even_when_not_stale(tmp_path: Path, monkeypat
 
     module = Today()
     ctx = _ctx_for(now_path, force_past=True)
-    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
 
     ignore = module.modified(ctx, system)
 
@@ -161,7 +171,9 @@ def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -
 
     module = Today()
     ctx = _ctx_for(now_path)
-    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
     module.modified(ctx, system)
 
     expected = "-- 12.04\nsomethiung\n\n-- 01.05\nmore coffe\n"
@@ -178,7 +190,9 @@ def test_normalizes_blank_lines_before_archiving(tmp_path: Path, monkeypatch) ->
 
     module = Today()
     ctx = _ctx_for(now_path)
-    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
 
     ignore = module.modified(ctx, system)
 
@@ -202,7 +216,9 @@ def test_keeps_first_line_with_lucy_flags_when_archiving(
 
     module = Today()
     ctx = _ctx_for(now_path)
-    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
 
     ignore = module.modified(ctx, system)
 
@@ -234,7 +250,9 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
 
     def _fake_run(cmd: list[str], **_kwargs):
         if cmd[:3] == ["git", "status", "--porcelain"]:
-            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
         if cmd[:4] == ["git", "log", "-1", "--format=%ct"]:
             return subprocess.CompletedProcess(
                 args=cmd,
@@ -247,7 +265,9 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
     monkeypatch.setattr(today_mod.subprocess, "run", _fake_run)
 
     ctx = _ctx_for(now_path)
-    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
@@ -267,12 +287,16 @@ def test_force_fs_flag_skips_git_even_in_repo(tmp_path: Path, monkeypatch) -> No
         today_mod.subprocess,
         "run",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("git must not be called when --today-force-filesystem-mtime is enabled")
+            AssertionError(
+                "git must not be called when --today-force-filesystem-mtime is enabled"
+            )
         ),
     )
 
     ctx = _ctx_for(now_path, force_fs=True)
-    system = System(event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module])
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
     ignore = module.modified(ctx, system)
 
     assert ignore is None

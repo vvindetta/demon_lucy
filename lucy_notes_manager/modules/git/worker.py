@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from lucy_notes_manager.lib import safe_notify
@@ -42,6 +44,25 @@ _CORRUPTED_INDEX_ERROR_MARKERS = (
     "index file corrupt",
     "fatal: .git/index:",
 )
+
+
+@dataclass(frozen=True)
+class DirtyTreeCommitResult:
+    status: str
+    repo_root: str
+    commit_sha: str = ""
+    changed_paths: tuple[str, ...] = ()
+    error_text: str = ""
+
+
+@dataclass(frozen=True)
+class PatchPacketBuildResult:
+    status: str
+    repo_root: str
+    patch_id: str = ""
+    patch_path: str = ""
+    metadata_path: str = ""
+    error_text: str = ""
 
 
 def _repo_event_lock(repo_root: str) -> threading.Lock:
@@ -146,7 +167,8 @@ def _should_log_index_lock_error(repo_root: str) -> bool:
         last_logged = _INDEX_LOCK_ERROR_LAST_LOG_TS.get(repo_root)
         if (
             last_logged is not None
-            and now_mono_seconds - last_logged < _INDEX_LOCK_ERROR_LOG_MIN_INTERVAL_SECONDS
+            and now_mono_seconds - last_logged
+            < _INDEX_LOCK_ERROR_LOG_MIN_INTERVAL_SECONDS
         ):
             return False
         _INDEX_LOCK_ERROR_LAST_LOG_TS[repo_root] = now_mono_seconds
@@ -166,7 +188,10 @@ def _attempt_rebuild_git_index(
     environment: dict[str, str],
     git_timeout_seconds: float,
 ) -> bool:
-    logger.warning("detected corrupted git index; trying recovery reset --mixed | repo=%s", repo_root)
+    logger.warning(
+        "detected corrupted git index; trying recovery reset --mixed | repo=%s",
+        repo_root,
+    )
     try:
         reset_result = run_git(
             self,
@@ -183,8 +208,12 @@ def _attempt_rebuild_git_index(
         logger.warning("git index recovery succeeded | repo=%s", repo_root)
         return True
 
-    reset_error = (reset_result.stderr or reset_result.stdout or "git reset failed").strip()
-    logger.error("git index recovery failed | repo=%s | error=%s", repo_root, reset_error[:1200])
+    reset_error = (
+        reset_result.stderr or reset_result.stdout or "git reset failed"
+    ).strip()
+    logger.error(
+        "git index recovery failed | repo=%s | error=%s", repo_root, reset_error[:1200]
+    )
     return False
 
 
@@ -319,6 +348,48 @@ def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
                 repo_root,
             )
             return False
+        time.sleep(_REPO_PROCESS_LOCK_RETRY_SLEEP_SECONDS)
+
+
+def _with_repo_process_lock_status(
+    repo_root: str,
+    run_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
+    *,
+    on_busy_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
+) -> DirtyTreeCommitResult | PatchPacketBuildResult:
+    lock_path = _repo_process_lock_path(repo_root)
+    lock_dir = os.path.dirname(lock_path)
+    try:
+        os.makedirs(lock_dir, exist_ok=True)
+    except OSError:
+        logger.exception(
+            "failed to prepare repo lock directory; running without lock | repo=%s",
+            repo_root,
+        )
+        return run_fn()
+
+    deadline = time.monotonic() + _REPO_PROCESS_LOCK_WAIT_TIMEOUT_SECONDS
+    while True:
+        try:
+            acquired = _try_create_repo_process_lock(lock_path)
+        except OSError:
+            logger.exception(
+                "failed to create repo process lock; running without lock | repo=%s",
+                repo_root,
+            )
+            return run_fn()
+
+        if acquired:
+            try:
+                return run_fn()
+            finally:
+                _release_repo_process_lock(lock_path)
+
+        if _remove_stale_repo_process_lock(lock_path):
+            continue
+
+        if time.monotonic() >= deadline:
+            return on_busy_fn()
         time.sleep(_REPO_PROCESS_LOCK_RETRY_SLEEP_SECONDS)
 
 
@@ -531,11 +602,6 @@ def _stage_and_collect_changes(
                     "git add blocked by active index.lock; will retry later | repo=%s",
                     repo_root,
                 )
-            _notify_git_sync_issue(
-                repo_root=repo_root,
-                summary_text="Git sync is waiting for another Git process to release index.lock.",
-                notify_config=notify_config,
-            )
             return False, "", []
 
         if not recovered_index and _looks_like_corrupted_index(add_error):
@@ -575,8 +641,12 @@ def _stage_and_collect_changes(
         return False, "", []
 
     if status_result.returncode != 0:
-        status_error = (status_result.stderr or status_result.stdout or "git status failed").strip()
-        logger.error("git status failed | repo=%s | error=%s", repo_root, status_error[:1200])
+        status_error = (
+            status_result.stderr or status_result.stdout or "git status failed"
+        ).strip()
+        logger.error(
+            "git status failed | repo=%s | error=%s", repo_root, status_error[:1200]
+        )
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git status failed.",
@@ -631,8 +701,12 @@ def _commit_if_needed(
     if "nothing to commit" in combined_output:
         return True
 
-    commit_error = (commit_result.stderr or commit_result.stdout or "git commit failed").strip()
-    logger.error("git commit failed | repo=%s | error=%s", repo_root, commit_error[:1200])
+    commit_error = (
+        commit_result.stderr or commit_result.stdout or "git commit failed"
+    ).strip()
+    logger.error(
+        "git commit failed | repo=%s | error=%s", repo_root, commit_error[:1200]
+    )
     _notify_git_sync_issue(
         repo_root=repo_root,
         summary_text="git commit failed.",
@@ -696,9 +770,8 @@ def _attempt_push_with_retry(
     should_pull_before_retry = False
     if first_push_result is not None:
         combined_push_output = (
-            ((first_push_result.stderr or "") + "\n" + (first_push_result.stdout or ""))
-            .strip()
-        )
+            (first_push_result.stderr or "") + "\n" + (first_push_result.stdout or "")
+        ).strip()
         should_pull_before_retry = (
             batch.policy.auto_merge_on_push
             and push_rejected_needs_pull(combined_push_output)
@@ -832,4 +905,274 @@ def process_batch(self, batch: _RepoBatch) -> bool:
     return _with_repo_process_lock(
         batch.repo_root,
         lambda: _process_batch_unlocked(self, batch),
+    )
+
+
+def _head_commit_sha(
+    self,
+    repo_root: str,
+    environment: dict[str, str],
+    git_timeout_seconds: float,
+) -> str:
+    head_result = run_git(
+        self,
+        repo_root,
+        ["rev-parse", "HEAD"],
+        environment,
+        timeout_seconds=git_timeout_seconds,
+    )
+    if head_result.returncode != 0:
+        return ""
+    return (head_result.stdout or "").strip()
+
+
+def _changed_paths_for_commit(
+    self,
+    repo_root: str,
+    commit_sha: str,
+    environment: dict[str, str],
+    git_timeout_seconds: float,
+) -> tuple[str, ...]:
+    if not commit_sha:
+        return ()
+    show_result = run_git(
+        self,
+        repo_root,
+        ["show", "--pretty=format:", "--name-only", "--diff-filter=ACDMR", commit_sha],
+        environment,
+        timeout_seconds=git_timeout_seconds,
+    )
+    if show_result.returncode != 0:
+        return ()
+    paths: list[str] = []
+    for line_text in (show_result.stdout or "").splitlines():
+        path_text = line_text.strip()
+        if not path_text:
+            continue
+        paths.append(path_text)
+    return tuple(paths)
+
+
+def commit_dirty_tree(
+    self,
+    *,
+    repo_root: str,
+    event_type: str,
+    paths: list[str],
+    config_snapshot: dict,
+) -> DirtyTreeCommitResult:
+    batch = _build_batch(
+        self=self,
+        repo_root=repo_root,
+        event_type=event_type,
+        paths=paths,
+        config_snapshot=config_snapshot,
+    )
+    notify_config = _notify_config_from_batch(batch)
+
+    def _run_commit() -> DirtyTreeCommitResult:
+        if not _ensure_merge_state_clean(
+            self=self,
+            repo_root=repo_root,
+            environment=batch.environment,
+            git_timeout_seconds=batch.git_timeout_seconds,
+            autoresolve_mode=batch.policy.autoresolve_mode.value,
+            notify_config=notify_config,
+        ):
+            return DirtyTreeCommitResult(
+                status="error",
+                repo_root=repo_root,
+                error_text="merge state is not clean",
+            )
+
+        staged_ok, porcelain_text, changed_paths = _stage_and_collect_changes(
+            self=self,
+            repo_root=repo_root,
+            environment=batch.environment,
+            git_timeout_seconds=batch.git_timeout_seconds,
+            notify_config=notify_config,
+        )
+        if not staged_ok:
+            return DirtyTreeCommitResult(
+                status="error",
+                repo_root=repo_root,
+                error_text="failed to stage changes",
+            )
+        if not porcelain_text:
+            return DirtyTreeCommitResult(
+                status="noop",
+                repo_root=repo_root,
+            )
+
+        committed_ok = _commit_if_needed(
+            self=self,
+            batch=batch,
+            repo_root=repo_root,
+            environment=batch.environment,
+            git_timeout_seconds=batch.git_timeout_seconds,
+            porcelain_text=porcelain_text,
+            changed_paths=changed_paths,
+            notify_config=notify_config,
+        )
+        if not committed_ok:
+            return DirtyTreeCommitResult(
+                status="error",
+                repo_root=repo_root,
+                error_text="git commit failed",
+            )
+
+        commit_sha = _head_commit_sha(
+            self=self,
+            repo_root=repo_root,
+            environment=batch.environment,
+            git_timeout_seconds=batch.git_timeout_seconds,
+        )
+        if not commit_sha:
+            return DirtyTreeCommitResult(
+                status="error",
+                repo_root=repo_root,
+                error_text="failed to read HEAD commit",
+            )
+
+        return DirtyTreeCommitResult(
+            status="committed",
+            repo_root=repo_root,
+            commit_sha=commit_sha,
+            changed_paths=_changed_paths_for_commit(
+                self=self,
+                repo_root=repo_root,
+                commit_sha=commit_sha,
+                environment=batch.environment,
+                git_timeout_seconds=batch.git_timeout_seconds,
+            ),
+        )
+
+    result = _with_repo_process_lock_status(
+        repo_root,
+        _run_commit,
+        on_busy_fn=lambda: DirtyTreeCommitResult(
+            status="busy",
+            repo_root=repo_root,
+            error_text="repo lock is busy",
+        ),
+    )
+    if isinstance(result, DirtyTreeCommitResult):
+        return result
+    return DirtyTreeCommitResult(
+        status="error",
+        repo_root=repo_root,
+        error_text="unexpected lock result type",
+    )
+
+
+def build_patch_packet(
+    self,
+    *,
+    repo_root: str,
+    commit_sha: str,
+    changed_paths: list[str],
+    queue_dir: str,
+    author_device: str,
+    config_snapshot: dict,
+) -> PatchPacketBuildResult:
+    batch = _build_batch(
+        self=self,
+        repo_root=repo_root,
+        event_type="modified",
+        paths=changed_paths,
+        config_snapshot=config_snapshot,
+    )
+
+    if not commit_sha.strip():
+        return PatchPacketBuildResult(
+            status="error",
+            repo_root=repo_root,
+            error_text="empty commit sha",
+        )
+
+    def _run_build() -> PatchPacketBuildResult:
+        patch_result = run_git(
+            self,
+            repo_root,
+            ["format-patch", "--stdout", "-1", commit_sha],
+            batch.environment,
+            timeout_seconds=batch.git_timeout_seconds,
+        )
+        if patch_result.returncode != 0:
+            patch_error = (
+                patch_result.stderr or patch_result.stdout or "git format-patch failed"
+            ).strip()
+            return PatchPacketBuildResult(
+                status="error",
+                repo_root=repo_root,
+                error_text=patch_error,
+            )
+
+        patch_id = f"{int(time.time())}-{commit_sha[:12]}"
+        os.makedirs(queue_dir, exist_ok=True)
+        patch_path = os.path.join(queue_dir, f"{patch_id}.patch")
+        metadata_path = os.path.join(queue_dir, f"{patch_id}.json")
+
+        parent_result = run_git(
+            self,
+            repo_root,
+            ["rev-parse", f"{commit_sha}^"],
+            batch.environment,
+            timeout_seconds=batch.git_timeout_seconds,
+        )
+        base_commit = (
+            (parent_result.stdout or "").strip()
+            if parent_result.returncode == 0
+            else ""
+        )
+
+        metadata = {
+            "patch_id": patch_id,
+            "origin_commit": commit_sha,
+            "base_commit": base_commit,
+            "path_list": list(changed_paths),
+            "created_at": int(time.time()),
+            "author_device": author_device,
+        }
+
+        tmp_patch_path = patch_path + ".tmp"
+        tmp_metadata_path = metadata_path + ".tmp"
+        with open(tmp_patch_path, "w", encoding="utf-8", newline="") as patch_file:
+            patch_file.write(patch_result.stdout or "")
+            patch_file.flush()
+            os.fsync(patch_file.fileno())
+        os.replace(tmp_patch_path, patch_path)
+
+        with open(
+            tmp_metadata_path, "w", encoding="utf-8", newline=""
+        ) as metadata_file:
+            json.dump(metadata, metadata_file, ensure_ascii=True, sort_keys=True)
+            metadata_file.write("\n")
+            metadata_file.flush()
+            os.fsync(metadata_file.fileno())
+        os.replace(tmp_metadata_path, metadata_path)
+
+        return PatchPacketBuildResult(
+            status="built",
+            repo_root=repo_root,
+            patch_id=patch_id,
+            patch_path=patch_path,
+            metadata_path=metadata_path,
+        )
+
+    result = _with_repo_process_lock_status(
+        repo_root,
+        _run_build,
+        on_busy_fn=lambda: PatchPacketBuildResult(
+            status="busy",
+            repo_root=repo_root,
+            error_text="repo lock is busy",
+        ),
+    )
+    if isinstance(result, PatchPacketBuildResult):
+        return result
+    return PatchPacketBuildResult(
+        status="error",
+        repo_root=repo_root,
+        error_text="unexpected lock result type",
     )

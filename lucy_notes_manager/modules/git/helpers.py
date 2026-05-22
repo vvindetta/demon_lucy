@@ -83,7 +83,7 @@ def failure_looks_like_network_issue(
 ) -> bool:
     output_lower = (output_text or "").lower()
     markers: list[str] = list(_DEFAULT_NETWORK_ERROR_MARKERS)
-    for marker in (error_markers or ()):
+    for marker in error_markers or ():
         marker_text = str(marker).strip().lower()
         if marker_text:
             markers.append(marker_text)

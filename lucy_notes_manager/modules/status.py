@@ -43,7 +43,7 @@ class Status(AbstractModule):
             "--status-banner",
             str,
             "",
-            "Animated filename banner text. Example: --status-banner \"Work sentence\"",
+            'Animated filename banner text. Example: --status-banner "Work sentence"',
             False,
         ),
         (
@@ -71,7 +71,7 @@ class Status(AbstractModule):
             "--status-ascii-animation-frames",
             str,
             [],
-            "ASCII animation frames for filename status. Example: --status-ascii-animation-frames \"pri\" \"prive\" \"privet\"",
+            'ASCII animation frames for filename status. Example: --status-ascii-animation-frames "pri" "prive" "privet"',
             False,
         ),
         (
@@ -203,7 +203,11 @@ class Status(AbstractModule):
         i = 0
         while i < len(values):
             token = self._normalize_status_token(values[i])
-            nxt = self._normalize_status_token(values[i + 1]) if i + 1 < len(values) else ""
+            nxt = (
+                self._normalize_status_token(values[i + 1])
+                if i + 1 < len(values)
+                else ""
+            )
 
             if token in ("date", "d"):
                 _append("date")
@@ -674,7 +678,8 @@ class Status(AbstractModule):
                     self._tracked_ascii_animations.get(path),
                 )
                 for path in (
-                    set(self._tracked_paths.keys()) | set(self._tracked_ascii_animations.keys())
+                    set(self._tracked_paths.keys())
+                    | set(self._tracked_ascii_animations.keys())
                 )
             ]
 
@@ -749,12 +754,14 @@ class Status(AbstractModule):
             interval = min(interval, _GIT_FAST_TICK_INTERVAL)
         if tracked_banners:
             min_banner_speed = min(
-                max(1, speed_ms) / 1000.0 for _text, speed_ms, _max_chars in tracked_banners
+                max(1, speed_ms) / 1000.0
+                for _text, speed_ms, _max_chars in tracked_banners
             )
             interval = min(interval, float(min_banner_speed))
         if tracked_ascii_animations:
             min_ascii_speed = min(
-                max(1, speed_ms) / 1000.0 for _frames, speed_ms in tracked_ascii_animations
+                max(1, speed_ms) / 1000.0
+                for _frames, speed_ms in tracked_ascii_animations
             )
             interval = min(interval, float(min_ascii_speed))
         return interval
@@ -925,10 +932,12 @@ class Status(AbstractModule):
                 i = j
 
         parts = self._parse_status_parts(status_values)
-        banner_text, banner_speed_ms, banner_max_chars = self._normalize_banner_settings(
-            banner_text_value,
-            banner_speed_value,
-            banner_max_chars_value,
+        banner_text, banner_speed_ms, banner_max_chars = (
+            self._normalize_banner_settings(
+                banner_text_value,
+                banner_speed_value,
+                banner_max_chars_value,
+            )
         )
         ascii_animation_frames, ascii_animation_speed_ms = (
             self._normalize_ascii_animation_settings(
@@ -973,7 +982,9 @@ class Status(AbstractModule):
                         and not status_prefix
                         and not ascii_animation_frames
                     ):
-                        self._set_tracked_parts(path=file_path, parts=[], banner_text=None)
+                        self._set_tracked_parts(
+                            path=file_path, parts=[], banner_text=None
+                        )
                         continue
                     self._set_tracked_parts(
                         path=file_path,
@@ -1046,7 +1057,9 @@ class Status(AbstractModule):
                     status_prefix = self._tracked_prefixes.get(old_path, "")
             if ascii_animation_frames is None:
                 with self._track_lock:
-                    tracked_ascii_animation = self._tracked_ascii_animations.get(old_path)
+                    tracked_ascii_animation = self._tracked_ascii_animations.get(
+                        old_path
+                    )
                 if tracked_ascii_animation:
                     ascii_animation_frames = list(tracked_ascii_animation[0])
                     ascii_animation_speed_ms = int(tracked_ascii_animation[1])
@@ -1100,10 +1113,16 @@ class Status(AbstractModule):
         bootstrap_changed = self._bootstrap_once(ctx.path)
         self._restart_tracked_ascii_cycles(ctx.path)
         parts = self._parse_status_parts(list(ctx.config.get("status", [])))
-        banner_text, banner_speed_ms, banner_max_chars = self._normalize_banner_settings(
-            ctx.config.get("status_banner", ""),
-            ctx.config.get("status_banner_speed_milliseconds", _DEFAULT_BANNER_SPEED_MS),
-            ctx.config.get("status_banner_max_characters", _DEFAULT_BANNER_MAX_CHARS),
+        banner_text, banner_speed_ms, banner_max_chars = (
+            self._normalize_banner_settings(
+                ctx.config.get("status_banner", ""),
+                ctx.config.get(
+                    "status_banner_speed_milliseconds", _DEFAULT_BANNER_SPEED_MS
+                ),
+                ctx.config.get(
+                    "status_banner_max_characters", _DEFAULT_BANNER_MAX_CHARS
+                ),
+            )
         )
         status_prefix = str(ctx.config.get("status_prefix", ""))
         ascii_animation_frames, ascii_animation_speed_ms = (

@@ -38,7 +38,9 @@ def clear_stale_index_lock(
     except FileNotFoundError:
         return False
     except IsADirectoryError:
-        logger.error("git index.lock path is a directory; cannot remove | repo=%s", repo_root)
+        logger.error(
+            "git index.lock path is a directory; cannot remove | repo=%s", repo_root
+        )
         return False
     except OSError:
         logger.exception("failed to remove git index.lock | repo=%s", repo_root)

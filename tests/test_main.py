@@ -53,17 +53,14 @@ def _run_main_with_flag(
             self.system_config = system_config
             self.run_mode = run_mode
 
-    def fake_wait_until_interrupted():
-        raise KeyboardInterrupt
+    class FakeEvent:
+        def wait(self):
+            raise KeyboardInterrupt
 
     monkeypatch.setattr(main_daemon, "Observer", FakeObserver)
     monkeypatch.setattr(main_daemon, "FileHandler", FakeFileHandler)
     monkeypatch.setattr(main_daemon, "ModuleManager", FakeModuleManager)
-    monkeypatch.setattr(
-        main_daemon,
-        "_wait_until_interrupted",
-        fake_wait_until_interrupted,
-    )
+    monkeypatch.setattr(main_daemon.threading, "Event", FakeEvent)
     monkeypatch.setattr(
         main_daemon,
         "setup_config_and_cli_args",
@@ -76,6 +73,8 @@ def _run_main_with_flag(
                 "sys_disable_opened_events": True,
                 "sys_notification_provider": "auto",
                 "sys_notification_min_interval_seconds": 10.0,
+                "sys_modules": [],
+                "sys_modules_exclude": [],
             },
             [],
         ),
@@ -112,6 +111,7 @@ def test_main_schedules_observer_and_modules(
         "formatter",
         "today",
         "sys",
+        "kdeconnect_sync",
         "git",
         "plasma_sync",
     ]
@@ -130,6 +130,8 @@ def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
                 "sys_disable_opened_events": False,
                 "sys_notification_provider": "auto",
                 "sys_notification_min_interval_seconds": 10.0,
+                "sys_modules": [],
+                "sys_modules_exclude": [],
             },
             [],
         ),

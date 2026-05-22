@@ -179,7 +179,6 @@ def setup_config_and_cli_args(
 def get_args_from_file(
     path: str,
     template: Template,
-    only_first_line: bool = False,
 ) -> Tuple[Dict[str, Any], List[str], ArgLines]:
     """
     Reads args from file, accepting only lines that begin with a valid flag:
@@ -220,9 +219,6 @@ def get_args_from_file(
     arg_lines: ArgLines = {"__unknown__": []}
 
     for lineno, raw_line in enumerate(lines, start=1):
-        if only_first_line and lineno > 1:
-            break
-
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
             continue

@@ -94,7 +94,13 @@ GIT_TEMPLATE: Template = [
         "Provide one or more markers to customize detection.",
         False,
     ),
-    ("--git-push-timeout-seconds", float, 20.0, "Timeout (seconds) for git push.", False),
+    (
+        "--git-push-timeout-seconds",
+        float,
+        20.0,
+        "Timeout (seconds) for git push.",
+        False,
+    ),
     (
         "--git-sync-retry-window-seconds",
         float,

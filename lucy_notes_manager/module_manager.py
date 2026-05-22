@@ -36,34 +36,11 @@ class ModuleManager:
         self.run_mode: RunMode = run_mode
         self.template: Template = [
             (
-                "--modules-force-enable",
-                str,
-                [],
-                "Force-enable modules by name even if they are excluded. "
-                "Example: --modules-force-enable git todo",
-                False,
-            ),
-            (
-                "--modules-disable",
-                str,
-                [],
-                "Disable modules by name. Can be overridden per module via --modules-force-enable. "
-                "Example: --modules-disable git todo",
-                False,
-            ),
-            (
                 "--modules-priority",
                 str,
                 [],
                 "Override module execution order (lower runs first). "
                 "Format: name=int. Example: --modules-priority banner=5 renamer=20 todo=30",
-                False,
-            ),
-            (
-                "--sys-parse-note-first-line-only",
-                bool,
-                False,
-                "If true, parse module arguments only from the first line of the file (faster, but ignores flags below).",
                 False,
             ),
             (
@@ -122,7 +99,9 @@ class ModuleManager:
 
         template_defaults, _ = parse_args(args=[], template=self.template)
         inherited_system_config = {
-            key: value for key, value in system_config.items() if key in template_defaults
+            key: value
+            for key, value in system_config.items()
+            if key in template_defaults
         }
         explicit_args, _ = parse_args(
             args=args,
@@ -137,7 +116,6 @@ class ModuleManager:
             args=self.config,
             overwrite_args=explicit_args,
         )
-
         priority_dict = self._parse_priority_list(self.config["modules_priority"])
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))
 
@@ -185,7 +163,6 @@ class ModuleManager:
             known_args, _, arg_lines = get_args_from_file(
                 path=path,
                 template=self.template,
-                only_first_line=self.config["sys_parse_note_first_line_only"],
             )
             merged_known_args = merge_known_args(
                 args=self.config, overwrite_args=known_args
@@ -197,21 +174,13 @@ class ModuleManager:
         ignore_paths: Dict[str, int] = {}
 
         for module in self.modules:
-            if (
-                module.name in self.config["modules_disable"]
-                and module.name not in self.config["modules_force_enable"]
-            ):
-                continue
-
             if event.event_type not in module.__class__.__dict__:  # not from parent
                 continue
 
             missing_required = self._module_missing_required_flags(module, config)
             if missing_required:
                 missing_text = ", ".join(missing_required)
-                message = (
-                    f"Skipping module '{module.name}': missing required args: {missing_text}"
-                )
+                message = f"Skipping module '{module.name}': missing required args: {missing_text}"
                 logger.error(message)
                 safe_notify(
                     f"module_missing_required:{module.name}",

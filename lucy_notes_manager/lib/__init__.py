@@ -11,11 +11,15 @@ _ERROR_NOTIFY_LAST: Dict[str, float] = {}
 _ERROR_NOTIFY_LEVEL: Dict[str, int] = {}
 _ERROR_NOTIFY_HISTORY: deque[float] = deque()
 _NOTIFY_STATE_LOCK = threading.Lock()
+DEFAULT_NOTIFICATION_ICON_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "media", "icon.png")
+)
 
 
 def _prune_error_notify_history(now: float, window_seconds: float) -> None:
     while _ERROR_NOTIFY_HISTORY and (now - _ERROR_NOTIFY_HISTORY[0]) >= window_seconds:
         _ERROR_NOTIFY_HISTORY.popleft()
+
 
 def _resolve_notification_provider(config: Mapping[str, Any]) -> str:
     provider = config["sys_notification_provider"]
@@ -51,13 +55,14 @@ def _notify_termux(message: str, title: str) -> bool:
     return result.returncode == 0
 
 
-def _notify_desktop(message: str, title: str) -> bool:
+def _notify_desktop(message: str, title: str, icon_path: str) -> bool:
     try:
         from notifypy import Notify
 
         notifier = Notify()
         notifier.title = title
         notifier.message = message
+        notifier.icon = icon_path
         notifier.send()
     except Exception:
         return False
@@ -70,6 +75,7 @@ def safe_notify(
     *,
     config: Mapping[str, Any],
     title: str = "Lucy Note Manager",
+    icon_path: str = DEFAULT_NOTIFICATION_ICON_PATH,
     use_rare_mode: bool = True,
 ) -> None:
     """
@@ -125,13 +131,14 @@ def safe_notify(
                 return
             _NOTIFY_LAST[name] = now
 
-    notify(message=message, title=title, config=config)
+    notify(message=message, title=title, icon_path=icon_path, config=config)
 
 
 def notify(
     message: str,
     title: str = "Lucy Note Manager",
     *,
+    icon_path: str = DEFAULT_NOTIFICATION_ICON_PATH,
     config: Mapping[str, Any],
 ) -> None:
     """
@@ -142,7 +149,7 @@ def notify(
 
     try:
         if provider == "desktop":
-            _notify_desktop(message=message, title=title)
+            _notify_desktop(message=message, title=title, icon_path=icon_path)
         elif provider == "termuxapi":
             _notify_termux(message=message, title=title)
     except Exception:

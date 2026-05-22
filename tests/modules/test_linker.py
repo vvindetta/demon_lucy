@@ -280,9 +280,9 @@ def test_moved_updates_markdown_link_paths_only(tmp_path: Path):
 
     index_path = notes_dir / "index.md"
     index_path.write_text(
-        '[good day](day.md)\n'
+        "[good day](day.md)\n"
         '[with title](./day.md#top "T")\n'
-        '[external](https://example.com/day.md)\n',
+        "[external](https://example.com/day.md)\n",
         encoding="utf-8",
     )
 
@@ -304,10 +304,9 @@ def test_moved_updates_markdown_link_paths_only(tmp_path: Path):
 
     assert changed == {str(index_path.resolve()): 1}
     assert (
-        index_path.read_text(encoding="utf-8")
-        == '[good day](log/day.md)\n'
+        index_path.read_text(encoding="utf-8") == "[good day](log/day.md)\n"
         '[with title](./log/day.md#top "T")\n'
-        '[external](https://example.com/day.md)\n'
+        "[external](https://example.com/day.md)\n"
     )
 
 

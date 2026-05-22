@@ -10,7 +10,9 @@ def sync_success_marker_path(repo_root: str) -> str:
     return os.path.join(repo_root, ".git", _SYNC_SUCCESS_MARKER_FILE_NAME)
 
 
-def write_sync_success_timestamp(repo_root: str, timestamp_seconds: float | None = None) -> bool:
+def write_sync_success_timestamp(
+    repo_root: str, timestamp_seconds: float | None = None
+) -> bool:
     marker_path = sync_success_marker_path(repo_root)
     marker_dir = os.path.dirname(marker_path)
     ts_value = float(time.time() if timestamp_seconds is None else timestamp_seconds)

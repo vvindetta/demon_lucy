@@ -15,10 +15,6 @@ from lucy_notes_manager.runtime import (
 )
 
 
-def _wait_until_interrupted() -> None:
-    threading.Event().wait()
-
-
 def main() -> int:
     config, unknown_args = setup_config_and_cli_args(template=LUCY_STARTUP_TEMPLATE)
 
@@ -33,7 +29,10 @@ def main() -> int:
         )
 
     modules = ModuleManager(
-        modules=select_lucy_modules(),
+        modules=select_lucy_modules(
+            include_names=config["sys_modules"],
+            exclude_names=config["sys_modules_exclude"],
+        ),
         args=list(unknown_args),
         system_config=config,
         run_mode="daemon",
@@ -59,7 +58,7 @@ def main() -> int:
 
     observer.start()
     try:
-        _wait_until_interrupted()
+        threading.Event().wait()
     except KeyboardInterrupt:
         observer.stop()
     finally:

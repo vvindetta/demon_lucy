@@ -74,7 +74,9 @@ def _mk_batch(**overrides) -> _RepoBatch:
     if "pull_offline_error_markers" in overrides:
         policy = replace(
             policy,
-            pull_offline_error_markers=tuple(overrides.pop("pull_offline_error_markers")),
+            pull_offline_error_markers=tuple(
+                overrides.pop("pull_offline_error_markers")
+            ),
         )
 
     values = {
@@ -209,7 +211,7 @@ def test_conflicted_files_parses_nul_separated_paths(git_module, monkeypatch):
         timeout_seconds=5.0,
     )
 
-    assert files == ['→ now.md', 'folder/"quoted".md']
+    assert files == ["→ now.md", 'folder/"quoted".md']
 
 
 def test_git_environment_forces_c_locale_and_disables_prompt(git_module, monkeypatch):
@@ -365,12 +367,18 @@ def test_parse_remote_endpoint_handles_common_git_remote_shapes(
     assert git_ops.parse_remote_endpoint(remote) == expected
 
 
-def test_safe_pull_merge_waits_for_network_and_notifies_when_upstream(git_module, monkeypatch):
+def test_safe_pull_merge_waits_for_network_and_notifies_when_upstream(
+    git_module, monkeypatch
+):
     notifications: list[dict] = []
 
-    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(
+        git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin"
+    )
     monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: False)
     monkeypatch.setattr(
         git_ops,
@@ -400,7 +408,9 @@ def test_safe_pull_merge_skips_remote_branch_lookup_and_notifies_when_offline(
 ):
     notifications: list[dict] = []
 
-    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(git_ops, "current_branch", lambda *_args, **_kwargs: "main")
     monkeypatch.setattr(git_ops, "pick_remote", lambda *_args, **_kwargs: "origin")
@@ -409,7 +419,9 @@ def test_safe_pull_merge_skips_remote_branch_lookup_and_notifies_when_offline(
         git_ops,
         "remote_branch_exists",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("remote branch lookup should not run while remote is offline")
+            AssertionError(
+                "remote branch lookup should not run while remote is offline"
+            )
         ),
     )
 
@@ -428,13 +440,19 @@ def test_safe_pull_merge_skips_remote_branch_lookup_and_notifies_when_offline(
     assert [item["name"] for item in notifications] == ["git-network:/repo"]
 
 
-def test_safe_pull_merge_timeout_while_offline_notifies_waiting_state(git_module, monkeypatch):
+def test_safe_pull_merge_timeout_while_offline_notifies_waiting_state(
+    git_module, monkeypatch
+):
     notifications: list[dict] = []
     reachability_calls = {"count": 0}
 
-    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(
+        git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin"
+    )
 
     def _remote_is_reachable(**_kwargs):
         reachability_calls["count"] += 1
@@ -467,9 +485,13 @@ def test_safe_pull_merge_timeout_while_offline_notifies_waiting_state(git_module
 def test_safe_pull_merge_offline_marker_notifies_waiting_state(git_module, monkeypatch):
     notifications: list[dict] = []
 
-    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(
+        git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin"
+    )
     monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
     monkeypatch.setattr(
         git_ops,
@@ -554,7 +576,9 @@ def test_run_git_retries_after_stale_index_lock(git_module, monkeypatch, tmp_pat
     assert not lock_path.exists()
 
 
-def test_run_git_waits_on_recent_index_lock_without_removing(git_module, monkeypatch, tmp_path):
+def test_run_git_waits_on_recent_index_lock_without_removing(
+    git_module, monkeypatch, tmp_path
+):
     repo_root = tmp_path / "repo"
     git_dir = repo_root / ".git"
     git_dir.mkdir(parents=True)
@@ -588,7 +612,9 @@ def test_run_git_waits_on_recent_index_lock_without_removing(git_module, monkeyp
             )
 
     monkeypatch.setattr(git_ops, "GitExecutor", _FakeExecutor)
-    monkeypatch.setattr(git_ops.command_ops.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(
+        git_ops.command_ops.time, "sleep", lambda seconds: sleeps.append(seconds)
+    )
 
     result = git_ops.run_git(
         git_module,
@@ -616,7 +642,9 @@ def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(
         lambda *_args, **_kwargs: "https://example.com/owner/repo.git",
     )
 
-    def _resolve_address_infos(host_name: str, port_number: int, timeout_seconds: float):
+    def _resolve_address_infos(
+        host_name: str, port_number: int, timeout_seconds: float
+    ):
         resolve_call["host_name"] = host_name
         resolve_call["port_number"] = port_number
         resolve_call["timeout_seconds"] = timeout_seconds
@@ -644,12 +672,18 @@ def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(
 def test_safe_pull_merge_conflict_abort_timeout_does_not_raise(git_module, monkeypatch):
     notifications: list[dict] = []
 
-    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(
+        git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin"
+    )
     monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
     monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(git_ops, "auto_resolve_merge_conflicts", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        git_ops, "auto_resolve_merge_conflicts", lambda *_args, **_kwargs: False
+    )
 
     def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
         _ = timeout_seconds
@@ -693,9 +727,13 @@ def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkey
     notifications: list[dict] = []
     resolve_modes: list[str] = []
 
-    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(
+        git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin"
+    )
     monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
     monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: True)
 
@@ -709,7 +747,9 @@ def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkey
         resolve_modes.append(autoresolve_mode)
         return autoresolve_mode == "markers"
 
-    monkeypatch.setattr(git_ops, "auto_resolve_merge_conflicts", _auto_resolve_merge_conflicts)
+    monkeypatch.setattr(
+        git_ops, "auto_resolve_merge_conflicts", _auto_resolve_merge_conflicts
+    )
 
     def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
         _ = timeout_seconds
@@ -721,7 +761,9 @@ def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkey
                 stderr="pull conflict",
             )
         if arguments[:2] == ["merge", "--abort"]:
-            raise AssertionError("merge abort must not run when markers fallback succeeds")
+            raise AssertionError(
+                "merge abort must not run when markers fallback succeeds"
+            )
         return subprocess.CompletedProcess(
             args=["git"] + arguments,
             returncode=0,
@@ -752,9 +794,13 @@ def test_safe_pull_merge_conflict_markers_mode_commits_and_returns_true(
 ):
     notifications: list[dict] = []
 
-    monkeypatch.setattr(git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin")
+    monkeypatch.setattr(
+        git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin"
+    )
     monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
     monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: True)
 
@@ -810,7 +856,9 @@ def test_safe_pull_merge_conflict_markers_mode_commits_and_returns_true(
 def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkeypatch):
     notifications: list[dict] = []
 
-    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_worker, "merge_in_progress", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         git_worker,
@@ -852,7 +900,9 @@ def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkey
 def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
     calls: list[list[str]] = []
 
-    monkeypatch.setattr(git_worker, "merge_in_progress", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        git_worker, "merge_in_progress", lambda *_args, **_kwargs: False
+    )
     monkeypatch.setattr(
         git_worker,
         "safe_pull_merge",
@@ -912,7 +962,9 @@ def test_process_batch_writes_sync_success_marker_on_push_success(
     repo_root = tmp_path / "repo"
     (repo_root / ".git").mkdir(parents=True)
 
-    monkeypatch.setattr(git_worker, "merge_in_progress", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        git_worker, "merge_in_progress", lambda *_args, **_kwargs: False
+    )
     monkeypatch.setattr(
         git_worker,
         "safe_pull_merge",
@@ -1067,7 +1119,9 @@ def test_stage_retries_after_corrupted_index_recovery(git_module, monkeypatch):
     notifications: list[dict] = []
     state = {"add_attempt": 0}
 
-    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
 
     def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
         _ = timeout_seconds
@@ -1124,7 +1178,9 @@ def test_stage_handles_index_lock_as_transient_without_addfail_notification(
     git_module, monkeypatch
 ):
     notifications: list[dict] = []
-    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(
         git_worker,
         "run_git",
@@ -1148,7 +1204,7 @@ def test_stage_handles_index_lock_as_transient_without_addfail_notification(
     )
 
     assert staged_ok is False
-    assert [item["name"] for item in notifications] == ["git-sync:/repo"]
+    assert notifications == []
 
 
 def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypatch):
@@ -1205,7 +1261,9 @@ def test_merge_cleanup_retries_abort_after_index_recovery(git_module, monkeypatc
     abort_calls = {"count": 0}
     run_calls: list[list[str]] = []
 
-    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_worker, "merge_in_progress", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         git_worker,
@@ -1389,7 +1447,9 @@ def test_attempt_push_with_retry_second_push_timeout_notifies_once(
     notifications: list[dict] = []
     push_attempts = {"count": 0}
 
-    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_worker, "safe_pull_merge", lambda *_args, **_kwargs: True)
 
     def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
@@ -1429,7 +1489,9 @@ def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypat
     notifications: list[dict] = []
     push_attempts = {"count": 0}
 
-    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(git_worker, "safe_pull_merge", lambda *_args, **_kwargs: True)
 
     def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
@@ -1467,7 +1529,9 @@ def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypat
         notify_config=_NOTIFY_CFG,
     )
 
-    push_fail_notifications = [item for item in notifications if item["name"] == "git-sync:/repo"]
+    push_fail_notifications = [
+        item for item in notifications if item["name"] == "git-sync:/repo"
+    ]
     assert len(push_fail_notifications) == 1
     assert "second push failed" in push_fail_notifications[0]["message"]
     assert "non-fast-forward" not in push_fail_notifications[0]["message"]
@@ -1479,12 +1543,16 @@ def test_attempt_push_with_retry_retries_plain_push_error_before_notify(
     notifications: list[dict] = []
     push_attempts = {"count": 0}
 
-    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(
         git_worker,
         "safe_pull_merge",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("safe_pull_merge must not run when auto_merge_on_push is disabled")
+            AssertionError(
+                "safe_pull_merge must not run when auto_merge_on_push is disabled"
+            )
         ),
     )
 
@@ -1531,7 +1599,9 @@ def test_attempt_push_with_retry_retries_timeout_before_notify(git_module, monke
     notifications: list[dict] = []
     push_attempts = {"count": 0}
 
-    monkeypatch.setattr(git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(
         git_worker,
         "safe_pull_merge",
@@ -1572,3 +1642,63 @@ def test_attempt_push_with_retry_retries_timeout_before_notify(git_module, monke
 
     assert push_attempts["count"] == 2
     assert notifications == []
+
+
+def test_commit_dirty_tree_returns_busy_when_repo_lock_is_busy(git_module, monkeypatch):
+    monkeypatch.setattr(
+        git_worker,
+        "_build_batch",
+        lambda **kwargs: _mk_batch(
+            repo_root=kwargs["repo_root"],
+            event_type=kwargs["event_type"],
+            hinted_paths=list(kwargs["paths"]),
+        ),
+    )
+    monkeypatch.setattr(
+        git_worker,
+        "_with_repo_process_lock_status",
+        lambda _repo_root, _run_fn, *, on_busy_fn: on_busy_fn(),
+    )
+
+    result = git_worker.commit_dirty_tree(
+        git_module,
+        repo_root="/repo",
+        event_type="modified",
+        paths=["/repo/note.md"],
+        config_snapshot={},
+    )
+
+    assert result.status == "busy"
+    assert result.repo_root == "/repo"
+
+
+def test_build_patch_packet_returns_busy_when_repo_lock_is_busy(
+    git_module, monkeypatch
+):
+    monkeypatch.setattr(
+        git_worker,
+        "_build_batch",
+        lambda **kwargs: _mk_batch(
+            repo_root=kwargs["repo_root"],
+            event_type=kwargs["event_type"],
+            hinted_paths=list(kwargs["paths"]),
+        ),
+    )
+    monkeypatch.setattr(
+        git_worker,
+        "_with_repo_process_lock_status",
+        lambda _repo_root, _run_fn, *, on_busy_fn: on_busy_fn(),
+    )
+
+    result = git_worker.build_patch_packet(
+        git_module,
+        repo_root="/repo",
+        commit_sha="abc123",
+        changed_paths=["note.md"],
+        queue_dir="/tmp/outgoing",
+        author_device="device-1",
+        config_snapshot={},
+    )
+
+    assert result.status == "busy"
+    assert result.repo_root == "/repo"

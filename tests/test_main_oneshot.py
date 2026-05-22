@@ -13,6 +13,8 @@ def _base_config(tmp_path: Path) -> dict:
         "oneshot_paths": [str(tmp_path / "note.md")],
         "oneshot_move_src_path": "",
         "oneshot_move_dest_path": "",
+        "sys_modules": [],
+        "sys_modules_exclude": [],
     }
 
 
@@ -56,7 +58,11 @@ def test_run_oneshot_passes_oneshot_run_mode(tmp_path: Path, monkeypatch):
             return None
 
     monkeypatch.setattr(oneshot_mod, "configure_logging", lambda _config: None)
-    monkeypatch.setattr(oneshot_mod, "_select_modules", lambda _config: [])
+    monkeypatch.setattr(
+        oneshot_mod,
+        "select_lucy_modules",
+        lambda include_names, exclude_names: [],
+    )
     monkeypatch.setattr(oneshot_mod, "ModuleManager", _FakeManager)
 
     config = _base_config(tmp_path)

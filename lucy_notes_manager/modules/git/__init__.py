@@ -67,7 +67,9 @@ class Git(AbstractModule):
         return system.run_mode != "oneshot"
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        ctx_path = abs_expand_path(to_str(ctx.path)) if getattr(ctx, "path", None) else ""
+        ctx_path = (
+            abs_expand_path(to_str(ctx.path)) if getattr(ctx, "path", None) else ""
+        )
         if ctx_path and path_has_component(ctx_path, ".git"):
             return None
 
@@ -108,9 +110,7 @@ class Git(AbstractModule):
         source_path_raw = to_str(getattr(event, "src_path", "") or "")
         destination_path_raw = getattr(event, "dest_path", None)
         destination_path_value = (
-            to_str(destination_path_raw)
-            if destination_path_raw is not None
-            else ""
+            to_str(destination_path_raw) if destination_path_raw is not None else ""
         )
 
         source_path = abs_expand_path(source_path_raw) if source_path_raw else ""

@@ -15,7 +15,11 @@ from lucy_notes_manager.modules.plasma_sync.mirror_mapper import (
     _items_hash,
     _mirror_html_to_items,
 )
-from lucy_notes_manager.modules.plasma_sync.model import DocLine, _hash_text, _normalize_md
+from lucy_notes_manager.modules.plasma_sync.model import (
+    DocLine,
+    _hash_text,
+    _normalize_md,
+)
 from lucy_notes_manager.modules.plasma_sync.plasma_html_codec import (
     _doc_to_plasma_html,
     _html_to_doc,
@@ -228,7 +232,9 @@ def plan_from_bold_mirror(
     if mirror_norm != mirror_html_current:
         mirror_out = mirror_norm
 
-    widget_baseline = widget_html_out if widget_html_out is not None else widget_html_current
+    widget_baseline = (
+        widget_html_out if widget_html_out is not None else widget_html_current
+    )
     widget_render_out = _plan_widget_render_mode(
         widget_html_current=widget_baseline,
         css_style=css_style,

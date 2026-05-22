@@ -30,6 +30,8 @@ Used by `main_daemon.py` and config files.
 | `--sys-notification-error-burst-limit` | `int` | Maximum number of error notifications inside one burst window. |
 | `--sys-notification-error-burst-window-seconds` | `float` | Burst window length used for global error notification limiting. |
 | `--sys-ignore-paths` | `str[]` | Paths where modules should not run. |
+| `--sys-modules` | `str[]` | Include only these modules by name for both daemon and one-shot runs. |
+| `--sys-modules-exclude` | `str[]` | Exclude modules from the included/default module list. |
 
 Example:
 
@@ -47,13 +49,12 @@ Used by `main_oneshot.py`.
 | `--oneshot-paths` | `str[]` | File or directory paths to process. Required unless event is `moved`. |
 | `--oneshot-move-src-path` | `str` | Source path for a synthetic `moved` event. |
 | `--oneshot-move-dest-path` | `str` | Destination path for a synthetic `moved` event. |
-| `--oneshot-modules` | `str[]` | Run only these module names. |
 
 Examples:
 
 ```text
 python3 main_oneshot.py --oneshot-event modified --oneshot-paths ~/Notes
-python3 main_oneshot.py --oneshot-event modified --oneshot-paths ~/Notes --oneshot-modules git
+python3 main_oneshot.py --oneshot-event modified --oneshot-paths ~/Notes --sys-modules git
 python3 main_oneshot.py --oneshot-event moved --oneshot-move-src-path old.md --oneshot-move-dest-path new.md
 ```
 
@@ -63,10 +64,7 @@ These can be set globally or inside notes.
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--modules-force-enable` | `str[]` | Run named modules even if they are disabled. |
-| `--modules-disable` | `str[]` | Skip named modules. Can be overridden by `--modules-force-enable`. |
 | `--modules-priority` | `str[]` | Override module order. Format: `name=int`. Lower number runs earlier. |
-| `--sys-parse-note-first-line-only` | `bool` | Parse flags only from the first line of a note. Faster, but ignores lower lines. |
 | `--sys-notification-provider` | `str` | Override notification backend for modules (`auto`, `termuxapi`, `desktop`, `disable`). |
 | `--sys-notification-min-interval-seconds` | `float` | Override module notification throttle interval. |
 | `--sys-notification-error-backoff-base-seconds` | `float` | Override base interval for exponential backoff of error notifications. |
@@ -78,8 +76,8 @@ These can be set globally or inside notes.
 Example:
 
 ```text
---modules-disable git status
---modules-force-enable git
+--sys-modules git status today
+--sys-modules-exclude status
 --modules-priority banner=5 renamer=20 git=50
 ```
 
@@ -227,6 +225,22 @@ Common examples:
 ```text
 --git-merge-autoresolve union
 ```
+
+## KDE Connect Sync
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--kdeconnect-sync` | `bool` | Enable KDE Connect patch sync for edit events (`created`, `modified`, `moved`, `deleted`). |
+| `--kdeconnect-device-id` | `str` | KDE Connect device id used for mount/sync operations. |
+| `--kdeconnect-remote-root` | `str` | Phone repository root path (for example `/storage/emulated/0/Notes`). |
+| `--kdeconnect-patch-queue-dir` | `str` | Project-local patch queue directory. |
+| `--kdeconnect-patch-coalesce-milliseconds` | `int` | Coalesce window for rapid edit events before building one patch packet. |
+| `--kdeconnect-patch-retry-seconds` | `float` | Retry delay for failed phone transfer attempts. |
+| `--kdeconnect-patch-max-retries` | `int` | Maximum transfer retries per packet before giving up. |
+| `--kdeconnect-binary-fallback-enabled` | `bool` | Reserved flag for future binary fallback mode. |
+| `--kdeconnect-command-timeout-seconds` | `float` | Timeout for `kdeconnect-cli` commands. |
+| `--kdeconnect-mount-retry-seconds` | `float` | Delay between mount retries when device is temporarily unavailable. |
+| `--kdeconnect-dry-run` | `bool` | Build patch packets without transferring to phone. |
 
 ## Plasma Sync
 

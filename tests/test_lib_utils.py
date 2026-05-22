@@ -38,7 +38,9 @@ def test_safe_notify_throttles_per_key(monkeypatch):
     monkeypatch.setattr(
         lib_mod,
         "notify",
-        lambda message, title="Lucy Note Manager", config=None: calls.append(message),
+        lambda message, title="Lucy Note Manager", icon_path="", config=None: calls.append(
+            message
+        ),
     )
     monkeypatch.setattr(lib_mod.time, "time", lambda: next(times))
     _reset_notify_state()
@@ -58,7 +60,9 @@ def test_safe_notify_error_uses_exponential_backoff(monkeypatch):
     monkeypatch.setattr(
         lib_mod,
         "notify",
-        lambda message, title="Lucy Note Manager", config=None: calls.append(message),
+        lambda message, title="Lucy Note Manager", icon_path="", config=None: calls.append(
+            message
+        ),
     )
     monkeypatch.setattr(lib_mod.time, "time", lambda: next(times))
     _reset_notify_state()
@@ -87,7 +91,9 @@ def test_safe_notify_error_burst_limit_applies_globally(monkeypatch):
     monkeypatch.setattr(
         lib_mod,
         "notify",
-        lambda message, title="Lucy Note Manager", config=None: calls.append(message),
+        lambda message, title="Lucy Note Manager", icon_path="", config=None: calls.append(
+            message
+        ),
     )
     monkeypatch.setattr(lib_mod.time, "time", lambda: next(times))
     _reset_notify_state()
@@ -106,7 +112,9 @@ def test_notify_termux_provider_uses_termux_api(monkeypatch):
     class _Result:
         returncode = 0
 
-    monkeypatch.setattr(lib_mod.shutil, "which", lambda _name: "/usr/bin/termux-notification")
+    monkeypatch.setattr(
+        lib_mod.shutil, "which", lambda _name: "/usr/bin/termux-notification"
+    )
     monkeypatch.setattr(
         lib_mod.subprocess,
         "run",
@@ -138,7 +146,10 @@ def test_notify_disable_provider_skips_termux_call(monkeypatch):
     monkeypatch.setattr(lib_mod, "_notify_termux", _mark)
     lib_mod.notify(
         "disabled",
-        config={"sys_notification_provider": "disable", "sys_notification_min_interval_seconds": 10.0},
+        config={
+            "sys_notification_provider": "disable",
+            "sys_notification_min_interval_seconds": 10.0,
+        },
     )
     assert called["value"] is False
 
@@ -170,7 +181,10 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
     lib_mod.notify(
         "desktop notification",
         title="Lucy",
-        config={"sys_notification_provider": "desktop", "sys_notification_min_interval_seconds": 10.0},
+        config={
+            "sys_notification_provider": "desktop",
+            "sys_notification_min_interval_seconds": 10.0,
+        },
     )
 
     assert dummy.sent is True
@@ -181,16 +195,20 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
 def test_notify_auto_provider_uses_termux_on_termux(monkeypatch):
     calls: dict[str, int] = {"termux": 0, "desktop": 0}
 
-    monkeypatch.setattr(lib_mod.shutil, "which", lambda _name: "/usr/bin/termux-notification")
+    monkeypatch.setattr(
+        lib_mod.shutil, "which", lambda _name: "/usr/bin/termux-notification"
+    )
     monkeypatch.setattr(
         lib_mod,
         "_notify_termux",
-        lambda *_args, **_kwargs: calls.__setitem__("termux", calls["termux"] + 1) or True,
+        lambda *_args, **_kwargs: calls.__setitem__("termux", calls["termux"] + 1)
+        or True,
     )
     monkeypatch.setattr(
         lib_mod,
         "_notify_desktop",
-        lambda *_args, **_kwargs: calls.__setitem__("desktop", calls["desktop"] + 1) or True,
+        lambda *_args, **_kwargs: calls.__setitem__("desktop", calls["desktop"] + 1)
+        or True,
     )
 
     lib_mod.notify("auto termux", title="Lucy", config=_AUTO_CONFIG)
@@ -205,12 +223,14 @@ def test_notify_auto_provider_uses_desktop_when_termux_missing(monkeypatch):
     monkeypatch.setattr(
         lib_mod,
         "_notify_termux",
-        lambda *_args, **_kwargs: calls.__setitem__("termux", calls["termux"] + 1) or True,
+        lambda *_args, **_kwargs: calls.__setitem__("termux", calls["termux"] + 1)
+        or True,
     )
     monkeypatch.setattr(
         lib_mod,
         "_notify_desktop",
-        lambda *_args, **_kwargs: calls.__setitem__("desktop", calls["desktop"] + 1) or True,
+        lambda *_args, **_kwargs: calls.__setitem__("desktop", calls["desktop"] + 1)
+        or True,
     )
 
     lib_mod.notify("auto desktop", title="Lucy", config=_AUTO_CONFIG)

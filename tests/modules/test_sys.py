@@ -73,7 +73,10 @@ def test_man_lines_module_name_expands_to_module_flags():
             {"mods": True, "help": True},
             {"mods": [1], "help": [1]},
             [("--mods", bool, False, "", False), ("--help", bool, False, "", False)],
-            ["--- mods+help ---\n", "* --mods: print loaded modules and their priorities\n"],
+            [
+                "--- mods+help ---\n",
+                "* --mods: print loaded modules and their priorities\n",
+            ],
         ),
         (
             "--ping\n",

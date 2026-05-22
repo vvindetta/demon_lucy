@@ -27,7 +27,11 @@ from lucy_notes_manager.modules.plasma_sync.mirror_mapper import (
     _items_hash,
     _mirror_html_to_items,
 )
-from lucy_notes_manager.modules.plasma_sync.model import DocLine, _hash_text, _normalize_md
+from lucy_notes_manager.modules.plasma_sync.model import (
+    DocLine,
+    _hash_text,
+    _normalize_md,
+)
 from lucy_notes_manager.modules.plasma_sync.plasma_html_codec import (
     _doc_to_plasma_html,
     _html_to_doc,
@@ -306,9 +310,11 @@ class PlasmaSync(AbstractModule):
         return (
             canonical_path(ctx.config["plasma_widget_path"]),
             canonical_path(ctx.config["plasma_markdown_note_path"]),
-            canonical_path(ctx.config["plasma_bold_widget_path"])
-            if ctx.config["plasma_bold_widget_path"]
-            else None,
+            (
+                canonical_path(ctx.config["plasma_bold_widget_path"])
+                if ctx.config["plasma_bold_widget_path"]
+                else None
+            ),
             ctx.config["plasma_css_style"],
         )
 
@@ -366,11 +372,7 @@ class PlasmaSync(AbstractModule):
     ) -> Optional[IgnoreMap]:
         markdown_read = _read_file_checked(markdown_path)
         widget_read = _read_file_checked(widget_path)
-        mirror_read = (
-            _read_file_checked(bold_widget_path)
-            if bold_widget_path
-            else None
-        )
+        mirror_read = _read_file_checked(bold_widget_path) if bold_widget_path else None
 
         if not markdown_read.ok or not widget_read.ok:
             return None
@@ -382,7 +384,9 @@ class PlasmaSync(AbstractModule):
             markdown_text=markdown_read.content,
             markdown_exists=markdown_read.exists,
             widget_html_current=widget_read.content,
-            mirror_html_current=mirror_read.content if mirror_read is not None else None,
+            mirror_html_current=(
+                mirror_read.content if mirror_read is not None else None
+            ),
             css_style=css_style,
         )
 
@@ -424,11 +428,7 @@ class PlasmaSync(AbstractModule):
 
         widget_read = _read_file_checked(html_path)
         markdown_read = _read_file_checked(markdown_path)
-        mirror_read = (
-            _read_file_checked(bold_widget_path)
-            if bold_widget_path
-            else None
-        )
+        mirror_read = _read_file_checked(bold_widget_path) if bold_widget_path else None
 
         if not widget_read.ok or not markdown_read.ok:
             return None
@@ -440,7 +440,9 @@ class PlasmaSync(AbstractModule):
             widget_html_current=widget_read.content,
             widget_exists=True,
             markdown_text_current=markdown_read.content,
-            mirror_html_current=mirror_read.content if mirror_read is not None else None,
+            mirror_html_current=(
+                mirror_read.content if mirror_read is not None else None
+            ),
             css_style=css_style,
         )
 

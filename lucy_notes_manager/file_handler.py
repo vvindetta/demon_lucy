@@ -53,9 +53,7 @@ class FileHandler(FileSystemEventHandler):
         else:
             if self._check_and_delete_ignore(file_path):
                 return
-            logger.info(
-                f"EVENT: {str(event.event_type).capitalize()}: {src_path}"
-            )
+            logger.info(f"EVENT: {str(event.event_type).capitalize()}: {src_path}")
 
         ignore_paths = self.modules.run(path=file_path, event=event)
         if ignore_paths:
@@ -66,7 +64,9 @@ class FileHandler(FileSystemEventHandler):
     def _mark_to_ignore(self, ignore_paths: Dict[str, int]) -> None:
         for path, count in ignore_paths.items():
             new_count = self._bump_ignore(path, count)
-            logger.info("MARKED TO IGNORE: %s (count=%d)", canonical_path(path), new_count)
+            logger.info(
+                "MARKED TO IGNORE: %s (count=%d)", canonical_path(path), new_count
+            )
 
     def _check_and_delete_ignore(self, input_path: str) -> bool:
         cur = self._ignore_paths.get(canonical_path(input_path), 0)
@@ -74,7 +74,9 @@ class FileHandler(FileSystemEventHandler):
             return False
 
         remaining = self._bump_ignore(input_path, -1)
-        logger.info("IGNORED: %s (remaining=%d)\n\n", canonical_path(input_path), remaining)
+        logger.info(
+            "IGNORED: %s (remaining=%d)\n\n", canonical_path(input_path), remaining
+        )
         return True
 
     def _bump_ignore(self, path: str, delta: int) -> int:
@@ -90,7 +92,9 @@ class FileHandler(FileSystemEventHandler):
         self._ignore_paths[abs_path] = new
         return new
 
-    def _touch_open_cache(self, cache: OrderedDict[str, float], key: str, now: float) -> None:
+    def _touch_open_cache(
+        self, cache: OrderedDict[str, float], key: str, now: float
+    ) -> None:
         cache[key] = now
         cache.move_to_end(key)
         if len(cache) > self._open_cache_max_entries:

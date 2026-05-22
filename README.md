@@ -105,7 +105,7 @@ Run oneshot tasks manually (useful for scripts, scheduled runs, and Termux/Taske
 python3 main_oneshot.py \
   --oneshot-event opened \
   --oneshot-paths "/home/user/Notes/file.md" \
-  --oneshot-modules git
+  --sys-modules git
 ```
 
 ### Systemd setup

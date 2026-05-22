@@ -97,7 +97,9 @@ class Linker(AbstractModule):
         repo_root: str,
         ignore_selectors: list[str],
     ) -> Optional[IgnoreMap]:
-        link_path = os.path.abspath(os.path.join(repo_root, os.path.basename(source_path)))
+        link_path = os.path.abspath(
+            os.path.join(repo_root, os.path.basename(source_path))
+        )
         if link_path == source_path:
             return None
 
@@ -341,7 +343,9 @@ class Linker(AbstractModule):
             return False
         return True
 
-    def _update_moved_links(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def _update_moved_links(
+        self, *, ctx: Context, system: System
+    ) -> Optional[IgnoreMap]:
         src_path_raw = str(getattr(system.event, "src_path", "") or "").strip()
         dest_path_raw = str(getattr(system.event, "dest_path", "") or "").strip()
         if not src_path_raw or not dest_path_raw:

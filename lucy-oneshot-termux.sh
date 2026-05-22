@@ -15,5 +15,5 @@ export PYTHONPATH="$LUCY_HOME${PYTHONPATH:+:$PYTHONPATH}"
 
 exec "$PYTHON_BIN" main_oneshot.py \
   --oneshot-paths "$NOTES_REPO" \
-  --oneshot-modules git today \
+  --sys-modules git today \
   "$@"

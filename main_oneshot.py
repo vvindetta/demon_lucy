@@ -52,27 +52,14 @@ ONESHOT_STARTUP_TEMPLATE: Template = LUCY_STARTUP_TEMPLATE + [
         "Destination path for moved event.",
         False,
     ),
-    (
-        "--oneshot-modules",
-        str,
-        [],
-        "Run only these modules by name. Example: --oneshot-modules git sys",
-        False,
-    ),
 ]
 
 _ALLOWED_EVENTS = {"created", "modified", "moved", "deleted", "opened"}
 
 
-def _select_modules(config: dict):
-    modules = select_lucy_modules(
-        include_names=config["oneshot_modules"],
-    )
-
-    return modules
-
-
-def _build_event(event_name: str, src_path: str, dest_path: str = "") -> FileSystemEvent:
+def _build_event(
+    event_name: str, src_path: str, dest_path: str = ""
+) -> FileSystemEvent:
     factories: dict[str, type[FileSystemEvent]] = {
         "created": FileCreatedEvent,
         "modified": FileModifiedEvent,
@@ -138,7 +125,10 @@ def _build_event_plan(config: dict) -> list[tuple[str, FileSystemEvent]]:
 
 def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
     configure_logging(config)
-    modules = _select_modules(config)
+    modules = select_lucy_modules(
+        include_names=config["sys_modules"],
+        exclude_names=config["sys_modules_exclude"],
+    )
     manager = ModuleManager(
         modules=modules,
         args=list(unknown_args),

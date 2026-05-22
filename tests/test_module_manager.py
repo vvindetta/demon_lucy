@@ -82,7 +82,7 @@ def test_init_sorts_modules_by_priority_override():
     assert [m.name for m in manager.modules] == ["c", "a"]
 
 
-def test_run_respects_exclude_and_force_and_event_implementation(tmp_path: Path):
+def test_run_respects_event_implementation(tmp_path: Path):
     note = tmp_path / "n.md"
     note.write_text("hello\n", encoding="utf-8")
     event = FileModifiedEvent(str(note))
@@ -90,29 +90,19 @@ def test_run_respects_exclude_and_force_and_event_implementation(tmp_path: Path)
     a, b, c = _ModA(), _ModB(), _ModC()
     manager = ModuleManager(
         modules=[a, b, c],
-        args=["--modules-disable", "a"],
+        args=[],
         system_config=_SYSTEM_CONFIG,
     )
     ignore_paths = manager.run(str(note), event)
 
-    assert a.calls == 0
+    assert a.calls == 1
     assert c.calls == 1
-    assert ignore_paths == {str(note.resolve()): 2}
-
-    a2, c2 = _ModA(), _ModC()
-    manager_force = ModuleManager(
-        modules=[a2, c2],
-        args=["--modules-disable", "a", "--modules-force-enable", "a"],
-        system_config=_SYSTEM_CONFIG,
-    )
-    ignore_paths_force = manager_force.run(str(note), event)
-
-    assert a2.calls == 1
-    assert c2.calls == 1
-    assert ignore_paths_force == {str(note.resolve()): 3}
+    assert ignore_paths == {str(note.resolve()): 3}
 
 
-def test_run_skips_module_when_required_args_missing_and_notifies(tmp_path: Path, monkeypatch):
+def test_run_skips_module_when_required_args_missing_and_notifies(
+    tmp_path: Path, monkeypatch
+):
     note = tmp_path / "n.md"
     note.write_text("hello\n", encoding="utf-8")
     event = FileModifiedEvent(str(note))

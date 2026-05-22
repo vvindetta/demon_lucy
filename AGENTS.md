@@ -62,3 +62,7 @@ When renaming a flag, update all related places at once:
 - Do not send multiple notifications for cause + symptoms. Send one consolidated error notification with the root cause.
 - Key naming should be domain-level, for example `git-network:<repo_root>`,
   instead of command-level keys like `pull-timeout:*` and `push-fail:*` for the same network outage.
+- Do not notify on transient internal retry states such as `index.lock`, repo busy/lock contention,
+  temporary backoff, or "will retry later" conditions. Log them silently and keep retrying.
+- Notify only when the operation reached a final critical failure state or requires user action,
+  not when Lucy is still able to recover on its own.

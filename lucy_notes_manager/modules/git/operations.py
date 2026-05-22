@@ -413,7 +413,9 @@ def _resolve_pull_plan(
             remote_name=remote_name,
         )
 
-    branch_name = current_branch(self, repo_root, environment, operation_timeout_seconds)
+    branch_name = current_branch(
+        self, repo_root, environment, operation_timeout_seconds
+    )
     remote_name = pick_remote(self, repo_root, environment, operation_timeout_seconds)
     if not branch_name or not remote_name:
         logger.warning(
