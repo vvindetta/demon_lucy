@@ -251,6 +251,11 @@ def test_status_git_uses_upstream_timestamp_and_refreshes_after_sync(
     calls = {"upstream": 0}
 
     monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
 
     def _run(cmd, **_kwargs):
         if cmd[-1] == "@{u}":
@@ -307,6 +312,11 @@ def test_status_git_update_uses_compact_units_and_ticks(
     monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
     monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
     monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
+    monkeypatch.setattr(
         status_mod.subprocess,
         "run",
         lambda cmd, **_kwargs: subprocess.CompletedProcess(
@@ -347,6 +357,11 @@ def test_status_git_update_prefers_upstream_timestamp(
     now_state = {"value": 200000.0}
     monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
     monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
 
     def _run(cmd, **_kwargs):
         if cmd[-1] == "@{u}":
@@ -387,6 +402,11 @@ def test_status_git_update_falls_back_to_head_when_upstream_missing(
     now_state = {"value": 200000.0}
     monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
     monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
 
     def _run(cmd, **_kwargs):
         if cmd[-1] == "@{u}":
