@@ -64,6 +64,37 @@ def test_supports_custom_today_now_file(tmp_path: Path, monkeypatch) -> None:
     assert past_path.read_text(encoding="utf-8") == "-- 02.05.2026\ncustom active\n"
 
 
+def test_relative_past_is_anchored_to_absolute_now_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    active_dir = tmp_path / "active"
+    active_dir.mkdir(parents=True, exist_ok=True)
+    now_path = active_dir / "now.md"
+    now_path.write_text("move from fixed now\n", encoding="utf-8")
+    _make_stale(now_path, 13.0)
+
+    random_dir = tmp_path / "random"
+    random_dir.mkdir(parents=True, exist_ok=True)
+    trigger_path = random_dir / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Today()
+    ctx = _ctx_for(trigger_path, now_path=str(now_path), past_path="past.md")
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    expected_past = active_dir / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(expected_past.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert expected_past.read_text(encoding="utf-8") == "-- 02.05.2026\nmove from fixed now\n"
+    assert not (random_dir / "past.md").exists()
+
+
 def _make_stale(path: Path, hours: float) -> None:
     old = time.time() - (hours * 3600.0)
     os.utime(path, (old, old))

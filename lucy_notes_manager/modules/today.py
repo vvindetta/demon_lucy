@@ -96,9 +96,29 @@ class Today(AbstractModule):
         past_selector = str(ctx.config["today_past_path"]).strip()
 
         event_path = os.path.abspath(ctx.path)
-        parent_dir = os.path.dirname(event_path)
-        now_path = os.path.abspath(os.path.join(parent_dir, now_selector))
-        past_path = os.path.abspath(os.path.join(parent_dir, past_selector))
+        event_dir = os.path.dirname(event_path)
+
+        now_expanded = os.path.expanduser(now_selector)
+        past_expanded = os.path.expanduser(past_selector)
+
+        now_is_abs = os.path.isabs(now_expanded)
+        past_is_abs = os.path.isabs(past_expanded)
+
+        now_path = os.path.abspath(now_expanded) if now_is_abs else ""
+        past_path = os.path.abspath(past_expanded) if past_is_abs else ""
+
+        if now_is_abs and not past_is_abs:
+            base_dir = os.path.dirname(now_path)
+        elif past_is_abs and not now_is_abs:
+            base_dir = os.path.dirname(past_path)
+        else:
+            base_dir = event_dir
+
+        if not now_is_abs:
+            now_path = os.path.abspath(os.path.join(base_dir, now_expanded))
+        if not past_is_abs:
+            past_path = os.path.abspath(os.path.join(base_dir, past_expanded))
+
         if now_path == past_path:
             return None
         return now_path, past_path
