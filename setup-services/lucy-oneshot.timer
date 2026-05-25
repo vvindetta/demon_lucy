@@ -2,7 +2,7 @@
 Description=Run Lucy Notes oneshot periodically
 
 [Timer]
-OnBootSec=5s
+OnStartupSec=5s
 OnUnitActiveSec=1h
 Persistent=true
 Unit=lucy-oneshot.service
