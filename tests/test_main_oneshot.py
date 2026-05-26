@@ -60,7 +60,7 @@ def test_run_oneshot_passes_oneshot_run_mode(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(oneshot_mod, "configure_logging", lambda _config: None)
     monkeypatch.setattr(
         oneshot_mod,
-        "select_lucy_modules",
+        "select_demon_lucy_modules",
         lambda include_names, exclude_names: [],
     )
     monkeypatch.setattr(oneshot_mod, "ModuleManager", _FakeManager)

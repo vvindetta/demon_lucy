@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lucy_notes_manager.lib.path import (
+from demon_lucy.lib.path import (
     abs_expand_path,
     canonical_path,
     find_parent_with,

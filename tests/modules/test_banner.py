@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import lucy_notes_manager.modules.banner as banner_mod
-from lucy_notes_manager.modules.banner import Banner
+import demon_lucy.modules.banner as banner_mod
+from demon_lucy.modules.banner import Banner
 
 
 @pytest.mark.parametrize(

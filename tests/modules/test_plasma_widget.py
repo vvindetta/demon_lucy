@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-import lucy_notes_manager.modules.plasma_widget as plasma_mod
-from lucy_notes_manager.modules.abstract_module import Context
-from lucy_notes_manager.modules.plasma_widget.mirror_mapper import (
+import demon_lucy.modules.plasma_widget as plasma_mod
+from demon_lucy.modules.abstract_module import Context
+from demon_lucy.modules.plasma_widget.mirror_mapper import (
     _bold_items_to_plasma_html,
 )
-from lucy_notes_manager.modules.plasma_widget import DocLine, PlasmaWidget
+from demon_lucy.modules.plasma_widget import DocLine, PlasmaWidget
 
 _NOTIFY_CFG = {
     "sys_notification_provider": "termuxapi",

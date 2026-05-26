@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from watchdog.events import FileModifiedEvent
 
-from lucy_notes_manager.lib.args import Template
-from lucy_notes_manager.modules.abstract_module import AbstractModule, Context, System
+from demon_lucy.lib.args import Template
+from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 
 
 class DemoModule(AbstractModule):

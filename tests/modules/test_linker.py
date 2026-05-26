@@ -3,11 +3,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import lucy_notes_manager.modules.linker as linker_mod
+import demon_lucy.modules.linker as linker_mod
 from watchdog.events import FileMovedEvent
 
-from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.linker import Linker
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.linker import Linker
 
 
 def _setup_repo(tmp_path: Path) -> Path:

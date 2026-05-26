@@ -4,20 +4,20 @@ import threading
 
 from watchdog.observers import Observer
 
-from lucy_notes_manager.file_handler import FileHandler
-from lucy_notes_manager.lib.args import setup_config_and_cli_args
-from lucy_notes_manager.lib.path import abs_expand_path
-from lucy_notes_manager.module_manager import ModuleManager
-from lucy_notes_manager.runtime import (
-    LUCY_STARTUP_TEMPLATE,
+from demon_lucy.file_handler import FileHandler
+from demon_lucy.lib.args import setup_config_and_cli_args
+from demon_lucy.lib.path import abs_expand_path
+from demon_lucy.module_manager import ModuleManager
+from demon_lucy.runtime import (
+    DEMON_LUCY_STARTUP_TEMPLATE,
     configure_logging,
     log_startup_message,
-    select_lucy_modules,
+    select_demon_lucy_modules,
 )
 
 
 def main() -> int:
-    config, unknown_args = setup_config_and_cli_args(template=LUCY_STARTUP_TEMPLATE)
+    config, unknown_args = setup_config_and_cli_args(template=DEMON_LUCY_STARTUP_TEMPLATE)
     notes_dirs = config.get("sys_watch_paths")
     if not notes_dirs:
         raise ValueError("No --sys-watch-paths was setuped")
@@ -29,7 +29,7 @@ def main() -> int:
     configure_logging(config)
 
     modules = ModuleManager(
-        modules=select_lucy_modules(
+        modules=select_demon_lucy_modules(
             include_names=config["sys_modules"],
             exclude_names=config["sys_modules_exclude"],
         ),

@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent, FileOpenedEvent
 
-import lucy_notes_manager.modules.status as status_mod
-from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.git.sync_marker import write_sync_success_timestamp
-from lucy_notes_manager.modules.status import Status
+import demon_lucy.modules.status as status_mod
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.git.sync_marker import write_sync_success_timestamp
+from demon_lucy.modules.status import Status
 
 
 def _inv(text: str) -> str:
@@ -220,7 +220,7 @@ def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) 
 
 def test_status_banner_preserves_multi_spaces(tmp_path: Path) -> None:
     path = tmp_path / "note.md"
-    banner_text = "s               Lucy is a demon octopus controlling puppet-files from the depth"
+    banner_text = "s               Demon Lucy is a demon octopus controlling puppet-files from the depth"
     path.write_text(
         f'--status-banner "{banner_text}"\n',
         encoding="utf-8",

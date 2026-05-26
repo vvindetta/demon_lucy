@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
-import lucy_notes_manager.modules.archive as archive_mod
-from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.archive import Archive
+import demon_lucy.modules.archive as archive_mod
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.archive import Archive
 
 
 def _ctx_for(
@@ -407,7 +407,7 @@ def test_normalizes_blank_lines_before_archiving(tmp_path: Path, monkeypatch) ->
     assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nalpha\n\n\n\nbeta\n"
 
 
-def test_keeps_first_line_with_lucy_flags_when_archiving(
+def test_keeps_first_line_with_demon_lucy_flags_when_archiving(
     tmp_path: Path, monkeypatch
 ) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)

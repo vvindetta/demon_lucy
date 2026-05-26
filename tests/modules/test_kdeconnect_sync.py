@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from watchdog.events import FileModifiedEvent
 
-import lucy_notes_manager.modules.kdeconnect_sync as kde_mod
-from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.git.worker import (
+import demon_lucy.modules.kdeconnect_sync as kde_mod
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.git.worker import (
     DirtyTreeCommitResult,
     PatchPacketBuildResult,
 )
-from lucy_notes_manager.modules.kdeconnect_sync import KdeconnectSync
-from lucy_notes_manager.modules.kdeconnect_sync.transport import TransferResult
+from demon_lucy.modules.kdeconnect_sync import KdeconnectSync
+from demon_lucy.modules.kdeconnect_sync.transport import TransferResult
 
 
 def _base_config(*, enabled: bool, dry_run: bool = False) -> dict:
@@ -17,7 +17,7 @@ def _base_config(*, enabled: bool, dry_run: bool = False) -> dict:
         "kdeconnect_sync": enabled,
         "kdeconnect_device_id": "device-1",
         "kdeconnect_remote_root": "/storage/emulated/0/Notes",
-        "kdeconnect_patch_queue_dir": ".lucy/patch_queue",
+        "kdeconnect_patch_queue_dir": ".demon_lucy/patch_queue",
         "kdeconnect_patch_coalesce_milliseconds": 0,
         "kdeconnect_patch_retry_seconds": 5.0,
         "kdeconnect_patch_max_retries": 3,
@@ -71,7 +71,7 @@ def test_modified_ignores_patch_queue_internal_files(monkeypatch):
         lambda **_kwargs: called.__setitem__("value", True),
     )
 
-    queue_file = "/repo/.lucy/patch_queue/outgoing_pc_to_phone/p-1.patch"
+    queue_file = "/repo/.demon_lucy/patch_queue/outgoing_pc_to_phone/p-1.patch"
     ctx = Context(path=queue_file, config=_base_config(enabled=True), arg_lines={})
     system = System(
         event=FileModifiedEvent(queue_file), global_template=[], modules=[module]

@@ -9,14 +9,14 @@ from datetime import datetime
 import pytest
 from watchdog.events import FileMovedEvent, FileOpenedEvent
 
-import lucy_notes_manager.modules.git as git_mod
-import lucy_notes_manager.modules.git.helpers as git_helpers
-import lucy_notes_manager.modules.git.operations as git_ops
-import lucy_notes_manager.modules.git.worker as git_worker
-from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.git import Git, _RepoBatch
-from lucy_notes_manager.modules.git.sync_marker import read_sync_success_timestamp
-from lucy_notes_manager.modules.git.types import (
+import demon_lucy.modules.git as git_mod
+import demon_lucy.modules.git.helpers as git_helpers
+import demon_lucy.modules.git.operations as git_ops
+import demon_lucy.modules.git.worker as git_worker
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.git import Git, _RepoBatch
+from demon_lucy.modules.git.sync_marker import read_sync_success_timestamp
+from demon_lucy.modules.git.types import (
     GitPolicy,
     MergeAutoresolveMode,
     parse_merge_autoresolve_mode,
@@ -1047,7 +1047,7 @@ def test_with_repo_process_lock_skips_when_busy_not_stale(tmp_path, monkeypatch)
     repo_root = tmp_path / "repo"
     git_dir = repo_root / ".git"
     git_dir.mkdir(parents=True)
-    lock_path = git_dir / "lucy-sync.lock"
+    lock_path = git_dir / "demon_lucy-sync.lock"
     lock_path.write_text(f"pid={os.getpid()}\n", encoding="utf-8")
 
     clock = {"t": 0.0}
@@ -1080,7 +1080,7 @@ def test_with_repo_process_lock_removes_stale_dead_owner_and_runs(tmp_path):
     repo_root = tmp_path / "repo"
     git_dir = repo_root / ".git"
     git_dir.mkdir(parents=True)
-    lock_path = git_dir / "lucy-sync.lock"
+    lock_path = git_dir / "demon_lucy-sync.lock"
     lock_path.write_text("pid=999999\n", encoding="utf-8")
 
     calls = {"ran": 0}
@@ -1098,7 +1098,7 @@ def test_with_repo_process_lock_removes_legacy_lock_without_pid(tmp_path):
     repo_root = tmp_path / "repo"
     git_dir = repo_root / ".git"
     git_dir.mkdir(parents=True)
-    lock_path = git_dir / "lucy-sync.lock"
+    lock_path = git_dir / "demon_lucy-sync.lock"
     lock_path.write_text("", encoding="utf-8")
     stale_timestamp = time.time() - 120.0
     os.utime(lock_path, (stale_timestamp, stale_timestamp))

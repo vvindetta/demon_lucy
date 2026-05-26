@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
-import lucy_notes_manager.module_manager as module_manager_mod
-from lucy_notes_manager.module_manager import ModuleManager
-from lucy_notes_manager.modules.abstract_module import AbstractModule, Context, System
+import demon_lucy.module_manager as module_manager_mod
+from demon_lucy.module_manager import ModuleManager
+from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 
 _SYSTEM_CONFIG = {
     "sys_notification_provider": "termuxapi",

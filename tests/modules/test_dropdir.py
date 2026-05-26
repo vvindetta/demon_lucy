@@ -5,11 +5,11 @@ from pathlib import Path
 
 from watchdog.events import FileMovedEvent
 
-import lucy_notes_manager.modules.dropdir as dropdir_mod
-import lucy_notes_manager.modules.archive as archive_mod
-from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.dropdir import DropDir
-from lucy_notes_manager.modules.archive import Archive
+import demon_lucy.modules.dropdir as dropdir_mod
+import demon_lucy.modules.archive as archive_mod
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.dropdir import DropDir
+from demon_lucy.modules.archive import Archive
 
 
 def _freeze_archive_day(monkeypatch, year: int, month: int, day: int) -> None:

@@ -65,4 +65,4 @@ When renaming a flag, update all related places at once:
 - Do not notify on transient internal retry states such as `index.lock`, repo busy/lock contention,
   temporary backoff, or "will retry later" conditions. Log them silently and keep retrying.
 - Notify only when the operation reached a final critical failure state or requires user action,
-  not when Lucy is still able to recover on its own.
+  not when Demon Lucy is still able to recover on its own.

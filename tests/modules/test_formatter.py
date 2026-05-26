@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileMovedEvent
 
-from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.formatter import Formatter
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.formatter import Formatter
 
 
 def _count_leading_blank_lines(lines: list[str]) -> int:

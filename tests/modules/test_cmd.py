@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
-from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.cmd import Cmd
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.cmd import Cmd
 
 
 @pytest.mark.parametrize(

@@ -11,8 +11,8 @@ from watchdog.events import (
     FileSystemEvent,
 )
 
-from lucy_notes_manager.file_handler import FileHandler
-from lucy_notes_manager.module_manager import ModuleManager
+from demon_lucy.file_handler import FileHandler
+from demon_lucy.module_manager import ModuleManager
 
 
 class _FakeModules:
@@ -97,7 +97,7 @@ def test_opened_event_respects_cooldown(tmp_path: Path, monkeypatch) -> None:
 
     times = iter([0.0, 1.0, 11.0])
     monkeypatch.setattr(
-        "lucy_notes_manager.file_handler.time.monotonic",
+        "demon_lucy.file_handler.time.monotonic",
         lambda: next(times),
     )
 
@@ -117,7 +117,7 @@ def test_opened_event_can_be_disabled(tmp_path: Path, monkeypatch) -> None:
     file_path.write_text("x\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "lucy_notes_manager.file_handler.time.monotonic",
+        "demon_lucy.file_handler.time.monotonic",
         lambda: 0.0,
     )
 
@@ -141,7 +141,7 @@ def test_opened_event_respects_cooldown_for_same_directory(
 
     times = iter([0.0, 1.0, 11.0])
     monkeypatch.setattr(
-        "lucy_notes_manager.file_handler.time.monotonic",
+        "demon_lucy.file_handler.time.monotonic",
         lambda: next(times),
     )
 
@@ -170,7 +170,7 @@ def test_opened_event_skips_hidden_and_git_paths(
     path.write_text("x\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "lucy_notes_manager.file_handler.time.monotonic",
+        "demon_lucy.file_handler.time.monotonic",
         lambda: 0.0,
     )
 

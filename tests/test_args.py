@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lucy_notes_manager.lib.args import (
+from demon_lucy.lib.args import (
     delete_args_from_string,
     get_args_from_file,
     get_config_args,

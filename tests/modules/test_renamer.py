@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import lucy_notes_manager.modules.renamer as renamer_mod
-from lucy_notes_manager.modules.renamer import Renamer
+import demon_lucy.modules.renamer as renamer_mod
+from demon_lucy.modules.renamer import Renamer
 
 
 @pytest.mark.parametrize(

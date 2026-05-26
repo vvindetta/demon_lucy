@@ -4,7 +4,7 @@ import sys
 import types
 from pathlib import Path
 
-import lucy_notes_manager.lib as lib_mod
+import demon_lucy.lib as lib_mod
 
 _TERMUX_CONFIG = {
     "sys_notification_provider": "termuxapi",
@@ -38,7 +38,7 @@ def test_safe_notify_throttles_per_key(monkeypatch):
     monkeypatch.setattr(
         lib_mod,
         "notify",
-        lambda message, title="Lucy Note Manager", icon_path="", config=None: calls.append(
+        lambda message, title="Demon Lucy Note Manager", icon_path="", config=None: calls.append(
             message
         ),
     )
@@ -60,7 +60,7 @@ def test_safe_notify_error_uses_exponential_backoff(monkeypatch):
     monkeypatch.setattr(
         lib_mod,
         "notify",
-        lambda message, title="Lucy Note Manager", icon_path="", config=None: calls.append(
+        lambda message, title="Demon Lucy Note Manager", icon_path="", config=None: calls.append(
             message
         ),
     )
@@ -91,7 +91,7 @@ def test_safe_notify_error_burst_limit_applies_globally(monkeypatch):
     monkeypatch.setattr(
         lib_mod,
         "notify",
-        lambda message, title="Lucy Note Manager", icon_path="", config=None: calls.append(
+        lambda message, title="Demon Lucy Note Manager", icon_path="", config=None: calls.append(
             message
         ),
     )
@@ -121,7 +121,7 @@ def test_notify_termux_provider_uses_termux_api(monkeypatch):
         lambda args, **_kwargs: calls.append(list(args)) or _Result(),
     )
 
-    lib_mod.notify("hello termux", title="Lucy", config=_TERMUX_CONFIG)
+    lib_mod.notify("hello termux", title="Demon Lucy", config=_TERMUX_CONFIG)
 
     assert calls
     assert calls[0][0].endswith("termux-notification")
@@ -133,7 +133,7 @@ def test_notify_termux_provider_silent_when_termux_missing(monkeypatch):
     monkeypatch.setattr(lib_mod.shutil, "which", lambda _name: None)
 
     # should stay silent and not crash
-    lib_mod.notify("missing-termux", title="Lucy", config=_TERMUX_CONFIG)
+    lib_mod.notify("missing-termux", title="Demon Lucy", config=_TERMUX_CONFIG)
 
 
 def test_notify_disable_provider_skips_termux_call(monkeypatch):
@@ -180,7 +180,7 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
 
     lib_mod.notify(
         "desktop notification",
-        title="Lucy",
+        title="Demon Lucy",
         config={
             "sys_notification_provider": "desktop",
             "sys_notification_min_interval_seconds": 10.0,
@@ -188,7 +188,7 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
     )
 
     assert dummy.sent is True
-    assert dummy.title == "Lucy"
+    assert dummy.title == "Demon Lucy"
     assert dummy.message == "desktop notification"
 
 
@@ -211,7 +211,7 @@ def test_notify_auto_provider_uses_termux_on_termux(monkeypatch):
         or True,
     )
 
-    lib_mod.notify("auto termux", title="Lucy", config=_AUTO_CONFIG)
+    lib_mod.notify("auto termux", title="Demon Lucy", config=_AUTO_CONFIG)
 
     assert calls == {"termux": 1, "desktop": 0}
 
@@ -233,7 +233,7 @@ def test_notify_auto_provider_uses_desktop_when_termux_missing(monkeypatch):
         or True,
     )
 
-    lib_mod.notify("auto desktop", title="Lucy", config=_AUTO_CONFIG)
+    lib_mod.notify("auto desktop", title="Demon Lucy", config=_AUTO_CONFIG)
 
     assert calls == {"termux": 0, "desktop": 1}
 

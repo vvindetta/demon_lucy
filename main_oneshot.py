@@ -12,18 +12,18 @@ from watchdog.events import (
     FileSystemEvent,
 )
 
-from lucy_notes_manager.lib.args import Template, setup_config_and_cli_args
-from lucy_notes_manager.lib.path import abs_expand_path
-from lucy_notes_manager.module_manager import ModuleManager
-from lucy_notes_manager.runtime import (
-    LUCY_STARTUP_TEMPLATE,
+from demon_lucy.lib.args import Template, setup_config_and_cli_args
+from demon_lucy.lib.path import abs_expand_path
+from demon_lucy.module_manager import ModuleManager
+from demon_lucy.runtime import (
+    DEMON_LUCY_STARTUP_TEMPLATE,
     configure_logging,
     log_startup_message,
     normalize_name_list,
-    select_lucy_modules,
+    select_demon_lucy_modules,
 )
 
-ONESHOT_STARTUP_TEMPLATE: Template = LUCY_STARTUP_TEMPLATE + [
+ONESHOT_STARTUP_TEMPLATE: Template = DEMON_LUCY_STARTUP_TEMPLATE + [
     (
         "--oneshot-event",
         str,
@@ -125,7 +125,7 @@ def _build_event_plan(config: dict) -> list[tuple[str, FileSystemEvent]]:
 
 def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
     configure_logging(config)
-    modules = select_lucy_modules(
+    modules = select_demon_lucy_modules(
         include_names=config["sys_modules"],
         exclude_names=config["sys_modules_exclude"],
     )

@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
-from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.sys import Sys
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.sys import Sys
 
 
 class _StatusLikeModule:

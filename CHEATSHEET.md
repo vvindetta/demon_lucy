@@ -1,4 +1,4 @@
-# Lucy Args Cheatsheet
+# Demon Lucy Args Cheatsheet
 
 Short reference for the current argument names. Booleans are `store_true`: write
 the flag to enable it, do not pass `true` or `false`.
