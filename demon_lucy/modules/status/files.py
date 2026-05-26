@@ -99,7 +99,7 @@ class StatusFileMixin:
             "--status-prefix",
             "--status-animation",
             "--status-animation-speed-milliseconds",
-            "--status-opened-events-disable",
+            "--status-opened-events",
         )
         for line in lines:
             stripped = line.strip()
@@ -113,7 +113,7 @@ class StatusFileMixin:
                 and "--status-prefix" not in stripped
                 and "--status-animation" not in stripped
                 and "--status-animation-speed-milliseconds" not in stripped
-                and "--status-opened-events-disable" not in stripped
+                and "--status-opened-events" not in stripped
             ):
                 continue
             try:
@@ -168,7 +168,7 @@ class StatusFileMixin:
                         i += 1
                     continue
 
-                if token_head == "--status-opened-events-disable":
+                if token_head == "--status-opened-events":
                     i += 1
                     continue
 

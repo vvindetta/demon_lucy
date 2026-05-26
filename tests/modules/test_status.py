@@ -48,7 +48,8 @@ def _ctx_for(
     status_prefix: str = "",
     status_animation: list[str] | None = None,
     status_animation_speed_milliseconds: int = 500,
-    status_opened_events_disable: bool = False,
+    status_git_sync_prefix_cycle_pause_seconds: float = 1.0,
+    status_opened_events: bool = False,
 ) -> Context:
     return Context(
         path=str(path),
@@ -62,10 +63,13 @@ def _ctx_for(
             "status_animation_speed_milliseconds": (
                 status_animation_speed_milliseconds
             ),
-            "status_opened_events_disable": status_opened_events_disable,
+            "status_opened_events": status_opened_events,
             "status_tick_interval_seconds": 60.0,
             "status_git_fast_tick_interval_seconds": 0.5,
             "status_git_fast_tick_window_seconds": 120.0,
+            "status_git_sync_prefix_cycle_pause_seconds": (
+                status_git_sync_prefix_cycle_pause_seconds
+            ),
         },
         arg_lines={},
     )
@@ -402,6 +406,195 @@ def test_status_git_update_sync_prefix_animates_each_half_second(
     fourth_path = tmp_path / _inv("synC 3h")
     assert fourth_path.exists()
     assert not third_path.exists()
+
+
+def test_status_git_update_sync_prefix_waits_one_second_between_cycles(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
+    monkeypatch.setattr(
+        status_mod.subprocess,
+        "run",
+        lambda cmd, **_kwargs: subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{int(200000.0 - (3.5 * 3600.0))}\n",
+            stderr="",
+        ),
+    )
+
+    module = Status()
+    system = System(
+        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
+    )
+
+    first_changed = module.modified(
+        _ctx_for(path, status_values=["git", "update"]), system
+    )
+    first_path = tmp_path / _inv("Sync 3h")
+    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    now_state["value"] = 200000.6
+    module._tick_once()
+    second_path = tmp_path / _inv("sYnc 3h")
+    assert second_path.exists()
+    assert not first_path.exists()
+
+    now_state["value"] = 200001.2
+    module._tick_once()
+    third_path = tmp_path / _inv("syNc 3h")
+    assert third_path.exists()
+    assert not second_path.exists()
+
+    now_state["value"] = 200001.8
+    module._tick_once()
+    fourth_path = tmp_path / _inv("synC 3h")
+    assert fourth_path.exists()
+    assert not third_path.exists()
+
+    now_state["value"] = 200002.4
+    module._tick_once()
+    assert fourth_path.exists()
+    assert not (tmp_path / _inv("Sync 3h")).exists()
+
+    now_state["value"] = 200003.3
+    module._tick_once()
+    assert fourth_path.exists()
+
+    now_state["value"] = 200003.5
+    module._tick_once()
+    restart_path = tmp_path / _inv("Sync 3h")
+    assert restart_path.exists()
+    assert not fourth_path.exists()
+
+
+def test_status_git_update_sync_prefix_cycle_pause_from_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
+    monkeypatch.setattr(
+        status_mod.subprocess,
+        "run",
+        lambda cmd, **_kwargs: subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{int(200000.0 - (3.5 * 3600.0))}\n",
+            stderr="",
+        ),
+    )
+
+    module = Status()
+    system = System(
+        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
+    )
+
+    first_changed = module.modified(
+        _ctx_for(
+            path,
+            status_values=["git", "update"],
+            status_git_sync_prefix_cycle_pause_seconds=2.0,
+        ),
+        system,
+    )
+    first_path = tmp_path / _inv("Sync 3h")
+    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    now_state["value"] = 200000.6
+    module._tick_once()
+    second_path = tmp_path / _inv("sYnc 3h")
+    assert second_path.exists()
+    assert not first_path.exists()
+
+    now_state["value"] = 200001.2
+    module._tick_once()
+    third_path = tmp_path / _inv("syNc 3h")
+    assert third_path.exists()
+    assert not second_path.exists()
+
+    now_state["value"] = 200001.8
+    module._tick_once()
+    fourth_path = tmp_path / _inv("synC 3h")
+    assert fourth_path.exists()
+    assert not third_path.exists()
+
+    now_state["value"] = 200002.4
+    module._tick_once()
+    assert fourth_path.exists()
+
+    now_state["value"] = 200004.3
+    module._tick_once()
+    assert fourth_path.exists()
+
+    now_state["value"] = 200004.5
+    module._tick_once()
+    restart_path = tmp_path / _inv("Sync 3h")
+    assert restart_path.exists()
+    assert not fourth_path.exists()
+
+
+def test_status_git_update_zero_minutes_disables_prefix_animation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
+    monkeypatch.setattr(
+        status_mod.subprocess,
+        "run",
+        lambda cmd, **_kwargs: subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{int(200000.0 - 10.0)}\n",
+            stderr="",
+        ),
+    )
+
+    module = Status()
+    system = System(
+        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
+    )
+
+    first_changed = module.modified(
+        _ctx_for(path, status_values=["git", "update"]), system
+    )
+    first_path = tmp_path / _inv("Sync 0m")
+    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    now_state["value"] = 200000.6
+    module._tick_once()
+    assert first_path.exists()
+    assert not (tmp_path / _inv("sYnc 0m")).exists()
 
 
 def test_status_git_update_animates_custom_prefix_phrase(
@@ -752,7 +945,7 @@ def test_status_animation_advance_per_pass_with_speed_and_prefix(
     assert third_path.exists()
 
 
-def test_status_opened_events_disable_flag_skips_opened_handler(
+def test_status_opened_events_disabled_by_default_skips_opened_handler(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
@@ -761,11 +954,7 @@ def test_status_opened_events_disable_flag_skips_opened_handler(
     path.write_text("--status time\n", encoding="utf-8")
 
     module = Status()
-    ctx = _ctx_for(
-        path,
-        status_values=["time"],
-        status_opened_events_disable=True,
-    )
+    ctx = _ctx_for(path, status_values=["time"])
     system = System(
         event=FileOpenedEvent(str(path)), global_template=[], modules=[module]
     )
@@ -777,12 +966,34 @@ def test_status_opened_events_disable_flag_skips_opened_handler(
     assert not (tmp_path / _inv("08:09")).exists()
 
 
-def test_status_from_file_does_not_treat_opened_disable_as_ascii_frame(
+def test_status_opened_events_flag_enables_opened_handler(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
+
+    path = tmp_path / "note.md"
+    path.write_text("--status time\n", encoding="utf-8")
+
+    module = Status()
+    ctx = _ctx_for(path, status_values=["time"], status_opened_events=True)
+    system = System(
+        event=FileOpenedEvent(str(path)), global_template=[], modules=[module]
+    )
+
+    changed = module.opened(ctx, system)
+
+    new_path = tmp_path / _inv("08:09")
+    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert new_path.exists()
+    assert not path.exists()
+
+
+def test_status_from_file_does_not_treat_opened_events_as_ascii_frame(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "status-source.md"
     path.write_text(
-        '--status-animation "pri" "prive" --status-opened-events-disable\n',
+        '--status-animation "pri" "prive" --status-opened-events\n',
         encoding="utf-8",
     )
 

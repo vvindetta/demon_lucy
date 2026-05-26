@@ -145,7 +145,8 @@ Examples:
 | `--status-tick-interval-seconds` | `float` | Base ticker interval for status updates. |
 | `--status-git-fast-tick-interval-seconds` | `float` | Fast ticker interval used for recent `git update` status and Sync-prefix loading animation. Default: `0.5`. |
 | `--status-git-fast-tick-window-seconds` | `float` | Duration of fast ticker mode after `git update` activity. |
-| `--status-opened-events-disable` | `bool` | Disable status module processing for `opened` events. |
+| `--status-git-sync-prefix-cycle-pause-seconds` | `float` | Pause between git-sync prefix animation cycles. Default: `1.0`. |
+| `--status-opened-events` | `bool` | Enable status module processing for `opened` events. Disabled by default. |
 
 Examples:
 
@@ -155,7 +156,8 @@ Examples:
 --status-banner "Working"
 --status-animation "loading" "loading." "loading.."
 --status-animation-speed-milliseconds 800
---status-opened-events-disable
+--status-git-sync-prefix-cycle-pause-seconds 1.0
+--status-opened-events
 ```
 
 ## Linker
