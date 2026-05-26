@@ -12,7 +12,7 @@ from lucy_notes_manager.modules.abstract_module import (
     IgnoreMap,
     System,
 )
-from lucy_notes_manager.modules.today import Today
+from lucy_notes_manager.modules.archive import Archive
 
 
 class DropDir(AbstractModule):
@@ -21,19 +21,19 @@ class DropDir(AbstractModule):
 
     template: Template = [
         (
-            "--dropdir-today-clean-paths",
+            "--dropdir-archive-clean-paths",
             str,
             [],
-            "Directories where moved today-now files are immediately archived into today-past. "
-            "Example: --dropdir-today-clean-paths cleanup ~/Notes/cleanup",
+            "Directories where moved archive source files are immediately archived into archive destination files. "
+            "Example: --dropdir-archive-clean-paths cleanup ~/Notes/cleanup",
             False,
         ),
         (
-            "--dropdir-today-clean-delay-milliseconds",
+            "--dropdir-archive-clean-delay-milliseconds",
             int,
             0,
-            "Delay before triggering today clean after instant move-back (milliseconds). "
-            "Example: --dropdir-today-clean-delay-milliseconds 1200",
+            "Delay before triggering archive clean after instant move-back (milliseconds). "
+            "Example: --dropdir-archive-clean-delay-milliseconds 1200",
             False,
         ),
     ]
@@ -112,15 +112,15 @@ class DropDir(AbstractModule):
         return src_path, {dest_path: 1, src_path: 1}
 
     @staticmethod
-    def _find_today_module(system: System) -> Optional[Today]:
+    def _find_archive_module(system: System) -> Optional[Archive]:
         for module in system.modules:
-            if isinstance(module, Today):
+            if isinstance(module, Archive):
                 return module
         return None
 
     @staticmethod
     def _delay_seconds_from_config(ctx: Context) -> float:
-        raw_value = ctx.config.get("dropdir_today_clean_delay_milliseconds", 0)
+        raw_value = ctx.config.get("dropdir_archive_clean_delay_milliseconds", 0)
         try:
             delay_ms = int(raw_value)
         except (TypeError, ValueError):
@@ -130,7 +130,7 @@ class DropDir(AbstractModule):
         return delay_ms / 1000.0
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        selectors = list(ctx.config.get("dropdir_today_clean_paths", []))
+        selectors = list(ctx.config.get("dropdir_archive_clean_paths", []))
         if not selectors:
             return None
 
@@ -143,8 +143,8 @@ class DropDir(AbstractModule):
             destination_path=file_path,
         )
 
-        today_module = self._find_today_module(system)
-        if today_module is None:
+        archive_module = self._find_archive_module(system)
+        if archive_module is None:
             return move_back_changed
 
         action_ctx = Context(
@@ -152,17 +152,17 @@ class DropDir(AbstractModule):
             config=ctx.config,
             arg_lines=ctx.arg_lines,
         )
-        resolved = today_module._resolve_paths(action_ctx)
+        resolved = archive_module._resolve_paths(action_ctx)
         if not resolved:
             return move_back_changed
-        now_path, _past_path = resolved
+        src_path, _dest_path = resolved
 
-        if canonical_path(now_path) != canonical_path(action_path):
+        if canonical_path(src_path) != canonical_path(action_path):
             return move_back_changed
 
         delay_seconds = self._delay_seconds_from_config(ctx)
         if delay_seconds > 0:
             time.sleep(delay_seconds)
 
-        today_changed = today_module.archive_now_to_past(action_ctx, force=True)
-        return self._merge_ignore_maps(move_back_changed, today_changed)
+        archive_changed = archive_module.archive_src_to_dest(action_ctx, force=True)
+        return self._merge_ignore_maps(move_back_changed, archive_changed)

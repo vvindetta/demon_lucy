@@ -18,7 +18,9 @@ class _ObserverState:
 
 
 def _run_main_with_flag(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    watch_paths: list[str] | None = None,
 ) -> _ObserverState:
     state = _ObserverState()
 
@@ -68,7 +70,7 @@ def _run_main_with_flag(
             {
                 "sys_log_level": "info",
                 "sys_log_format": "%(message)s",
-                "sys_watch_paths": [str(tmp_path)],
+                "sys_watch_paths": watch_paths if watch_paths is not None else [str(tmp_path)],
                 "sys_opened_event_cooldown_seconds": 20,
                 "sys_disable_opened_events": True,
                 "sys_notification_provider": "auto",
@@ -109,7 +111,7 @@ def test_main_schedules_observer_and_modules(
         "linker",
         "dropdir",
         "formatter",
-        "today",
+        "archive",
         "sys",
         "kdeconnect_sync",
         "git",
@@ -139,3 +141,33 @@ def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
 
     with pytest.raises(ValueError):
         main_daemon.main()
+
+
+def test_main_raises_when_startup_args_are_invalid(monkeypatch):
+    monkeypatch.setattr(
+        main_daemon,
+        "setup_config_and_cli_args",
+        lambda template: ({}, []),
+    )
+
+    with pytest.raises(ValueError):
+        main_daemon.main()
+
+
+def test_main_expands_user_paths_before_scheduling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    home_dir = tmp_path / "home"
+    notes_dir = home_dir / "notes"
+    notes_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    state = _run_main_with_flag(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        watch_paths=["~/notes"],
+    )
+
+    assert len(state.scheduled) == 1
+    _handler, scheduled_path, _recursive = state.scheduled[0]
+    assert scheduled_path == str(notes_dir.resolve())

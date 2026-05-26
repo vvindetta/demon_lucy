@@ -25,11 +25,11 @@ def test_select_lucy_modules_exclude_removes_from_default_list():
 
 def test_select_lucy_modules_include_then_exclude_applies_exclude():
     modules = select_lucy_modules(
-        include_names=["git", "status", "today"],
+        include_names=["git", "status", "archive"],
         exclude_names=["status"],
     )
     names = _module_names(modules)
-    assert set(names) == {"git", "today"}
+    assert set(names) == {"git", "archive"}
 
 
 def test_select_lucy_modules_rejects_unknown_include():

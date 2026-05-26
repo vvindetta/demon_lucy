@@ -160,3 +160,22 @@ def test_setup_config_and_cli_args_keeps_config_values_when_cli_uses_defaults(
     assert unknown == []
     assert known["sys_watch_paths"] == ["/notes/a", "/notes/b"]
     assert known["sys_log_level"] == "debug"
+
+
+def test_setup_config_and_cli_args_returns_empty_known_on_invalid_startup_value(
+    monkeypatch,
+):
+    template = [
+        ("--sys-config-path", str, "config.txt", "", False),
+        ("--count", int, 0, "", False),
+    ]
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["prog", "--count", "oops"],
+    )
+
+    known, unknown = setup_config_and_cli_args(template=template)
+    assert known == {}
+    assert unknown == ["--count", "oops"]

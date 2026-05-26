@@ -156,7 +156,7 @@ Hot reload and module install/uninstall commands are not implemented yet; restar
 
 - `linker`: creates or cleans repository-root symlinks for active notes.
 - `dropdir`: handles moved files in configured drop directories. Useful for temporary inbox/drop folders where moving a file should immediately trigger a follow-up action.
-- `today`: archives stale active notes into a past/archive note. Useful for keeping one current daily scratch note while automatically moving old content into history.
+- `archive`: archives stale active notes into a past/archive note. Useful for keeping one current daily scratch note while automatically moving old content into history.
 - `cmd`: runs local commands and writes command output into notes. Disabled by default.
 
 **Integrations:**

@@ -140,6 +140,9 @@ def setup_config_and_cli_args(
         template=template,
         args=sys.argv[1:],
     )
+    config_path = known_startup_args.get("sys_config_path")
+    if not isinstance(config_path, str) or not config_path.strip():
+        return known_startup_args, unknown_startup_args
     defaults_by_key: Dict[str, Any] = {}
     for item in template:
         flag, _typ, default, _desc, _required = parse_template_item(item)
@@ -148,13 +151,13 @@ def setup_config_and_cli_args(
     # 2. Parse config-file args
     try:
         known_config_args, unknown_config_args = get_config_args(
-            path=known_startup_args["sys_config_path"],
+            path=config_path,
             template=template,
         )
     except FileNotFoundError:
         logging.basicConfig(level=logging.INFO)
         logging.warning(
-            f"Config file {known_startup_args['sys_config_path']} not found, using only startup arguments",
+            f"Config file {config_path} not found, using only startup arguments",
         )
         return known_startup_args, unknown_startup_args
 

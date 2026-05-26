@@ -62,3 +62,19 @@ def test_apply_returns_none_when_banner_is_not_configured(tmp_path: Path):
         arg_lines={},
     )
     assert changed is None
+
+
+def test_apply_returns_none_when_banner_line_is_missing(tmp_path: Path):
+    path = tmp_path / "note.md"
+    original = "text\n"
+    path.write_text(original, encoding="utf-8")
+
+    module = Banner()
+    changed = module._apply(
+        path=str(path),
+        config={"banner": "Hello", "banner_separator": "---"},
+        arg_lines={},
+    )
+
+    assert changed is None
+    assert path.read_text(encoding="utf-8") == original

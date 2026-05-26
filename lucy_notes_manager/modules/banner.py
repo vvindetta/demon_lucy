@@ -43,14 +43,20 @@ class Banner(AbstractModule):
         if not config["banner"]:
             return None
 
+        banner_lines = arg_lines.get("banner") if isinstance(arg_lines, dict) else None
+        if not banner_lines:
+            return None
+        try:
+            lineno_1based = int(banner_lines[0])
+        except (TypeError, ValueError, IndexError):
+            return None
+
         banner_text = config["banner"].strip()
         if banner_text == "date":
             banner_text = str(date.today())
 
         sep = config["banner_separator"].strip()
         sep_line = sep + ("\n" if not sep.endswith("\n") else "")
-
-        lineno_1based = arg_lines["banner"][0]
 
         with open(path, "r+", encoding="utf-8") as f:
             lines = f.readlines()

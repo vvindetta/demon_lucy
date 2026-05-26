@@ -157,10 +157,12 @@ def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
 
 
 def main() -> int:
-    config, unknown_args = setup_config_and_cli_args(template=ONESHOT_STARTUP_TEMPLATE)
     try:
+        config, unknown_args = setup_config_and_cli_args(
+            template=ONESHOT_STARTUP_TEMPLATE
+        )
         return run_oneshot(config=config, unknown_args=unknown_args)
-    except ValueError as exc:
+    except (ValueError, KeyError) as exc:
         logging.basicConfig(level=logging.ERROR, force=True)
         logging.error(str(exc))
         return 2

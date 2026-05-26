@@ -6,6 +6,7 @@ from watchdog.observers import Observer
 
 from lucy_notes_manager.file_handler import FileHandler
 from lucy_notes_manager.lib.args import setup_config_and_cli_args
+from lucy_notes_manager.lib.path import abs_expand_path
 from lucy_notes_manager.module_manager import ModuleManager
 from lucy_notes_manager.runtime import (
     LUCY_STARTUP_TEMPLATE,
@@ -17,16 +18,15 @@ from lucy_notes_manager.runtime import (
 
 def main() -> int:
     config, unknown_args = setup_config_and_cli_args(template=LUCY_STARTUP_TEMPLATE)
-
-    configure_logging(config)
-
-    notes_dirs = config["sys_watch_paths"]
+    notes_dirs = config.get("sys_watch_paths")
     if not notes_dirs:
         raise ValueError("No --sys-watch-paths was setuped")
     if "/path/to/note/dir" in notes_dirs:
         raise ValueError(
             "--sys-watch-paths: '/path/to/note/dir' is not a valid path. Please edit your config."
         )
+
+    configure_logging(config)
 
     modules = ModuleManager(
         modules=select_lucy_modules(
@@ -52,7 +52,7 @@ def main() -> int:
                 open_cooldown_seconds=config["sys_opened_event_cooldown_seconds"],
                 process_opened_events=not config["sys_disable_opened_events"],
             ),
-            path=path,
+            path=abs_expand_path(path),
             recursive=True,
         )
 

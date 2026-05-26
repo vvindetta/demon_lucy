@@ -25,6 +25,8 @@ def _reset_plasma_globals(monkeypatch):
         "_STATE",
         plasma_mod.SyncState(doc_hash=None, bold_items_hash=None, css_style=None),
     )
+    monkeypatch.setattr(plasma_mod, "_STATE_BY_KEY", {})
+    monkeypatch.setattr(plasma_mod, "_INIT_DONE_BY_KEY", {})
 
 
 def _canonicalize_md(md_text: str) -> str:
@@ -567,6 +569,39 @@ def test_engine_state_is_isolated_per_sync_context():
     assert plan_b.next_state.doc_hash != state_a.doc_hash
 
 
+def test_module_state_is_isolated_per_file_pair_with_same_content(tmp_path: Path):
+    md_a = tmp_path / "a.md"
+    widget_a = tmp_path / "a.html"
+    md_b = tmp_path / "b.md"
+    widget_b = tmp_path / "b.html"
+
+    md_a.write_text("**same**\n", encoding="utf-8")
+    md_b.write_text("**same**\n", encoding="utf-8")
+
+    module = PlasmaWidget()
+    ignore_a = module._from_markdown(
+        sync_key=(str(widget_a.resolve()), str(md_a.resolve()), None),
+        markdown_path=str(md_a),
+        widget_path=str(widget_a),
+        bold_widget_path=None,
+        css_style=False,
+        config=_NOTIFY_CFG,
+    )
+    ignore_b = module._from_markdown(
+        sync_key=(str(widget_b.resolve()), str(md_b.resolve()), None),
+        markdown_path=str(md_b),
+        widget_path=str(widget_b),
+        bold_widget_path=None,
+        css_style=False,
+        config=_NOTIFY_CFG,
+    )
+
+    assert ignore_a is not None
+    assert ignore_b is not None
+    assert widget_a.exists()
+    assert widget_b.exists()
+
+
 def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
     md_path = tmp_path / "todo.md"
     widget_path = tmp_path / "widget.html"
@@ -578,7 +613,8 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
         bold_items_hash="bold-before",
         css_style=False,
     )
-    monkeypatch.setattr(plasma_mod, "_STATE", initial_state)
+    sync_key = (str(widget_path.resolve()), str(md_path.resolve()), None)
+    monkeypatch.setattr(plasma_mod, "_STATE_BY_KEY", {sync_key: initial_state})
 
     real_write = plasma_mod._write_text_atomic
 
@@ -602,6 +638,7 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(plasma_mod, "_write_text_atomic", fail_widget_write)
 
     ignore = PlasmaWidget()._from_markdown(
+        sync_key=sync_key,
         markdown_path=str(md_path),
         widget_path=str(widget_path),
         bold_widget_path=None,
@@ -610,7 +647,7 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
     )
 
     assert ignore is None
-    assert plasma_mod._STATE == initial_state
+    assert plasma_mod._STATE_BY_KEY.get(sync_key) == initial_state
     assert widget_path.read_text(encoding="utf-8") == "old-widget"
 
 
@@ -625,7 +662,8 @@ def test_read_error_is_not_treated_as_empty_input(tmp_path: Path, monkeypatch):
         bold_items_hash="bold-before",
         css_style=False,
     )
-    monkeypatch.setattr(plasma_mod, "_STATE", initial_state)
+    sync_key = (str(widget_path.resolve()), str(md_path.resolve()), None)
+    monkeypatch.setattr(plasma_mod, "_STATE_BY_KEY", {sync_key: initial_state})
 
     real_open = open
 
@@ -639,6 +677,7 @@ def test_read_error_is_not_treated_as_empty_input(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(plasma_mod, "open", fail_markdown_read, raising=False)
 
     ignore = PlasmaWidget()._from_markdown(
+        sync_key=sync_key,
         markdown_path=str(md_path),
         widget_path=str(widget_path),
         bold_widget_path=None,
@@ -647,7 +686,7 @@ def test_read_error_is_not_treated_as_empty_input(tmp_path: Path, monkeypatch):
     )
 
     assert ignore is None
-    assert plasma_mod._STATE == initial_state
+    assert plasma_mod._STATE_BY_KEY.get(sync_key) == initial_state
     assert widget_path.read_text(encoding="utf-8") == "old-widget"
 
 
@@ -665,7 +704,12 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
         bold_items_hash="bold-before",
         css_style=False,
     )
-    monkeypatch.setattr(plasma_mod, "_STATE", initial_state)
+    sync_key = (
+        str(widget_path.resolve()),
+        str(md_path.resolve()),
+        str(mirror_path.resolve()),
+    )
+    monkeypatch.setattr(plasma_mod, "_STATE_BY_KEY", {sync_key: initial_state})
 
     mirror_old = mirror_path.read_text(encoding="utf-8")
     real_write = plasma_mod._write_text_atomic
@@ -691,6 +735,7 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
     monkeypatch.setattr(plasma_mod, "_write_text_atomic", fail_mirror_write)
 
     ignore = PlasmaWidget()._from_markdown(
+        sync_key=sync_key,
         markdown_path=str(md_path),
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
@@ -699,6 +744,6 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
     )
 
     assert ignore is None
-    assert plasma_mod._STATE == initial_state
+    assert plasma_mod._STATE_BY_KEY.get(sync_key) == initial_state
     assert widget_path.read_text(encoding="utf-8") == "old-widget"
     assert mirror_path.read_text(encoding="utf-8") == "old-mirror"

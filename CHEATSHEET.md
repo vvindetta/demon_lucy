@@ -76,7 +76,7 @@ These can be set globally or inside notes.
 Example:
 
 ```text
---sys-modules git status today
+--sys-modules git status archive
 --sys-modules-exclude status
 --modules-priority banner=5 renamer=20 git=50
 ```
@@ -105,7 +105,7 @@ Examples:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--banner` | `str` | Insert ASCII banner text. Value `date` inserts today's date. |
+| `--banner` | `str` | Insert ASCII banner text. Value `date` inserts archive's date. |
 | `--banner-separator` | `str` | Separator line used before a banner inserted at file start. |
 
 ## Renamer
@@ -171,18 +171,20 @@ Examples:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--dropdir-today-clean-paths` | `str[]` | Directories where moved `today-now` files are immediately archived. |
-| `--dropdir-today-clean-delay-milliseconds` | `int` | Delay before triggering today cleanup after move-back. |
+| `--dropdir-archive-clean-paths` | `str[]` | Directories where moved archive source files are immediately archived. |
+| `--dropdir-archive-clean-delay-milliseconds` | `int` | Delay before triggering archive cleanup after move-back. |
 
-## Today
+## Archive
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--today-now-path` | `str` | Active note file to archive when stale. Default: `now.md`. |
-| `--today-past-path` | `str` | Archive file path. Default: `past.md`. |
-| `--today-idle-hours` | `float` | Archive `today-now` when its age is at least this many hours. |
-| `--today-past` | `bool` | Force move `today-now` to `today-past` on this event. |
-| `--today-force-filesystem-mtime` | `bool` | Use filesystem mtime even inside Git repositories. |
+| `--archive` | `bool` | Force archive move for this event. |
+| `--archive-pair` | `str[]` | Archive pair: `<src> <dest> [idle_hours_int]`. |
+| `--archive-default-dest-path` | `str` | Fallback destination file when `--archive-pair` is missing. |
+| `--archive-idle-hours` | `float` | Archive source when its age is at least this many hours. |
+| `--archive-date-prefix` | `str` | Text before archive date in history header. Default: `-- `. |
+| `--archive-date-suffix` | `str` | Text after archive date in history header. Default: empty string. |
+| `--archive-force-filesystem-mtime` | `bool` | Use filesystem mtime even inside Git repositories. |
 
 
 ## Cmd Module

@@ -6,40 +6,43 @@ from pathlib import Path
 from watchdog.events import FileMovedEvent
 
 import lucy_notes_manager.modules.dropdir as dropdir_mod
-import lucy_notes_manager.modules.today as today_mod
+import lucy_notes_manager.modules.archive as archive_mod
 from lucy_notes_manager.modules.abstract_module import Context, System
 from lucy_notes_manager.modules.dropdir import DropDir
-from lucy_notes_manager.modules.today import Today
+from lucy_notes_manager.modules.archive import Archive
 
 
-def _freeze_today(monkeypatch, year: int, month: int, day: int) -> None:
+def _freeze_archive_day(monkeypatch, year: int, month: int, day: int) -> None:
     class _FakeDatetime:
         @classmethod
         def now(cls):
             return datetime(year, month, day, 12, 0, 0)
 
-    monkeypatch.setattr(today_mod, "datetime", _FakeDatetime)
+    monkeypatch.setattr(archive_mod, "datetime", _FakeDatetime)
 
 
 def _ctx(path: Path, cleanup_selector: str, *, delay_ms: int = 0) -> Context:
     return Context(
         path=str(path),
         config={
-            "dropdir_today_clean_paths": [cleanup_selector],
-            "dropdir_today_clean_delay_milliseconds": delay_ms,
-            "today_now_path": "now.md",
-            "today_past_path": "past.md",
-            "today_idle_hours": 12.0,
-            "today_force_filesystem_mtime": False,
+            "dropdir_archive_clean_paths": [cleanup_selector],
+            "dropdir_archive_clean_delay_milliseconds": delay_ms,
+            "archive": False,
+            "archive_pair": ["now.md", "past.md"],
+            "archive_default_dest_path": "past.md",
+            "archive_idle_hours": 12.0,
+            "archive_date_prefix": "-- ",
+            "archive_date_suffix": "",
+            "archive_force_filesystem_mtime": False,
         },
         arg_lines={},
     )
 
 
-def test_dropdir_forces_today_archive_when_now_moved_into_cleanup(
+def test_dropdir_forces_archive_when_now_moved_into_cleanup(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _freeze_today(monkeypatch, 2026, 5, 3)
+    _freeze_archive_day(monkeypatch, 2026, 5, 3)
 
     cleanup_dir = tmp_path / "cleanup"
     cleanup_dir.mkdir(parents=True, exist_ok=True)
@@ -50,9 +53,9 @@ def test_dropdir_forces_today_archive_when_now_moved_into_cleanup(
     src_path.parent.mkdir(parents=True, exist_ok=True)
 
     dropdir = DropDir()
-    today = Today()
+    archive = Archive()
     event = FileMovedEvent(str(src_path), str(now_path))
-    system = System(event=event, global_template=[], modules=[dropdir, today])
+    system = System(event=event, global_template=[], modules=[dropdir, archive])
 
     changed = dropdir.moved(_ctx(now_path, "cleanup"), system)
 
@@ -67,8 +70,8 @@ def test_dropdir_forces_today_archive_when_now_moved_into_cleanup(
     assert past_path.read_text(encoding="utf-8") == "-- 03.05.2026\nclean this now\n"
 
 
-def test_dropdir_ignores_non_today_filename(tmp_path: Path, monkeypatch) -> None:
-    _freeze_today(monkeypatch, 2026, 5, 3)
+def test_dropdir_ignores_non_archive_filename(tmp_path: Path, monkeypatch) -> None:
+    _freeze_archive_day(monkeypatch, 2026, 5, 3)
 
     cleanup_dir = tmp_path / "cleanup"
     cleanup_dir.mkdir(parents=True, exist_ok=True)
@@ -79,9 +82,9 @@ def test_dropdir_ignores_non_today_filename(tmp_path: Path, monkeypatch) -> None
     src_path.parent.mkdir(parents=True, exist_ok=True)
 
     dropdir = DropDir()
-    today = Today()
+    archive = Archive()
     event = FileMovedEvent(str(src_path), str(file_path))
-    system = System(event=event, global_template=[], modules=[dropdir, today])
+    system = System(event=event, global_template=[], modules=[dropdir, archive])
 
     changed = dropdir.moved(_ctx(file_path, "cleanup"), system)
 
@@ -91,10 +94,10 @@ def test_dropdir_ignores_non_today_filename(tmp_path: Path, monkeypatch) -> None
     assert not (src_path.parent / "past.md").exists()
 
 
-def test_dropdir_applies_custom_delay_before_today_clean(
+def test_dropdir_applies_custom_delay_before_archive_clean(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _freeze_today(monkeypatch, 2026, 5, 3)
+    _freeze_archive_day(monkeypatch, 2026, 5, 3)
 
     slept: list[float] = []
     monkeypatch.setattr(dropdir_mod.time, "sleep", lambda value: slept.append(value))
@@ -108,9 +111,9 @@ def test_dropdir_applies_custom_delay_before_today_clean(
     src_path.parent.mkdir(parents=True, exist_ok=True)
 
     dropdir = DropDir()
-    today = Today()
+    archive = Archive()
     event = FileMovedEvent(str(src_path), str(now_path))
-    system = System(event=event, global_template=[], modules=[dropdir, today])
+    system = System(event=event, global_template=[], modules=[dropdir, archive])
 
     _ = dropdir.moved(_ctx(now_path, "cleanup", delay_ms=1500), system)
 

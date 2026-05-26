@@ -27,6 +27,6 @@ export PYTHONPATH="$LUCY_HOME${PYTHONPATH:+:$PYTHONPATH}"
   echo "=== $(date '+%Y-%m-%d %H:%M:%S') lucy oneshot start ==="
   "$PYTHON_BIN" main_oneshot.py \
     --oneshot-paths "$NOTES_REPO" \
-    --sys-modules git today \
+    --sys-modules git archive \
     "$@"
 } > >(tee -a "$ONESHOT_LOG") 2>&1

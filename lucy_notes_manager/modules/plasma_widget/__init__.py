@@ -1,6 +1,7 @@
 import logging
 import os
 import tempfile
+import threading
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 
@@ -62,6 +63,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 IgnoreMap = Dict[str, int]
+SyncKey = tuple[str, str, Optional[str]]
 
 _IGNORE_BURST = 1
 
@@ -75,6 +77,40 @@ _STATE: SyncState = SyncState(
     bold_items_hash=None,
     css_style=None,
 )
+
+_STATE_GUARD = threading.Lock()
+_STATE_BY_KEY: dict[SyncKey, SyncState] = {}
+_INIT_DONE_BY_KEY: dict[SyncKey, bool] = {}
+
+
+def _sync_key(
+    widget_path: str,
+    markdown_path: str,
+    bold_widget_path: Optional[str],
+) -> SyncKey:
+    return (canonical_path(widget_path), canonical_path(markdown_path), bold_widget_path)
+
+
+def _state_for_key(sync_key: SyncKey) -> SyncState:
+    with _STATE_GUARD:
+        state = _STATE_BY_KEY.get(sync_key)
+        if state is not None:
+            return state
+    return SyncState(
+        doc_hash=None,
+        bold_items_hash=None,
+        css_style=None,
+    )
+
+
+def _set_state_for_key(sync_key: SyncKey, state: SyncState) -> None:
+    global _STATE, _INIT_DONE
+    with _STATE_GUARD:
+        _STATE_BY_KEY[sync_key] = state
+        _INIT_DONE_BY_KEY[sync_key] = True
+    # Keep legacy globals for compatibility/introspection.
+    _STATE = state
+    _INIT_DONE = True
 
 
 # ---------------- IO ---------------- #
@@ -235,14 +271,15 @@ def _inc_ignore(ignore: IgnoreMap, path: str, times: int = 1) -> None:
 
 
 def _init_from_disk_once(
+    sync_key: SyncKey,
     widget_path: str,
     markdown_path: str,
     bold_widget_path: Optional[str],
 ) -> None:
     global _INIT_DONE, _STATE
-
-    if _INIT_DONE:
-        return
+    with _STATE_GUARD:
+        if _INIT_DONE_BY_KEY.get(sync_key, False):
+            return
 
     _ = canonical_path(bold_widget_path) if bold_widget_path else None
     markdown_read = _read_file_checked(markdown_path)
@@ -250,20 +287,26 @@ def _init_from_disk_once(
     if not markdown_read.ok or not widget_read.ok:
         return
 
-    _STATE = bootstrap_state(markdown_read.content, widget_read.content)
+    state = bootstrap_state(markdown_read.content, widget_read.content)
+    with _STATE_GUARD:
+        if _INIT_DONE_BY_KEY.get(sync_key, False):
+            return
+        _STATE_BY_KEY[sync_key] = state
+        _INIT_DONE_BY_KEY[sync_key] = True
+    # Keep legacy globals for compatibility/introspection.
+    _STATE = state
     _INIT_DONE = True
 
 
 def _apply_sync_plan(
     *,
+    sync_key: SyncKey,
     plan: SyncPlan,
     widget_path: str,
     markdown_path: str,
     bold_widget_path: Optional[str],
     config: Mapping[str, Any],
 ) -> Optional[IgnoreMap]:
-    global _STATE
-
     ignore: IgnoreMap = {}
     pending = _collect_pending_writes(
         plan=plan,
@@ -280,7 +323,7 @@ def _apply_sync_plan(
     ):
         return None
 
-    _STATE = plan.next_state
+    _set_state_for_key(sync_key, plan.next_state)
 
     return ignore or None
 
@@ -320,8 +363,10 @@ class PlasmaWidget(AbstractModule):
 
     def _handle(self, ctx: Context) -> Optional[IgnoreMap]:
         widget_path, markdown_path, bold_widget_path, css_style = self._cfg(ctx)
+        sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
 
         _init_from_disk_once(
+            sync_key,
             widget_path,
             markdown_path,
             bold_widget_path,
@@ -334,28 +379,31 @@ class PlasmaWidget(AbstractModule):
 
         if path == md_abs:
             return self._from_markdown(
-                markdown_path,
-                widget_path,
-                bold_widget_path,
-                css_style,
-                ctx.config,
+                sync_key=sync_key,
+                markdown_path=markdown_path,
+                widget_path=widget_path,
+                bold_widget_path=bold_widget_path,
+                css_style=css_style,
+                config=ctx.config,
             )
 
         if bold_abs and path == bold_abs:
             return self._from_bold_mirror(
-                widget_path,
-                markdown_path,
-                bold_widget_path,
-                css_style,
-                ctx.config,
+                sync_key=sync_key,
+                widget_path=widget_path,
+                markdown_path=markdown_path,
+                bold_widget_path=bold_widget_path,
+                css_style=css_style,
+                config=ctx.config,
             )
 
         if path == widget_abs:
             return self._from_main_plasma(
-                widget_path,
-                markdown_path,
-                bold_widget_path,
-                css_style,
+                sync_key=sync_key,
+                widget_path=widget_path,
+                markdown_path=markdown_path,
+                bold_widget_path=bold_widget_path,
+                css_style=css_style,
                 html_path=path,
                 config=ctx.config,
             )
@@ -369,7 +417,10 @@ class PlasmaWidget(AbstractModule):
         bold_widget_path: Optional[str],
         css_style: bool,
         config: Mapping[str, Any],
+        sync_key: Optional[SyncKey] = None,
     ) -> Optional[IgnoreMap]:
+        if sync_key is None:
+            sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
         markdown_read = _read_file_checked(markdown_path)
         widget_read = _read_file_checked(widget_path)
         mirror_read = _read_file_checked(bold_widget_path) if bold_widget_path else None
@@ -380,7 +431,7 @@ class PlasmaWidget(AbstractModule):
             return None
 
         plan = plan_from_markdown(
-            state=_STATE,
+            state=_state_for_key(sync_key),
             markdown_text=markdown_read.content,
             markdown_exists=markdown_read.exists,
             widget_html_current=widget_read.content,
@@ -400,6 +451,7 @@ class PlasmaWidget(AbstractModule):
             return None
 
         ignore = _apply_sync_plan(
+            sync_key=sync_key,
             plan=plan,
             widget_path=widget_path,
             markdown_path=markdown_path,
@@ -422,7 +474,10 @@ class PlasmaWidget(AbstractModule):
         css_style: bool,
         html_path: str,
         config: Mapping[str, Any],
+        sync_key: Optional[SyncKey] = None,
     ) -> Optional[IgnoreMap]:
+        if sync_key is None:
+            sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
         if not os.path.exists(html_path):
             return None
 
@@ -436,7 +491,7 @@ class PlasmaWidget(AbstractModule):
             return None
 
         plan = plan_from_main_plasma(
-            state=_STATE,
+            state=_state_for_key(sync_key),
             widget_html_current=widget_read.content,
             widget_exists=True,
             markdown_text_current=markdown_read.content,
@@ -447,6 +502,7 @@ class PlasmaWidget(AbstractModule):
         )
 
         ignore = _apply_sync_plan(
+            sync_key=sync_key,
             plan=plan,
             widget_path=widget_path,
             markdown_path=markdown_path,
@@ -468,11 +524,14 @@ class PlasmaWidget(AbstractModule):
         bold_widget_path: Optional[str],
         css_style: bool,
         config: Mapping[str, Any],
+        sync_key: Optional[SyncKey] = None,
     ) -> Optional[IgnoreMap]:
         """
         Optional: editing mirror updates MAIN bold lines.
         Mirror contains one line per bold-line in MAIN (line-safe mapping).
         """
+        if sync_key is None:
+            sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
         if not bold_widget_path or not os.path.exists(bold_widget_path):
             return None
 
@@ -483,7 +542,7 @@ class PlasmaWidget(AbstractModule):
             return None
 
         plan = plan_from_bold_mirror(
-            state=_STATE,
+            state=_state_for_key(sync_key),
             mirror_html_current=mirror_read.content,
             mirror_exists=True,
             widget_html_current=widget_read.content,
@@ -492,6 +551,7 @@ class PlasmaWidget(AbstractModule):
         )
 
         ignore = _apply_sync_plan(
+            sync_key=sync_key,
             plan=plan,
             widget_path=widget_path,
             markdown_path=markdown_path,

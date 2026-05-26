@@ -9,30 +9,33 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
-import lucy_notes_manager.modules.today as today_mod
+import lucy_notes_manager.modules.archive as archive_mod
 from lucy_notes_manager.modules.abstract_module import Context, System
-from lucy_notes_manager.modules.today import Today
+from lucy_notes_manager.modules.archive import Archive
 
 
 def _ctx_for(
     path: Path,
     *,
     force_fs: bool = False,
-    force_past: bool = False,
-    now_path: str = "now.md",
-    past_path: str = "past.md",
+    force_archive: bool = False,
+    pair_values: list[str] | None = None,
+    default_dest_path: str = "past.md",
 ) -> Context:
+    resolved_pair = list(pair_values) if pair_values is not None else ["now.md", "past.md"]
     config: dict[str, object] = {
-        "today_now_path": now_path,
-        "today_past_path": past_path,
-        "today_idle_hours": 12.0,
-        "today_past": False,
-        "today_force_filesystem_mtime": False,
+        "archive": False,
+        "archive_pair": resolved_pair,
+        "archive_default_dest_path": default_dest_path,
+        "archive_idle_hours": 12.0,
+        "archive_date_prefix": "-- ",
+        "archive_date_suffix": "",
+        "archive_force_filesystem_mtime": False,
     }
     if force_fs:
-        config["today_force_filesystem_mtime"] = True
-    if force_past:
-        config["today_past"] = True
+        config["archive_force_filesystem_mtime"] = True
+    if force_archive:
+        config["archive"] = True
 
     return Context(
         path=str(path),
@@ -41,7 +44,7 @@ def _ctx_for(
     )
 
 
-def test_supports_custom_today_now_file(tmp_path: Path, monkeypatch) -> None:
+def test_supports_custom_archive_now_file(tmp_path: Path, monkeypatch) -> None:
     _freeze_now(monkeypatch, 2026, 5, 2)
 
     now_path = tmp_path / "active.md"
@@ -51,8 +54,8 @@ def test_supports_custom_today_now_file(tmp_path: Path, monkeypatch) -> None:
     trigger_path = tmp_path / "other.md"
     trigger_path.write_text("x\n", encoding="utf-8")
 
-    module = Today()
-    ctx = _ctx_for(trigger_path, now_path="active.md")
+    module = Archive()
+    ctx = _ctx_for(trigger_path, pair_values=["active.md", "past.md"])
     system = System(
         event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
     )
@@ -80,8 +83,8 @@ def test_relative_past_is_anchored_to_absolute_now_path(
     trigger_path = random_dir / "other.md"
     trigger_path.write_text("x\n", encoding="utf-8")
 
-    module = Today()
-    ctx = _ctx_for(trigger_path, now_path=str(now_path), past_path="past.md")
+    module = Archive()
+    ctx = _ctx_for(trigger_path, pair_values=[str(now_path), "past.md"])
     system = System(
         event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
     )
@@ -106,7 +109,7 @@ def _freeze_now(monkeypatch, year: int, month: int, day: int) -> None:
         def now(cls):
             return datetime(year, month, day, 9, 0, 0)
 
-    monkeypatch.setattr(today_mod, "datetime", _FakeDatetime)
+    monkeypatch.setattr(archive_mod, "datetime", _FakeDatetime)
 
 
 @pytest.mark.parametrize(
@@ -135,7 +138,7 @@ def test_archives_stale_now_md_when_triggered_by_now_or_sibling_event(
     if event_target_name != "now.md":
         trigger_path.write_text("x\n", encoding="utf-8")
 
-    module = Today()
+    module = Archive()
     ctx = _ctx_for(trigger_path)
     system = System(
         event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
@@ -154,7 +157,7 @@ def test_does_not_archive_when_file_is_not_stale(tmp_path: Path) -> None:
     now_path.write_text("keep\n", encoding="utf-8")
     _make_stale(now_path, 1.0)
 
-    module = Today()
+    module = Archive()
     ctx = _ctx_for(now_path)
     system = System(
         event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
@@ -167,7 +170,120 @@ def test_does_not_archive_when_file_is_not_stale(tmp_path: Path) -> None:
     assert not (tmp_path / "past.md").exists()
 
 
-def test_force_today_past_archives_even_when_not_stale(
+def test_compact_archive_arg_overrides_paths_and_idle_hours(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    active_path = tmp_path / "active.md"
+    active_path.write_text("move with compact arg\n", encoding="utf-8")
+    _make_stale(active_path, 2.0)
+
+    trigger_path = tmp_path / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=["active.md", "history.md", "1"],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "history.md"
+    assert ignore == {str(active_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert active_path.read_text(encoding="utf-8") == ""
+    assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nmove with compact arg\n"
+
+
+def test_compact_archive_arg_without_idle_value_uses_default_idle_hours(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    active_path = tmp_path / "active.md"
+    active_path.write_text("use default idle\n", encoding="utf-8")
+    _make_stale(active_path, 13.0)
+
+    trigger_path = tmp_path / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=["active.md", "history.md"],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "history.md"
+    assert ignore == {str(active_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert active_path.read_text(encoding="utf-8") == ""
+    assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nuse default idle\n"
+
+
+def test_uses_default_dest_when_pair_is_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    src_path = tmp_path / "note.md"
+    src_path.write_text("fallback archive\n", encoding="utf-8")
+    _make_stale(src_path, 13.0)
+
+    module = Archive()
+    ctx = _ctx_for(
+        src_path,
+        pair_values=[],
+        default_dest_path="journal.md",
+    )
+    system = System(
+        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    dest_path = tmp_path / "journal.md"
+    assert ignore == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert src_path.read_text(encoding="utf-8") == ""
+    assert dest_path.read_text(encoding="utf-8") == "-- 01.05.2026\nfallback archive\n"
+
+
+def test_custom_archive_date_prefix_and_suffix(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("custom header\n", encoding="utf-8")
+    _make_stale(now_path, 13.0)
+
+    module = Archive()
+    ctx = _ctx_for(now_path)
+    ctx.config["archive_date_prefix"] = "### "
+    ctx.config["archive_date_suffix"] = " // archived"
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert (
+        past_path.read_text(encoding="utf-8")
+        == "### 01.05.2026 // archived\ncustom header\n"
+    )
+
+
+def test_archive_flag_archives_even_when_not_stale(
     tmp_path: Path, monkeypatch
 ) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)
@@ -176,8 +292,8 @@ def test_force_today_past_archives_even_when_not_stale(
     now_path.write_text("move now\n", encoding="utf-8")
     _make_stale(now_path, 1.0)
 
-    module = Today()
-    ctx = _ctx_for(now_path, force_past=True)
+    module = Archive()
+    ctx = _ctx_for(now_path, force_archive=True)
     system = System(
         event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
     )
@@ -190,6 +306,64 @@ def test_force_today_past_archives_even_when_not_stale(
     assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nmove now\n"
 
 
+def test_archive_flag_does_not_archive_archive_command(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text(
+        "--fmt-blank up --archive --fmt-todo\nreal text\n",
+        encoding="utf-8",
+    )
+    _make_stale(now_path, 1.0)
+
+    module = Archive()
+    ctx = _ctx_for(now_path, force_archive=True)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert (
+        past_path.read_text(encoding="utf-8")
+        == "-- 01.05.2026\n--fmt-blank up --fmt-todo\nreal text\n"
+    )
+
+
+def test_archive_pair_command_is_removed_from_archive_text(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text(
+        "--fmt-blank up --archive --archive-pair now.md past.md 1 --fmt-todo\nreal text\n",
+        encoding="utf-8",
+    )
+    _make_stale(now_path, 1.0)
+
+    module = Archive()
+    ctx = _ctx_for(now_path, force_archive=True)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert (
+        past_path.read_text(encoding="utf-8")
+        == "-- 01.05.2026\n--fmt-blank up --fmt-todo\nreal text\n"
+    )
+
+
 def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)
 
@@ -200,7 +374,7 @@ def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -
     now_path.write_text("more coffe\n", encoding="utf-8")
     _make_stale(now_path, 14.0)
 
-    module = Today()
+    module = Archive()
     ctx = _ctx_for(now_path)
     system = System(
         event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
@@ -219,7 +393,7 @@ def test_normalizes_blank_lines_before_archiving(tmp_path: Path, monkeypatch) ->
     now_path.write_text("\n\nalpha\n\n\n\n\nbeta\n\n\n", encoding="utf-8")
     _make_stale(now_path, 14.0)
 
-    module = Today()
+    module = Archive()
     ctx = _ctx_for(now_path)
     system = System(
         event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
@@ -245,7 +419,7 @@ def test_keeps_first_line_with_lucy_flags_when_archiving(
     )
     _make_stale(now_path, 14.0)
 
-    module = Today()
+    module = Archive()
     ctx = _ctx_for(now_path)
     system = System(
         event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
@@ -272,10 +446,10 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
     _make_stale(now_path, 1.0)  # fresh by filesystem mtime
 
     now_ts = time.time()
-    monkeypatch.setattr(today_mod.time, "time", lambda: now_ts)
+    monkeypatch.setattr(archive_mod.time, "time", lambda: now_ts)
 
-    module = Today()
-    monkeypatch.setattr(today_mod, "find_parent_with", lambda _p, _m: "/repo")
+    module = Archive()
+    monkeypatch.setattr(archive_mod, "find_parent_with", lambda _p, _m: "/repo")
 
     git_commit_ts = now_ts - (13.0 * 3600.0)
 
@@ -293,7 +467,7 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
             )
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    monkeypatch.setattr(today_mod.subprocess, "run", _fake_run)
+    monkeypatch.setattr(archive_mod.subprocess, "run", _fake_run)
 
     ctx = _ctx_for(now_path)
     system = System(
@@ -312,14 +486,14 @@ def test_force_fs_flag_skips_git_even_in_repo(tmp_path: Path, monkeypatch) -> No
     now_path.write_text("keep\n", encoding="utf-8")
     _make_stale(now_path, 1.0)
 
-    module = Today()
-    monkeypatch.setattr(today_mod, "find_parent_with", lambda _p, _m: "/repo")
+    module = Archive()
+    monkeypatch.setattr(archive_mod, "find_parent_with", lambda _p, _m: "/repo")
     monkeypatch.setattr(
-        today_mod.subprocess,
+        archive_mod.subprocess,
         "run",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError(
-                "git must not be called when --today-force-filesystem-mtime is enabled"
+                "git must not be called when --archive-force-filesystem-mtime is enabled"
             )
         ),
     )

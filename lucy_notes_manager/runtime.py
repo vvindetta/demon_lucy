@@ -16,7 +16,7 @@ from lucy_notes_manager.modules.plasma_widget import PlasmaWidget
 from lucy_notes_manager.modules.renamer import Renamer
 from lucy_notes_manager.modules.status import Status
 from lucy_notes_manager.modules.sys import Sys
-from lucy_notes_manager.modules.today import Today
+from lucy_notes_manager.modules.archive import Archive
 
 LUCY_STARTUP_TEMPLATE: Template = [
     (
@@ -114,7 +114,7 @@ LUCY_STARTUP_TEMPLATE: Template = [
     (
         "--sys-modules",
         str,
-        ["banner", "renamer", "linker", "formatter", "today", "sys"],
+        ["banner", "renamer", "linker", "formatter", "archive", "sys"],
         "Run only selected modules by name. Example: --sys-modules git status",
         False,
     ),
@@ -198,7 +198,7 @@ def select_lucy_modules(
         Linker,
         DropDir,
         Formatter,
-        Today,
+        Archive,
         Sys,
         KdeconnectSync,
         Git,
