@@ -275,6 +275,15 @@ class Status(
         status_prefix: str,
         fast_mode: bool,
     ) -> str:
+        def _letters_to_lower(text: str) -> str:
+            out: list[str] = []
+            for ch in text:
+                if ch.isalpha():
+                    out.append(ch.lower())
+                else:
+                    out.append(ch)
+            return "".join(out)
+
         base_prefix = str(status_prefix or "")
         if not base_prefix:
             base_prefix = "Sync "
@@ -290,6 +299,7 @@ class Status(
         if not letter_positions:
             return base_prefix
 
+        render_pause_lowercase = False
         with self._track_lock:
             current_index = self._git_sync_prefix_frame_indices.get(path, 0)
             if current_index < 0:
@@ -301,18 +311,7 @@ class Status(
             pause_until_seconds = self._git_sync_prefix_pause_until_seconds.get(path, 0.0)
             if pause_until_seconds > 0.0:
                 if now_seconds < pause_until_seconds:
-                    highlighted_pos = letter_positions[current_index]
-                    out_chars: list[str] = []
-                    for idx, ch in enumerate(base_prefix):
-                        if ch.isalpha():
-                            normalized = ch.lower()
-                            if idx == highlighted_pos:
-                                out_chars.append(normalized.upper())
-                            else:
-                                out_chars.append(normalized)
-                        else:
-                            out_chars.append(ch)
-                    return "".join(out_chars)
+                    return _letters_to_lower(base_prefix)
                 self._git_sync_prefix_pause_until_seconds.pop(path, None)
                 current_index = 0
                 self._git_sync_prefix_frame_indices[path] = current_index
@@ -332,10 +331,14 @@ class Status(
                             now_seconds + self._git_sync_prefix_cycle_pause_seconds
                         )
                         self._git_sync_prefix_last_switch_seconds[path] = now_seconds
+                        render_pause_lowercase = True
                     else:
                         current_index = next_index
                         self._git_sync_prefix_frame_indices[path] = current_index
                         self._git_sync_prefix_last_switch_seconds[path] = now_seconds
+
+        if render_pause_lowercase:
+            return _letters_to_lower(base_prefix)
 
         highlighted_pos = letter_positions[current_index]
         out_chars: list[str] = []

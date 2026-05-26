@@ -465,18 +465,20 @@ def test_status_git_update_sync_prefix_waits_one_second_between_cycles(
 
     now_state["value"] = 200002.4
     module._tick_once()
-    assert fourth_path.exists()
+    pause_path = tmp_path / _inv("sync 3h")
+    assert pause_path.exists()
+    assert not fourth_path.exists()
     assert not (tmp_path / _inv("Sync 3h")).exists()
 
     now_state["value"] = 200003.3
     module._tick_once()
-    assert fourth_path.exists()
+    assert pause_path.exists()
 
     now_state["value"] = 200003.5
     module._tick_once()
     restart_path = tmp_path / _inv("Sync 3h")
     assert restart_path.exists()
-    assert not fourth_path.exists()
+    assert not pause_path.exists()
 
 
 def test_status_git_update_sync_prefix_cycle_pause_from_config(
@@ -541,17 +543,19 @@ def test_status_git_update_sync_prefix_cycle_pause_from_config(
 
     now_state["value"] = 200002.4
     module._tick_once()
-    assert fourth_path.exists()
+    pause_path = tmp_path / _inv("sync 3h")
+    assert pause_path.exists()
+    assert not fourth_path.exists()
 
     now_state["value"] = 200004.3
     module._tick_once()
-    assert fourth_path.exists()
+    assert pause_path.exists()
 
     now_state["value"] = 200004.5
     module._tick_once()
     restart_path = tmp_path / _inv("Sync 3h")
     assert restart_path.exists()
-    assert not fourth_path.exists()
+    assert not pause_path.exists()
 
 
 def test_status_git_update_zero_minutes_disables_prefix_animation(
