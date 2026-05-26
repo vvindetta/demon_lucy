@@ -143,7 +143,7 @@ Examples:
 | `--status-animation` | `str[]` | Frame list for pass-based animation in filename status. |
 | `--status-animation-speed-milliseconds` | `int` | Minimum delay between frame switches for `--status-animation`. |
 | `--status-tick-interval-seconds` | `float` | Base ticker interval for status updates. |
-| `--status-git-fast-tick-interval-seconds` | `float` | Fast ticker interval used for recent `git update` status. |
+| `--status-git-fast-tick-interval-seconds` | `float` | Fast ticker interval used for recent `git update` status and Sync-prefix loading animation. Default: `0.5`. |
 | `--status-git-fast-tick-window-seconds` | `float` | Duration of fast ticker mode after `git update` activity. |
 | `--status-opened-events-disable` | `bool` | Disable status module processing for `opened` events. |
 

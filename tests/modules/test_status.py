@@ -64,7 +64,7 @@ def _ctx_for(
             ),
             "status_opened_events_disable": status_opened_events_disable,
             "status_tick_interval_seconds": 60.0,
-            "status_git_fast_tick_interval_seconds": 2.0,
+            "status_git_fast_tick_interval_seconds": 0.5,
             "status_git_fast_tick_window_seconds": 120.0,
         },
         arg_lines={},
@@ -335,8 +335,8 @@ def test_status_git_update_uses_compact_units_and_ticks(
     first_changed = module.modified(
         _ctx_for(path, status_values=["git", "update"]), system
     )
-    first_path = tmp_path / _inv("3h")
-    second_path = tmp_path / _inv("4h")
+    first_path = tmp_path / _inv("Sync 3h")
+    second_path = tmp_path / _inv("Sync 4h")
 
     assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
@@ -344,6 +344,107 @@ def test_status_git_update_uses_compact_units_and_ticks(
     now_state["value"] = 203600.0
     module._tick_once()
 
+    assert second_path.exists()
+    assert not first_path.exists()
+
+
+def test_status_git_update_sync_prefix_animates_each_half_second(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
+    monkeypatch.setattr(
+        status_mod.subprocess,
+        "run",
+        lambda cmd, **_kwargs: subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{int(200000.0 - (3.5 * 3600.0))}\n",
+            stderr="",
+        ),
+    )
+
+    module = Status()
+    system = System(
+        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
+    )
+
+    first_changed = module.modified(
+        _ctx_for(path, status_values=["git", "update"]), system
+    )
+    first_path = tmp_path / _inv("Sync 3h")
+    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    now_state["value"] = 200000.6
+    module._tick_once()
+    second_path = tmp_path / _inv("sYnc 3h")
+    assert second_path.exists()
+    assert not first_path.exists()
+
+    now_state["value"] = 200001.2
+    module._tick_once()
+    third_path = tmp_path / _inv("syNc 3h")
+    assert third_path.exists()
+    assert not second_path.exists()
+
+    now_state["value"] = 200001.8
+    module._tick_once()
+    fourth_path = tmp_path / _inv("synC 3h")
+    assert fourth_path.exists()
+    assert not third_path.exists()
+
+
+def test_status_git_update_animates_custom_prefix_phrase(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
+    monkeypatch.setattr(
+        status_mod.subprocess,
+        "run",
+        lambda cmd, **_kwargs: subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{int(200000.0 - (3.5 * 3600.0))}\n",
+            stderr="",
+        ),
+    )
+
+    module = Status()
+    system = System(
+        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
+    )
+
+    first_changed = module.modified(
+        _ctx_for(path, status_values=["git", "update"], status_prefix="fresh sync "),
+        system,
+    )
+    first_path = tmp_path / _inv("Fresh sync 3h")
+    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    now_state["value"] = 200000.6
+    module._tick_once()
+    second_path = tmp_path / _inv("fResh sync 3h")
     assert second_path.exists()
     assert not first_path.exists()
 
@@ -388,7 +489,7 @@ def test_status_git_update_prefers_upstream_timestamp(
     )
     changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
 
-    new_path = tmp_path / _inv("5h")
+    new_path = tmp_path / _inv("Sync 5h")
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
 
@@ -433,7 +534,7 @@ def test_status_git_update_falls_back_to_head_when_upstream_missing(
     )
     changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
 
-    new_path = tmp_path / _inv("2h")
+    new_path = tmp_path / _inv("Sync 2h")
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
 
@@ -466,7 +567,7 @@ def test_status_git_update_uses_recent_sync_success_marker(
     )
     changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
 
-    new_path = repo_root / _inv("7m")
+    new_path = repo_root / _inv("Sync 7m")
     assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
 
@@ -510,7 +611,7 @@ def test_status_ticker_interval_keeps_git_fast_window_temporary(monkeypatch) -> 
     module = Status()
     module._set_tracked_parts("/tmp/git-status-note", ["git_update"])
 
-    assert module._ticker_interval_seconds() == 2.0
+    assert module._ticker_interval_seconds() == 0.5
 
     now_state["value"] = 1121.0
     assert module._ticker_interval_seconds() == 60.0

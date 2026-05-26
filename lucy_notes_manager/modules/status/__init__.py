@@ -94,8 +94,8 @@ class Status(
         (
             "--status-git-fast-tick-interval-seconds",
             float,
-            2.0,
-            "Fast ticker interval for --status git update in seconds. Default: 2.0",
+            0.5,
+            "Fast ticker interval for --status git update in seconds. Default: 0.5",
             False,
         ),
         (
@@ -140,6 +140,8 @@ class Status(
         self._animation_frame_indices: dict[str, int] = {}
         self._animation_last_switch_seconds: dict[str, float] = {}
         self._animation_cycle_finished: dict[str, bool] = {}
+        self._git_sync_prefix_frame_indices: dict[str, int] = {}
+        self._git_sync_prefix_last_switch_seconds: dict[str, float] = {}
         self._track_lock = threading.Lock()
         self._rename_lock = threading.Lock()
         self._bootstrap_lock = threading.Lock()
@@ -255,6 +257,57 @@ class Status(
 
         return tokens
 
+    def _animated_git_sync_prefix(
+        self,
+        path: str,
+        *,
+        status_prefix: str,
+        fast_mode: bool,
+    ) -> str:
+        base_prefix = str(status_prefix or "")
+        if not base_prefix:
+            base_prefix = "Sync "
+
+        if not fast_mode:
+            return base_prefix
+
+        letter_positions = [idx for idx, ch in enumerate(base_prefix) if ch.isalpha()]
+        if not letter_positions:
+            return base_prefix
+
+        with self._track_lock:
+            current_index = self._git_sync_prefix_frame_indices.get(path, 0)
+            if current_index < 0:
+                current_index = 0
+            if current_index >= len(letter_positions):
+                current_index = 0
+
+            now_seconds = time.time()
+            last_switch_seconds = self._git_sync_prefix_last_switch_seconds.get(
+                path, 0.0
+            )
+            if last_switch_seconds <= 0.0:
+                self._git_sync_prefix_last_switch_seconds[path] = now_seconds
+            else:
+                speed_seconds = max(0.1, float(self._git_fast_tick_interval_seconds))
+                if now_seconds - last_switch_seconds >= speed_seconds:
+                    current_index = (current_index + 1) % len(letter_positions)
+                    self._git_sync_prefix_frame_indices[path] = current_index
+                    self._git_sync_prefix_last_switch_seconds[path] = now_seconds
+
+        highlighted_pos = letter_positions[current_index]
+        out_chars: list[str] = []
+        for idx, ch in enumerate(base_prefix):
+            if ch.isalpha():
+                normalized = ch.lower()
+                if idx == highlighted_pos:
+                    out_chars.append(normalized.upper())
+                else:
+                    out_chars.append(normalized)
+            else:
+                out_chars.append(ch)
+        return "".join(out_chars)
+
     @staticmethod
     def _needs_background_updates(parts: list[str], banner_text: str | None) -> bool:
         if banner_text:
@@ -336,6 +389,8 @@ class Status(
                 self._animation_frame_indices.pop(abs_path, None)
                 self._animation_last_switch_seconds.pop(abs_path, None)
                 self._animation_cycle_finished.pop(abs_path, None)
+                self._git_sync_prefix_frame_indices.pop(abs_path, None)
+                self._git_sync_prefix_last_switch_seconds.pop(abs_path, None)
 
             if needs_background_updates or animation_frames:
                 self._tracked_prefixes[abs_path] = str(status_prefix or "")
@@ -429,6 +484,20 @@ class Status(
             cycle_finished = self._animation_cycle_finished.pop(old_abs, None)
             if cycle_finished is not None:
                 self._animation_cycle_finished[new_abs] = bool(cycle_finished)
+            git_prefix_frame_index = self._git_sync_prefix_frame_indices.pop(
+                old_abs, None
+            )
+            if git_prefix_frame_index is not None:
+                self._git_sync_prefix_frame_indices[new_abs] = int(
+                    git_prefix_frame_index
+                )
+            git_prefix_last_switch = self._git_sync_prefix_last_switch_seconds.pop(
+                old_abs, None
+            )
+            if git_prefix_last_switch is not None:
+                self._git_sync_prefix_last_switch_seconds[new_abs] = float(
+                    git_prefix_last_switch
+                )
 
     def _restart_tracked_animation_cycles(self, trigger_path: str) -> None:
         trigger_abs = os.path.abspath(trigger_path)
@@ -468,6 +537,8 @@ class Status(
                     self._animation_frame_indices.pop(path, None)
                     self._animation_last_switch_seconds.pop(path, None)
                     self._animation_cycle_finished.pop(path, None)
+                    self._git_sync_prefix_frame_indices.pop(path, None)
+                    self._git_sync_prefix_last_switch_seconds.pop(path, None)
                 continue
 
             banner_text: str | None = None
@@ -667,6 +738,16 @@ class Status(
                 if tracked_ascii_animation:
                     ascii_animation_frames = list(tracked_ascii_animation[0])
                     ascii_animation_speed_ms = int(tracked_ascii_animation[1])
+
+            fast_mode = False
+            if "git_update" in parts:
+                with self._track_lock:
+                    fast_mode = time.time() < self._git_fast_tick_until
+                status_prefix = self._animated_git_sync_prefix(
+                    old_path,
+                    status_prefix=str(status_prefix or ""),
+                    fast_mode=fast_mode,
+                )
 
             ascii_frame_text = self._pick_animation_frame(
                 path=old_path,
