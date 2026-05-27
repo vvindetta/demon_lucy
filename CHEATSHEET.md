@@ -182,7 +182,7 @@ Examples:
 |---|---:|---|
 | `--archive` | `bool` | Force archive move for this event. |
 | `--archive-pair` | `str[]` | Archive pair: `<src> <dest> [idle_hours_int]`. |
-| `--archive-default-dest-path` | `str` | Fallback destination file when `--archive-pair` is missing. |
+| `--archive-default-dest-path` | `str` | Fallback destination file when `--archive-pair` is missing and `--archive` is set. |
 | `--archive-idle-hours` | `float` | Archive source when its age is at least this many hours. |
 | `--archive-date-prefix` | `str` | Text before archive date in history header. Default: `-- `. |
 | `--archive-date-suffix` | `str` | Text after archive date in history header. Default: empty string. |

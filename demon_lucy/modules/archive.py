@@ -90,7 +90,9 @@ class Archive(AbstractModule):
         return result
 
     @staticmethod
-    def _effective_archive_settings(ctx: Context) -> tuple[str, str, float] | None:
+    def _effective_archive_settings(
+        ctx: Context, *, allow_event_fallback: bool = False
+    ) -> tuple[str, str, float] | None:
         try:
             idle_hours = float(ctx.config["archive_idle_hours"])
         except (TypeError, ValueError):
@@ -109,6 +111,8 @@ class Archive(AbstractModule):
                 pair_values.append(token)
 
         if len(pair_values) not in (2, 3):
+            if not allow_event_fallback:
+                return None
             default_dest_selector = str(ctx.config["archive_default_dest_path"]).strip()
             if not default_dest_selector:
                 return None
@@ -294,7 +298,10 @@ class Archive(AbstractModule):
     def _archive_if_needed(
         self, ctx: Context, force: bool = False
     ) -> Optional[IgnoreMap]:
-        settings = self._effective_archive_settings(ctx)
+        settings = self._effective_archive_settings(
+            ctx,
+            allow_event_fallback=force,
+        )
         if not settings:
             return None
         src_selector, dest_selector, idle_hours = settings

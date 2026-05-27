@@ -228,13 +228,41 @@ def test_compact_archive_arg_without_idle_value_uses_default_idle_hours(
     assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nuse default idle\n"
 
 
-def test_uses_default_dest_when_pair_is_missing(
+def test_uses_default_dest_when_pair_is_missing_with_archive_flag(
     tmp_path: Path, monkeypatch
 ) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)
 
     src_path = tmp_path / "note.md"
     src_path.write_text("fallback archive\n", encoding="utf-8")
+    _make_stale(src_path, 13.0)
+
+    module = Archive()
+    ctx = _ctx_for(
+        src_path,
+        force_archive=True,
+        pair_values=[],
+        default_dest_path="journal.md",
+    )
+    system = System(
+        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    dest_path = tmp_path / "journal.md"
+    assert ignore == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert src_path.read_text(encoding="utf-8") == ""
+    assert dest_path.read_text(encoding="utf-8") == "-- 01.05.2026\nfallback archive\n"
+
+
+def test_does_not_use_default_dest_when_pair_is_missing_without_archive_flag(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    src_path = tmp_path / "note.md"
+    src_path.write_text("must stay\n", encoding="utf-8")
     _make_stale(src_path, 13.0)
 
     module = Archive()
@@ -250,9 +278,9 @@ def test_uses_default_dest_when_pair_is_missing(
     ignore = module.modified(ctx, system)
 
     dest_path = tmp_path / "journal.md"
-    assert ignore == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
-    assert src_path.read_text(encoding="utf-8") == ""
-    assert dest_path.read_text(encoding="utf-8") == "-- 01.05.2026\nfallback archive\n"
+    assert ignore is None
+    assert src_path.read_text(encoding="utf-8") == "must stay\n"
+    assert not dest_path.exists()
 
 
 def test_custom_archive_date_prefix_and_suffix(

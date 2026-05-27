@@ -74,6 +74,28 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 * --man: print one argument with description (example: --man mods or --man --mods). (type=str, default=None)
 ```
 
+### Modules
+
+**Basic:**
+- `sys`: writes runtime debug information, event details, and manual help text. Loaded by default.
+- `banner`: inserts ASCII banner text or date banners into notes.
+- `renamer`: renames notes manually or by simple date-based create rules.
+- `linker`: creates symlinks for active notes, and updates file path markdown links on move/rename.
+- `archive`: automatically moves idle stale notes from the active note to a past/archive note, keeping one daily scratch note current and older text in history.
+- `formatter`: formats note text, including todo list conversion and blank-space padding.
+
+**Integrations:**
+- `git`: syncs notes with a remote Git repository.
+- `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
+
+**Experimental:**
+- `dropdir`: handles moved files in configured drop directories. Useful for temporary inbox/drop folders where moving a file should immediately trigger a follow-up action.
+- `status`: updates note filenames with dynamic status tokens (time/date/git state, animations, prefixes).
+- `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.
+- `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
+
+See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
+
 ## Install
 
 Tested on GNU/Linux based distros only.
@@ -91,9 +113,9 @@ pip install -r requirements.txt
 3. Set up startup args (via config or CLI):
    - In `config.txt`, add: `--sys-watch-paths "/home/user/Notes"`
    - Or pass it directly at run time: `python3 main_daemon.py --sys-watch-paths "/home/user/Notes"`
-   - `--sys-modules` is optional. If you do not set it, the default module list is loaded: `banner renamer linker formatter archive sys`.
+   - `--sys-modules` is optional. If you do not set it, only basic modules are loaded by default.
 
-#### **Turn on file auto-update in your text editor.**
+#### **Turn on file auto-update in your text editor!**
 
 ### Manual run
 
@@ -118,6 +140,11 @@ The repo includes three units in `setup-systemd/`:
 - [lucy-oneshot.timer](setup-systemd/lucy-oneshot.timer): schedule that starts `lucy-oneshot.service`.
 
 Edit the service files and set your real repo path, config path, and oneshot target note.
+
+Services default paths:
+- repo: `$HOME/demon_lucy`
+- notes: `$HOME/Notes`
+- config (daemon): `$HOME/Notes/config.txt`
 
 Link the units:
 ```text
@@ -161,26 +188,3 @@ Script default paths:
 - notes: `$HOME/storage/shared/Notes`
 - config (daemon): `$HOME/storage/shared/Notes/.lucy/config-termux.txt`
 - state/logs: `$HOME/.lucy`
-
-
-### Modules
-
-**Basic:**
-- `sys`: writes runtime debug information, event details, and manual help text.
-- `banner`: inserts ASCII banner text or date banners into notes.
-- `renamer`: renames notes manually or by simple date-based create rules.
-- `linker`: creates symlinks for active notes, and updates file path markdown links on move/rename.
-- `archive`: automatically moves idle stale notes from the active note to a past/archive note, keeping one daily scratch note current and older text in history.
-- `formatter`: formats note text, including todo list conversion and blank-space padding.
-
-**Integrations:**
-- `git`: syncs notes with a remote Git repository.
-- `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
-
-**Experimental:**
-- `dropdir`: handles moved files in configured drop directories. Useful for temporary inbox/drop folders where moving a file should immediately trigger a follow-up action.
-- `status`: updates note filenames with dynamic status tokens (time/date/git state, animations, prefixes).
-- `cmd`: runs local commands and writes command output into notes. Not loaded by default for security reasons.
-- `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
-
-See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
