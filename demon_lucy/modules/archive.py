@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import time
@@ -14,6 +15,8 @@ from demon_lucy.modules.abstract_module import (
     IgnoreMap,
     System,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class Archive(AbstractModule):
@@ -110,7 +113,7 @@ class Archive(AbstractModule):
             if token:
                 pair_values.append(token)
 
-        if len(pair_values) not in (2, 3):
+        if len(pair_values) < 2:
             if not allow_event_fallback:
                 return None
             default_dest_selector = str(ctx.config["archive_default_dest_path"]).strip()
@@ -120,11 +123,19 @@ class Archive(AbstractModule):
 
         src_selector = pair_values[0]
         dest_selector = pair_values[1]
-        if len(pair_values) == 3:
+        if len(pair_values) >= 3:
             try:
                 idle_hours = float(int(pair_values[2]))
             except (TypeError, ValueError):
-                return None
+                logger.warning(
+                    "archive_pair has invalid idle-hours token %r; using default idle-hours value",
+                    pair_values[2],
+                )
+        if len(pair_values) > 3:
+            logger.warning(
+                "archive_pair has extra trailing tokens; ignoring: %r",
+                pair_values[3:],
+            )
 
         return src_selector, dest_selector, idle_hours
 
