@@ -197,7 +197,7 @@ def test_conflicted_files_parses_nul_separated_paths(git_module, monkeypatch):
             return subprocess.CompletedProcess(
                 args=["git"] + arguments,
                 returncode=0,
-                stdout='→ now.md\x00folder/"quoted".md\x00',
+                stdout='unicode-note.md\x00folder/"quoted".md\x00',
                 stderr="",
             )
         raise AssertionError(f"Unexpected command: {arguments}")
@@ -211,7 +211,7 @@ def test_conflicted_files_parses_nul_separated_paths(git_module, monkeypatch):
         timeout_seconds=5.0,
     )
 
-    assert files == ["→ now.md", 'folder/"quoted".md']
+    assert files == ["unicode-note.md", 'folder/"quoted".md']
 
 
 def test_git_environment_forces_c_locale_and_disables_prompt(git_module, monkeypatch):

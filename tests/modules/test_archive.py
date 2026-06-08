@@ -67,6 +67,35 @@ def test_supports_custom_archive_now_file(tmp_path: Path, monkeypatch) -> None:
     assert past_path.read_text(encoding="utf-8") == "-- 02.05.2026\ncustom active\n"
 
 
+def test_supports_absolute_unicode_archive_pair_paths(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    now_path = tmp_path / "λ note.md"
+    now_path.write_text("unicode active\n", encoding="utf-8")
+    _make_stale(now_path, 3.0)
+
+    past_path = tmp_path / "past.md"
+    trigger_path = tmp_path / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=[str(now_path), str(past_path), "2"],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert past_path.read_text(encoding="utf-8") == "-- 02.05.2026\nunicode active\n"
+
+
 def test_relative_past_is_anchored_to_absolute_now_path(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -392,6 +421,35 @@ def test_archive_pair_command_is_removed_from_archive_text(
     )
 
 
+def test_archive_keeps_non_ascii_plain_text_without_extra_quotes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text(
+        "--- SECTION\n- alpha item\n- beta item\n- gamma item\n- delta item\n",
+        encoding="utf-8",
+    )
+    _make_stale(now_path, 1.0)
+
+    module = Archive()
+    ctx = _ctx_for(now_path, force_archive=True)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert (
+        past_path.read_text(encoding="utf-8")
+        == "-- 01.05.2026\n--- SECTION\n- alpha item\n- beta item\n- gamma item\n- delta item\n"
+    )
+
+
 def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)
 
@@ -412,6 +470,59 @@ def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -
     expected = "-- 12.04\nsomethiung\n\n-- 01.05.2026\nmore coffe\n"
     assert past_path.read_text(encoding="utf-8") == expected
     assert now_path.read_text(encoding="utf-8") == ""
+
+
+def test_skips_append_when_exact_archive_entry_already_exists(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    past_path = tmp_path / "past.md"
+    past_path.write_text("-- 01.05.2026\nsame text\n", encoding="utf-8")
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("same text\n", encoding="utf-8")
+    _make_stale(now_path, 14.0)
+
+    module = Archive()
+    ctx = _ctx_for(now_path)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore == {str(now_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nsame text\n"
+
+
+def test_does_not_skip_append_on_partial_archive_text_match(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    past_path = tmp_path / "past.md"
+    past_path.write_text("-- 30.04.2026\nsame text\n", encoding="utf-8")
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("same text\n", encoding="utf-8")
+    _make_stale(now_path, 14.0)
+
+    module = Archive()
+    ctx = _ctx_for(now_path)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert (
+        past_path.read_text(encoding="utf-8")
+        == "-- 30.04.2026\nsame text\n\n-- 01.05.2026\nsame text\n"
+    )
 
 
 def test_normalizes_blank_lines_before_archiving(tmp_path: Path, monkeypatch) -> None:

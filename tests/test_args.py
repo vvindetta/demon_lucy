@@ -112,6 +112,16 @@ def test_merge_known_args_overwrites_only_when_value_is_meaningful():
             ["--fmt-todo"],
             "prefix\n",
         ),
+        (
+            "- alpha item\n",
+            ["--archive"],
+            "- alpha item\n",
+        ),
+        (
+            "- beta item\n",
+            ["--archive-pair"],
+            "- beta item\n",
+        ),
     ],
 )
 def test_delete_args_from_string_removes_flag_segments(

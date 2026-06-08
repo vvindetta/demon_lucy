@@ -272,14 +272,17 @@ class Archive(AbstractModule):
         age_seconds = time.time() - float(last_activity)
         return age_seconds >= max(0.0, float(idle_hours)) * 3600.0
 
-    def _append_entry(self, dest_path: str, entry: str) -> bool:
+    def _append_entry(self, dest_path: str, entry: str) -> tuple[bool, bool]:
         old_content = ""
         if os.path.exists(dest_path):
             try:
                 with open(dest_path, "r", encoding="utf-8") as file_handle:
                     old_content = file_handle.read()
             except OSError:
-                return False
+                return False, False
+
+        if entry and entry in old_content:
+            return True, False
 
         sep = ""
         if old_content:
@@ -292,8 +295,8 @@ class Archive(AbstractModule):
             with open(dest_path, "a", encoding="utf-8") as file_handle:
                 file_handle.write(sep + entry)
         except OSError:
-            return False
-        return True
+            return False, False
+        return True, True
 
     def _archive_if_needed(
         self, ctx: Context, force: bool = False
@@ -335,7 +338,8 @@ class Archive(AbstractModule):
             f"{ctx.config['archive_date_suffix']}\n{body}\n"
         )
 
-        if not self._append_entry(dest_path, entry):
+        append_ok, appended = self._append_entry(dest_path, entry)
+        if not append_ok:
             return None
 
         try:
@@ -344,7 +348,10 @@ class Archive(AbstractModule):
         except OSError:
             return None
 
-        return {src_path: 1, dest_path: 1}
+        changed: IgnoreMap = {src_path: 1}
+        if appended:
+            changed[dest_path] = 1
+        return changed
 
     def archive_src_to_dest(
         self, ctx: Context, force: bool = False

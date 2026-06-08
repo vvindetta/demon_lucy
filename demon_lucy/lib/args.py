@@ -314,11 +314,19 @@ def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
 
     newline = "\n" if line.endswith("\n") else ""
     raw = line[:-1] if newline else line
+    if not raw:
+        return line
+
+    remove = set(flags)
+    if not remove:
+        return line
+    if not any(flag in raw for flag in remove):
+        return line
 
     tokens = shlex.split(raw)
-    remove = set(flags)
 
     out: list[str] = []
+    removed_any = False
     i = 0
     while i < len(tokens):
         tok = tokens[i]
@@ -327,6 +335,7 @@ def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
         head = tok.split("=", 1)[0] if tok.startswith("-") else tok
 
         if head in remove:
+            removed_any = True
             i += 1
 
             # "--flag=value" -> already contains value, nothing else to consume
@@ -340,5 +349,8 @@ def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
 
         out.append(tok)
         i += 1
+
+    if not removed_any:
+        return line
 
     return (shlex.join(out) if out else "") + newline
