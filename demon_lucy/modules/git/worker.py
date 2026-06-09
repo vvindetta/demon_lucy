@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from demon_lucy.lib import safe_notify
+from demon_lucy.lib.path import git_dir_for_repo_root
 from demon_lucy.modules.git.batch_factory import make_repo_batch
 from demon_lucy.modules.git.helpers import (
     failure_looks_like_network_issue,
@@ -217,8 +218,11 @@ def _attempt_rebuild_git_index(
     return False
 
 
-def _repo_process_lock_path(repo_root: str) -> str:
-    return os.path.join(repo_root, ".git", "demon_lucy-sync.lock")
+def _repo_process_lock_path(repo_root: str) -> str | None:
+    git_dir = git_dir_for_repo_root(repo_root)
+    if not git_dir:
+        return None
+    return os.path.join(git_dir, "demon_lucy-sync.lock")
 
 
 def _lock_owner_pid(lock_path: str) -> int | None:
@@ -312,6 +316,9 @@ def _release_repo_process_lock(lock_path: str) -> None:
 
 def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
     lock_path = _repo_process_lock_path(repo_root)
+    if not lock_path:
+        logger.warning("invalid git repo root; skipping git batch | repo=%s", repo_root)
+        return False
     lock_dir = os.path.dirname(lock_path)
     try:
         os.makedirs(lock_dir, exist_ok=True)
@@ -356,8 +363,15 @@ def _with_repo_process_lock_status(
     run_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
     *,
     on_busy_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
+    on_invalid_repo_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
 ) -> DirtyTreeCommitResult | PatchPacketBuildResult:
     lock_path = _repo_process_lock_path(repo_root)
+    if not lock_path:
+        logger.warning(
+            "invalid git repo root; skipping git lock-wrapped operation | repo=%s",
+            repo_root,
+        )
+        return on_invalid_repo_fn()
     lock_dir = os.path.dirname(lock_path)
     try:
         os.makedirs(lock_dir, exist_ok=True)
@@ -1055,6 +1069,11 @@ def commit_dirty_tree(
             repo_root=repo_root,
             error_text="repo lock is busy",
         ),
+        on_invalid_repo_fn=lambda: DirtyTreeCommitResult(
+            status="error",
+            repo_root=repo_root,
+            error_text="invalid git repo root",
+        ),
     )
     if isinstance(result, DirtyTreeCommitResult):
         return result
@@ -1167,6 +1186,11 @@ def build_patch_packet(
             status="busy",
             repo_root=repo_root,
             error_text="repo lock is busy",
+        ),
+        on_invalid_repo_fn=lambda: PatchPacketBuildResult(
+            status="error",
+            repo_root=repo_root,
+            error_text="invalid git repo root",
         ),
     )
     if isinstance(result, PatchPacketBuildResult):

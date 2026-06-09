@@ -8,7 +8,7 @@ from typing import Optional
 from demon_lucy.lib.args import Template
 from demon_lucy.lib.path import (
     abs_expand_path,
-    find_parent_with,
+    find_parent_git_repo,
     path_has_component,
 )
 from demon_lucy.modules.abstract_module import (
@@ -73,7 +73,7 @@ class Git(AbstractModule):
         if ctx_path and path_has_component(ctx_path, ".git"):
             return None
 
-        repo_root = find_parent_with(to_str(ctx.path), ".git")
+        repo_root = find_parent_git_repo(to_str(ctx.path))
         if not repo_root:
             return None
 
@@ -123,8 +123,8 @@ class Git(AbstractModule):
         ):
             return None
 
-        repo_root = find_parent_with(to_str(ctx.path), ".git") or find_parent_with(
-            destination_path or source_path, ".git"
+        repo_root = find_parent_git_repo(to_str(ctx.path)) or find_parent_git_repo(
+            destination_path or source_path
         )
         if not repo_root:
             return None

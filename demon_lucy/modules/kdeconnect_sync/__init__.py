@@ -11,7 +11,7 @@ from demon_lucy.lib import safe_notify
 from demon_lucy.lib.args import Template
 from demon_lucy.lib.path import (
     abs_expand_path,
-    find_parent_with,
+    find_parent_git_repo,
     path_has_component,
 )
 from demon_lucy.modules.abstract_module import (
@@ -119,8 +119,8 @@ class KdeconnectSync(AbstractModule):
         ):
             return None
 
-        repo_root = find_parent_with(_to_str(ctx.path), ".git") or find_parent_with(
-            dest_path or src_path, ".git"
+        repo_root = find_parent_git_repo(_to_str(ctx.path)) or find_parent_git_repo(
+            dest_path or src_path
         )
         if not repo_root:
             return None

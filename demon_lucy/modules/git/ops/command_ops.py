@@ -4,9 +4,14 @@ import os
 import time
 from typing import Callable, Optional
 
+from demon_lucy.lib.path import git_dir_for_repo_root
 
-def index_lock_path(repo_root: str) -> str:
-    return os.path.join(repo_root, ".git", "index.lock")
+
+def index_lock_path(repo_root: str) -> str | None:
+    git_dir = git_dir_for_repo_root(repo_root)
+    if not git_dir:
+        return None
+    return os.path.join(git_dir, "index.lock")
 
 
 def failure_is_index_lock(error_text: str) -> bool:
@@ -20,6 +25,8 @@ def clear_stale_index_lock(
     logger,
 ) -> bool:
     lock_path = index_lock_path(repo_root)
+    if not lock_path:
+        return False
 
     try:
         lock_mtime_seconds = os.path.getmtime(lock_path)
@@ -60,6 +67,8 @@ def index_lock_age_seconds(
     logger,
 ) -> float | None:
     lock_path = index_lock_path(repo_root)
+    if not lock_path:
+        return None
     try:
         lock_mtime_seconds = os.path.getmtime(lock_path)
     except FileNotFoundError:

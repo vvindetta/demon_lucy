@@ -5,6 +5,7 @@ import subprocess
 import time
 from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from watchdog.events import FileMovedEvent, FileOpenedEvent
@@ -103,6 +104,13 @@ def _mk_batch(**overrides) -> _RepoBatch:
     }
     values.update(overrides)
     return _RepoBatch(**values)
+
+
+def _mk_git_metadata(repo_root: Path) -> Path:
+    git_dir = repo_root / ".git"
+    git_dir.mkdir(parents=True, exist_ok=True)
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    return git_dir
 
 
 def test_notify_config_from_batch_includes_rare_notification_settings():
@@ -255,7 +263,7 @@ def test_build_commit_message_sanitizes_git_escaped_file_names(git_module):
 
 def test_opened_processes_sync_when_repo_exists(git_module, monkeypatch):
     recorded = {}
-    monkeypatch.setattr(git_mod, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(git_mod, "find_parent_git_repo", lambda _p: "/repo")
     monkeypatch.setattr(
         git_mod,
         "process_event",
@@ -282,7 +290,7 @@ def test_opened_processes_sync_when_repo_exists(git_module, monkeypatch):
 
 def test_opened_skips_when_sync_on_opened_disabled(git_module, monkeypatch):
     recorded = {"called": False}
-    monkeypatch.setattr(git_mod, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(git_mod, "find_parent_git_repo", lambda _p: "/repo")
     monkeypatch.setattr(
         git_mod,
         "process_event",
@@ -306,7 +314,7 @@ def test_opened_skips_when_sync_on_opened_disabled(git_module, monkeypatch):
 
 def test_opened_runs_sync_in_oneshot_mode(git_module, monkeypatch):
     recorded = {}
-    monkeypatch.setattr(git_mod, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(git_mod, "find_parent_git_repo", lambda _p: "/repo")
     monkeypatch.setattr(
         git_mod,
         "process_event",
@@ -331,7 +339,7 @@ def test_opened_runs_sync_in_oneshot_mode(git_module, monkeypatch):
 
 def test_handle_moved_uses_src_and_dest_paths_for_hints(git_module, monkeypatch):
     recorded = {}
-    monkeypatch.setattr(git_mod, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(git_mod, "find_parent_git_repo", lambda _p: "/repo")
     monkeypatch.setattr(
         git_mod,
         "process_event",
@@ -522,8 +530,7 @@ def test_safe_pull_merge_offline_marker_notifies_waiting_state(git_module, monke
 
 def test_run_git_retries_after_stale_index_lock(git_module, monkeypatch, tmp_path):
     repo_root = tmp_path / "repo"
-    git_dir = repo_root / ".git"
-    git_dir.mkdir(parents=True)
+    git_dir = _mk_git_metadata(repo_root)
     lock_path = git_dir / "index.lock"
     lock_path.write_text("", encoding="utf-8")
 
@@ -580,8 +587,7 @@ def test_run_git_waits_on_recent_index_lock_without_removing(
     git_module, monkeypatch, tmp_path
 ):
     repo_root = tmp_path / "repo"
-    git_dir = repo_root / ".git"
-    git_dir.mkdir(parents=True)
+    git_dir = _mk_git_metadata(repo_root)
     lock_path = git_dir / "index.lock"
     lock_path.write_text("", encoding="utf-8")
 
@@ -910,6 +916,11 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
             AssertionError("safe_pull_merge must not run for opened sync pipeline")
         ),
     )
+    monkeypatch.setattr(
+        git_worker,
+        "_with_repo_process_lock",
+        lambda _repo_root, run_fn: run_fn(),
+    )
 
     def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
         _ = timeout_seconds
@@ -960,7 +971,7 @@ def test_process_batch_writes_sync_success_marker_on_push_success(
 ):
     calls: list[list[str]] = []
     repo_root = tmp_path / "repo"
-    (repo_root / ".git").mkdir(parents=True)
+    _mk_git_metadata(repo_root)
 
     monkeypatch.setattr(
         git_worker, "merge_in_progress", lambda *_args, **_kwargs: False
@@ -1045,8 +1056,7 @@ def test_process_batch_wraps_pipeline_with_repo_process_lock(git_module, monkeyp
 
 def test_with_repo_process_lock_skips_when_busy_not_stale(tmp_path, monkeypatch):
     repo_root = tmp_path / "repo"
-    git_dir = repo_root / ".git"
-    git_dir.mkdir(parents=True)
+    git_dir = _mk_git_metadata(repo_root)
     lock_path = git_dir / "demon_lucy-sync.lock"
     lock_path.write_text(f"pid={os.getpid()}\n", encoding="utf-8")
 
@@ -1078,8 +1088,7 @@ def test_with_repo_process_lock_skips_when_busy_not_stale(tmp_path, monkeypatch)
 
 def test_with_repo_process_lock_removes_stale_dead_owner_and_runs(tmp_path):
     repo_root = tmp_path / "repo"
-    git_dir = repo_root / ".git"
-    git_dir.mkdir(parents=True)
+    git_dir = _mk_git_metadata(repo_root)
     lock_path = git_dir / "demon_lucy-sync.lock"
     lock_path.write_text("pid=999999\n", encoding="utf-8")
 
@@ -1096,8 +1105,7 @@ def test_with_repo_process_lock_removes_stale_dead_owner_and_runs(tmp_path):
 
 def test_with_repo_process_lock_removes_legacy_lock_without_pid(tmp_path):
     repo_root = tmp_path / "repo"
-    git_dir = repo_root / ".git"
-    git_dir.mkdir(parents=True)
+    git_dir = _mk_git_metadata(repo_root)
     lock_path = git_dir / "demon_lucy-sync.lock"
     lock_path.write_text("", encoding="utf-8")
     stale_timestamp = time.time() - 120.0
@@ -1112,6 +1120,31 @@ def test_with_repo_process_lock_removes_legacy_lock_without_pid(tmp_path):
     assert git_worker._with_repo_process_lock(str(repo_root), _run_fn) is True
     assert calls["ran"] == 1
     assert not lock_path.exists()
+
+
+def test_with_repo_process_lock_skips_invalid_repo_without_creating_git_dir(tmp_path):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True)
+
+    calls = {"ran": 0}
+
+    def _run_fn():
+        calls["ran"] += 1
+        return True
+
+    assert git_worker._with_repo_process_lock(str(repo_root), _run_fn) is False
+    assert calls["ran"] == 0
+    assert not (repo_root / ".git").exists()
+
+
+def test_write_sync_success_marker_skips_invalid_repo_without_creating_git_dir(
+    tmp_path,
+):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True)
+
+    assert git_worker.write_sync_success_timestamp(str(repo_root)) is False
+    assert not (repo_root / ".git").exists()
 
 
 def test_stage_retries_after_corrupted_index_recovery(git_module, monkeypatch):
@@ -1657,7 +1690,7 @@ def test_commit_dirty_tree_returns_busy_when_repo_lock_is_busy(git_module, monke
     monkeypatch.setattr(
         git_worker,
         "_with_repo_process_lock_status",
-        lambda _repo_root, _run_fn, *, on_busy_fn: on_busy_fn(),
+        lambda _repo_root, _run_fn, *, on_busy_fn, on_invalid_repo_fn: on_busy_fn(),
     )
 
     result = git_worker.commit_dirty_tree(
@@ -1687,7 +1720,7 @@ def test_build_patch_packet_returns_busy_when_repo_lock_is_busy(
     monkeypatch.setattr(
         git_worker,
         "_with_repo_process_lock_status",
-        lambda _repo_root, _run_fn, *, on_busy_fn: on_busy_fn(),
+        lambda _repo_root, _run_fn, *, on_busy_fn, on_invalid_repo_fn: on_busy_fn(),
     )
 
     result = git_worker.build_patch_packet(

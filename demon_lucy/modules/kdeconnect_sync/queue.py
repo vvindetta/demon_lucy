@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 
+from demon_lucy.lib.path import git_dir_for_repo_root
+
 
 def queue_root_for_repo(repo_root: str, queue_dir_name: str) -> str:
     return os.path.normpath(os.path.join(repo_root, queue_dir_name))
@@ -22,7 +24,11 @@ def is_queue_internal_path(
 
 
 def ensure_queue_excluded_in_repo(repo_root: str, queue_dir_name: str) -> None:
-    git_exclude_path = os.path.join(repo_root, ".git", "info", "exclude")
+    git_dir = git_dir_for_repo_root(repo_root)
+    if not git_dir:
+        return
+
+    git_exclude_path = os.path.join(git_dir, "info", "exclude")
     os.makedirs(os.path.dirname(git_exclude_path), exist_ok=True)
 
     normalized_queue_rel = queue_dir_name.strip().replace("\\", "/").strip("/")
