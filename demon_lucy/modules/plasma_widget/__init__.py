@@ -24,8 +24,11 @@ from demon_lucy.modules.plasma_widget.markdown_codec import (
 )
 from demon_lucy.modules.plasma_widget.mirror_mapper import (
     _apply_mirror_items_to_doc,
+    _apply_mirror_lines_to_doc,
+    _bold_lines_to_plasma_html,
     _extract_bold_items_from_doc,
     _items_hash,
+    _mirror_html_to_lines,
     _mirror_html_to_items,
 )
 from demon_lucy.modules.plasma_widget.model import (
@@ -48,6 +51,8 @@ __all__ = [
     "plan_from_main_plasma",
     "plan_from_markdown",
     "_apply_mirror_items_to_doc",
+    "_apply_mirror_lines_to_doc",
+    "_bold_lines_to_plasma_html",
     "_doc_hash",
     "_doc_to_md",
     "_doc_to_plasma_html",
@@ -56,6 +61,7 @@ __all__ = [
     "_html_to_doc",
     "_items_hash",
     "_md_to_doc",
+    "_mirror_html_to_lines",
     "_mirror_html_to_items",
     "_normalize_md",
 ]

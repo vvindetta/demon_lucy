@@ -179,21 +179,30 @@ class _PlasmaDocParser(HTMLParser):
             self._ensure_cur("p", None)
         self._append(text)
 
-    def get_doc(self) -> List[DocLine]:
+    def get_doc(self, *, trim_empty_edges: bool = True) -> List[DocLine]:
         self._finalize()
 
         doc = self._doc[:]
-        while doc and doc[0].kind == "p" and _segs_plain(doc[0].segs).strip() == "":
-            doc.pop(0)
-        while doc and doc[-1].kind == "p" and _segs_plain(doc[-1].segs).strip() == "":
-            doc.pop()
+        if trim_empty_edges:
+            while (
+                doc
+                and doc[0].kind == "p"
+                and _segs_plain(doc[0].segs).strip() == ""
+            ):
+                doc.pop(0)
+            while (
+                doc
+                and doc[-1].kind == "p"
+                and _segs_plain(doc[-1].segs).strip() == ""
+            ):
+                doc.pop()
         return doc
 
 
-def _html_to_doc(html_src: str) -> List[DocLine]:
+def _html_to_doc(html_src: str, *, trim_empty_edges: bool = True) -> List[DocLine]:
     parser = _PlasmaDocParser()
     parser.feed(html_src)
-    return parser.get_doc()
+    return parser.get_doc(trim_empty_edges=trim_empty_edges)
 
 
 def _doc_to_plasma_html(doc: List[DocLine], css_style: bool = False) -> str:

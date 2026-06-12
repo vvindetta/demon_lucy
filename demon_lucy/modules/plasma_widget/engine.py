@@ -9,11 +9,13 @@ from demon_lucy.modules.plasma_widget.markdown_codec import (
     _md_to_doc,
 )
 from demon_lucy.modules.plasma_widget.mirror_mapper import (
-    _apply_mirror_items_to_doc,
-    _bold_items_to_plasma_html,
+    _apply_mirror_lines_to_doc,
+    _bold_lines_to_plasma_html,
     _extract_bold_items_from_doc,
     _items_hash,
-    _mirror_html_to_items,
+    _items_from_mirror_lines,
+    _merge_items_into_mirror_lines,
+    _mirror_html_to_lines,
 )
 from demon_lucy.modules.plasma_widget.model import (
     DocLine,
@@ -99,7 +101,14 @@ def _plan_mirror_sync(
     if previous_bold_items_hash == items_hash:
         return None, previous_bold_items_hash
 
-    mirror_html_new = _bold_items_to_plasma_html(items)
+    if mirror_html_current:
+        mirror_lines = _merge_items_into_mirror_lines(
+            _mirror_html_to_lines(mirror_html_current),
+            items,
+        )
+    else:
+        mirror_lines = items
+    mirror_html_new = _bold_lines_to_plasma_html(mirror_lines)
     if mirror_html_new == mirror_html_current:
         return None, items_hash
     return mirror_html_new, items_hash
@@ -206,13 +215,12 @@ def plan_from_bold_mirror(
     if mirror_html_current is None or not mirror_exists:
         return SyncPlan(next_state=state)
 
-    items = _mirror_html_to_items(mirror_html_current)
+    mirror_lines = _mirror_html_to_lines(mirror_html_current)
+    items = _items_from_mirror_lines(mirror_lines)
     items_hash = _items_hash(items)
-    if state.bold_items_hash == items_hash:
-        return SyncPlan(next_state=state)
 
     main_doc = _html_to_doc(widget_html_current)
-    new_doc = _apply_mirror_items_to_doc(main_doc, items)
+    new_doc = _apply_mirror_lines_to_doc(main_doc, mirror_lines)
     new_doc_hash = _doc_hash(new_doc)
 
     widget_html_out: Optional[str] = None
@@ -227,7 +235,7 @@ def plan_from_bold_mirror(
         if candidate_markdown != markdown_text_current:
             markdown_out = candidate_markdown
 
-    mirror_norm = _bold_items_to_plasma_html(items)
+    mirror_norm = _bold_lines_to_plasma_html(mirror_lines)
     mirror_out: Optional[str] = None
     if mirror_norm != mirror_html_current:
         mirror_out = mirror_norm
