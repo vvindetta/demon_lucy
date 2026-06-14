@@ -43,6 +43,10 @@ class SyncPlan:
     missing_markdown: bool = False
 
 
+def _markdown_text_doc_hash(markdown_text: str) -> str:
+    return _doc_hash(_md_to_doc(_normalize_md(markdown_text)))
+
+
 def bootstrap_state(markdown_text: str, main_html_text: str) -> SyncState:
     if markdown_text.strip():
         doc = _md_to_doc(_normalize_md(markdown_text))
@@ -126,16 +130,9 @@ def plan_from_markdown(
     doc_hash = _doc_hash(doc)
 
     widget_html_out: Optional[str] = None
-    if state.doc_hash != doc_hash:
-        candidate = _doc_to_plasma_html(doc, css_style=css_style)
-        if candidate != widget_html_current:
-            widget_html_out = candidate
-    else:
-        widget_html_out = _plan_widget_render_mode(
-            widget_html_current=widget_html_current,
-            css_style=css_style,
-            previous_css_style=state.css_style,
-        )
+    candidate = _doc_to_plasma_html(doc, css_style=css_style)
+    if candidate != widget_html_current:
+        widget_html_out = candidate
 
     mirror_html_out, bold_items_hash = _plan_mirror_sync(
         doc=doc,
@@ -170,10 +167,9 @@ def plan_from_main_plasma(
     doc_hash = _doc_hash(doc)
 
     markdown_out: Optional[str] = None
-    if state.doc_hash != doc_hash:
-        candidate = _doc_to_md(doc)
-        if candidate != markdown_text_current:
-            markdown_out = candidate
+    candidate = _doc_to_md(doc)
+    if _markdown_text_doc_hash(markdown_text_current) != doc_hash:
+        markdown_out = candidate
 
     mirror_html_out, bold_items_hash = _plan_mirror_sync(
         doc=doc,
@@ -220,14 +216,13 @@ def plan_from_bold_mirror(
     widget_html_out: Optional[str] = None
     markdown_out: Optional[str] = None
 
-    if state.doc_hash != new_doc_hash:
-        candidate_widget = _doc_to_plasma_html(new_doc, css_style=css_style)
-        if candidate_widget != widget_html_current:
-            widget_html_out = candidate_widget
+    candidate_widget = _doc_to_plasma_html(new_doc, css_style=css_style)
+    if candidate_widget != widget_html_current:
+        widget_html_out = candidate_widget
 
-        candidate_markdown = _doc_to_md(new_doc)
-        if candidate_markdown != markdown_text_current:
-            markdown_out = candidate_markdown
+    candidate_markdown = _doc_to_md(new_doc)
+    if _markdown_text_doc_hash(markdown_text_current) != new_doc_hash:
+        markdown_out = candidate_markdown
 
     new_items = _extract_bold_items_from_doc(new_doc)
     next_bold_items_hash = _items_hash(new_items)

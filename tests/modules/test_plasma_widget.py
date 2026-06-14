@@ -244,6 +244,38 @@ def test_from_markdown_writes_widget_and_mirror(tmp_path: Path):
     assert mirror.exists()
 
 
+def test_handle_markdown_bootstrap_writes_missing_main_widget(tmp_path: Path):
+    md = tmp_path / "todo.md"
+    widget = tmp_path / "widget.html"
+    mirror = tmp_path / "mirror.html"
+    md.write_text("Line\n**Bold**\n", encoding="utf-8")
+
+    module = PlasmaWidget()
+    ignore = module._handle(
+        Context(
+            path=str(md),
+            config={
+                **_NOTIFY_CFG,
+                "plasma_widget_path": str(widget),
+                "plasma_markdown_note_path": str(md),
+                "plasma_bold_widget_path": str(mirror),
+                "plasma_css_style": False,
+            },
+            arg_lines={},
+        )
+    )
+
+    assert ignore is not None
+    assert str(widget.resolve()) in ignore
+    assert str(mirror.resolve()) in ignore
+    assert plasma_mod._doc_to_md(
+        plasma_mod._html_to_doc(widget.read_text(encoding="utf-8"))
+    ) == "Line\n**Bold**"
+    assert plasma_mod._mirror_html_to_items(mirror.read_text(encoding="utf-8")) == [
+        "Bold"
+    ]
+
+
 def test_from_main_plasma_updates_markdown(tmp_path: Path):
     widget = tmp_path / "widget.html"
     md = tmp_path / "todo.md"
