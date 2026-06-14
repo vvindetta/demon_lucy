@@ -98,7 +98,7 @@ def test_apply_mirror_items_to_doc_removes_lines_deleted_in_mirror():
     assert "tail" in rendered
 
 
-def test_apply_mirror_lines_preserves_blank_lines_and_caps_long_runs():
+def test_apply_mirror_lines_ignores_blank_lines_in_markdown():
     main_doc = [
         DocLine(kind="p", state=None, segs=[("old1", True)]),
         DocLine(kind="p", state=None, segs=[("old2", True)]),
@@ -109,17 +109,17 @@ def test_apply_mirror_lines_preserves_blank_lines_and_caps_long_runs():
         ["new1", "", "", "", "", "new2"],
     )
 
-    assert plasma_mod._doc_to_md(updated) == "**new1**\n\n\n\n**new2**"
+    assert plasma_mod._doc_to_md(updated) == "**new1**\n**new2**"
 
 
-def test_mirror_html_lines_preserve_blanks_but_items_helper_filters_them():
+def test_mirror_html_output_contains_only_bold_items():
     html = plasma_mod._bold_lines_to_plasma_html(["a", "", "", "b"])
 
-    assert plasma_mod._mirror_html_to_lines(html) == ["a", "", "", "b"]
+    assert plasma_mod._mirror_html_to_lines(html) == ["a", "b"]
     assert plasma_mod._mirror_html_to_items(html) == ["a", "b"]
 
 
-def test_bold_mirror_blank_only_edit_updates_main_doc():
+def test_bold_mirror_blank_only_edit_does_not_update_markdown_spacing():
     main_doc = [
         DocLine(kind="p", state=None, segs=[("a", True)]),
         DocLine(kind="p", state=None, segs=[("b", True)]),
@@ -132,7 +132,14 @@ def test_bold_mirror_blank_only_edit_updates_main_doc():
 
     plan = plasma_mod.plan_from_bold_mirror(
         state=state,
-        mirror_html_current=plasma_mod._bold_lines_to_plasma_html(["a", "", "b"]),
+        mirror_html_current=plasma_mod._doc_to_plasma_html(
+            [
+                DocLine(kind="p", state=None, segs=[("a", True)]),
+                DocLine(kind="p", state=None, segs=[]),
+                DocLine(kind="p", state=None, segs=[("b", True)]),
+            ],
+            css_style=False,
+        ),
         mirror_exists=True,
         widget_html_current=plasma_mod._doc_to_plasma_html(
             main_doc, css_style=False
@@ -141,12 +148,13 @@ def test_bold_mirror_blank_only_edit_updates_main_doc():
         css_style=False,
     )
 
-    assert plan.markdown_text == "**a**\n\n**b**"
-    assert plan.widget_html is not None
+    assert plan.markdown_text is None
+    assert plan.widget_html is None
+    assert plan.mirror_html is not None
     assert plan.next_state.bold_items_hash == state.bold_items_hash
 
 
-def test_apply_mirror_insert_keeps_later_bold_line_near_original_context():
+def test_apply_mirror_insert_appends_new_bold_line_to_end():
     main_doc = [
         DocLine(kind="p", state=None, segs=[("a", True)]),
         DocLine(kind="p", state=None, segs=[("plain between", False)]),
@@ -157,7 +165,7 @@ def test_apply_mirror_insert_keeps_later_bold_line_near_original_context():
     updated = plasma_mod._apply_mirror_lines_to_doc(main_doc, ["a", "x", "b"])
 
     assert plasma_mod._doc_to_md(updated) == (
-        "**a**\nplain between\n**x**\n**b**\ntail"
+        "**a**\nplain between\n**b**\ntail\n**x**"
     )
 
 

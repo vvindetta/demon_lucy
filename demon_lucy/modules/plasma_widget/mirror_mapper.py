@@ -123,11 +123,8 @@ def _bold_items_to_plasma_html(items: List[str]) -> str:
 
 def _bold_lines_to_plasma_html(lines: List[str]) -> str:
     doc: List[DocLine] = []
-    for line in _normalize_mirror_lines(lines):
-        if line:
-            doc.append(DocLine(kind="p", state=None, segs=[(line, True)]))
-        else:
-            doc.append(DocLine(kind="p", state=None, segs=[]))
+    for line in _items_from_mirror_lines(_normalize_mirror_lines(lines)):
+        doc.append(DocLine(kind="p", state=None, segs=[(line, True)]))
     # mirror always plain (no checkbox glyphs)
     return _doc_to_plasma_html(doc, css_style=False)
 
@@ -142,31 +139,6 @@ def _mirror_html_to_lines(mirror_html: str) -> List[str]:
 
 def _mirror_html_to_items(mirror_html: str) -> List[str]:
     return _items_from_mirror_lines(_mirror_html_to_lines(mirror_html))
-
-
-def _merge_items_into_mirror_lines(
-    existing_lines: List[str],
-    items: List[str],
-) -> List[str]:
-    cleaned_items = _dedupe_consecutive([it.strip() for it in items if it.strip()])
-    if not existing_lines:
-        return cleaned_items
-
-    out: List[str] = []
-    item_index = 0
-    for line in existing_lines:
-        if not line:
-            out.append("")
-            continue
-        if item_index < len(cleaned_items):
-            out.append(cleaned_items[item_index])
-            item_index += 1
-
-    while item_index < len(cleaned_items):
-        out.append(cleaned_items[item_index])
-        item_index += 1
-
-    return _normalize_mirror_lines(out)
 
 
 def _map_target_items_to_old_positions(
@@ -190,38 +162,6 @@ def _map_target_items_to_old_positions(
     return mapping
 
 
-def _append_nonbold_between(
-    out: List[DocLine],
-    doc: List[DocLine],
-    start: int,
-    stop: int,
-) -> None:
-    for dl in doc[start:stop]:
-        if not _segs_has_bold(dl.segs):
-            out.append(dl)
-
-
-def _next_mapped_doc_position(
-    mapping: List[Optional[int]],
-    bold_positions: List[int],
-    start_item_index: int,
-) -> Optional[int]:
-    for old_item_index in mapping[start_item_index:]:
-        if old_item_index is not None:
-            return bold_positions[old_item_index]
-    return None
-
-
-def _append_pending_nonbold(
-    out: List[DocLine],
-    doc: List[DocLine],
-    old_cursor: int,
-    stop: int,
-) -> int:
-    _append_nonbold_between(out, doc, old_cursor, stop)
-    return stop
-
-
 def _apply_mirror_items_to_doc(
     main_doc: List[DocLine], items: List[str]
 ) -> List[DocLine]:
@@ -232,64 +172,57 @@ def _apply_mirror_lines_to_doc(
     main_doc: List[DocLine], lines: List[str]
 ) -> List[DocLine]:
     """
-    Line-safe mapping:
-    - existing bold lines are matched by content when possible
-    - changed lines reuse the old slot by order
-    - inserted lines stay where they were inserted in mirror
-    - blank lines from mirror are preserved, capped to small runs
-    - deleted mirror items remove only the corresponding bold line, not nearby plain text
+    Mirror is a bidirectional index of bold text, not a structural editor.
+
+    Existing mirror rows can update/delete existing bold rows. New mirror rows are
+    appended to the end of MAIN as bold paragraphs, regardless of where they were
+    typed in the mirror widget. Blank mirror rows never become markdown spacing.
     """
     mirror_lines = _normalize_mirror_lines(lines)
     target_items = _items_from_mirror_lines(mirror_lines)
 
-    bold_positions: List[int] = []
+    bold_entries: List[tuple[int, str]] = []
     old_items: List[str] = []
     for index, dl in enumerate(main_doc):
         if not _segs_has_bold(dl.segs):
             continue
-        bold_positions.append(index)
-        old_items.append(_line_bold_text(dl))
+        bold_text = _line_bold_text(dl)
+        if not bold_text:
+            continue
+        bold_entries.append((index, bold_text))
+        old_items.append(bold_text)
 
     mapping = _map_target_items_to_old_positions(old_items, target_items)
+    replace_by_doc_index: dict[int, str] = {}
+    remove_doc_indices: set[int] = set()
+    append_items: List[str] = []
 
-    out: List[DocLine] = []
-    old_cursor = 0
-    item_index = 0
-    for line in mirror_lines:
-        if not line:
-            next_position = _next_mapped_doc_position(
-                mapping, bold_positions, item_index
-            )
-            old_cursor = _append_pending_nonbold(
-                out,
-                main_doc,
-                old_cursor,
-                next_position if next_position is not None else len(main_doc),
-            )
-            out.append(DocLine(kind="p", state=None, segs=[]))
-            continue
-
+    for item_index, item in enumerate(target_items):
         old_item_index = mapping[item_index]
         if old_item_index is None:
-            next_position = _next_mapped_doc_position(
-                mapping, bold_positions, item_index + 1
-            )
-            old_cursor = _append_pending_nonbold(
-                out,
-                main_doc,
-                old_cursor,
-                next_position if next_position is not None else len(main_doc),
-            )
-            out.append(DocLine(kind="p", state=None, segs=[(line, True)]))
-            item_index += 1
+            append_items.append(item)
             continue
 
-        position = bold_positions[old_item_index]
-        _append_nonbold_between(out, main_doc, old_cursor, position)
-        old_line = main_doc[position]
-        out.append(_replace_line_bold_text(old_line, line))
-        old_cursor = position + 1
-        item_index += 1
+        position = bold_entries[old_item_index][0]
+        replace_by_doc_index[position] = item
 
-    _append_nonbold_between(out, main_doc, old_cursor, len(main_doc))
+    mapped_old_indices = {
+        old_item_index for old_item_index in mapping if old_item_index is not None
+    }
+    for old_item_index, (position, _text) in enumerate(bold_entries):
+        if old_item_index not in mapped_old_indices:
+            remove_doc_indices.add(position)
+
+    out: List[DocLine] = []
+    for index, dl in enumerate(main_doc):
+        if index in remove_doc_indices:
+            continue
+        replacement = replace_by_doc_index.get(index)
+        if replacement is not None:
+            out.append(_replace_line_bold_text(dl, replacement))
+            continue
+        out.append(dl)
+
+    for item in append_items:
+        out.append(DocLine(kind="p", state=None, segs=[(item, True)]))
     return out

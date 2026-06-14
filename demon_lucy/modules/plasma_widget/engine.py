@@ -10,11 +10,10 @@ from demon_lucy.modules.plasma_widget.markdown_codec import (
 )
 from demon_lucy.modules.plasma_widget.mirror_mapper import (
     _apply_mirror_lines_to_doc,
-    _bold_lines_to_plasma_html,
+    _bold_items_to_plasma_html,
     _extract_bold_items_from_doc,
     _items_hash,
     _items_from_mirror_lines,
-    _merge_items_into_mirror_lines,
     _mirror_html_to_lines,
 )
 from demon_lucy.modules.plasma_widget.model import (
@@ -98,17 +97,10 @@ def _plan_mirror_sync(
 
     items = _extract_bold_items_from_doc(doc)
     items_hash = _items_hash(items)
-    if previous_bold_items_hash == items_hash:
+    mirror_html_new = _bold_items_to_plasma_html(items)
+    if previous_bold_items_hash == items_hash and mirror_html_new == mirror_html_current:
         return None, previous_bold_items_hash
 
-    if mirror_html_current:
-        mirror_lines = _merge_items_into_mirror_lines(
-            _mirror_html_to_lines(mirror_html_current),
-            items,
-        )
-    else:
-        mirror_lines = items
-    mirror_html_new = _bold_lines_to_plasma_html(mirror_lines)
     if mirror_html_new == mirror_html_current:
         return None, items_hash
     return mirror_html_new, items_hash
@@ -217,7 +209,6 @@ def plan_from_bold_mirror(
 
     mirror_lines = _mirror_html_to_lines(mirror_html_current)
     items = _items_from_mirror_lines(mirror_lines)
-    items_hash = _items_hash(items)
 
     main_doc = _html_to_doc(widget_html_current)
     new_doc = _apply_mirror_lines_to_doc(main_doc, mirror_lines)
@@ -235,7 +226,10 @@ def plan_from_bold_mirror(
         if candidate_markdown != markdown_text_current:
             markdown_out = candidate_markdown
 
-    mirror_norm = _bold_lines_to_plasma_html(mirror_lines)
+    new_items = _extract_bold_items_from_doc(new_doc)
+    next_bold_items_hash = _items_hash(new_items)
+
+    mirror_norm = _bold_items_to_plasma_html(new_items)
     mirror_out: Optional[str] = None
     if mirror_norm != mirror_html_current:
         mirror_out = mirror_norm
@@ -258,7 +252,7 @@ def plan_from_bold_mirror(
     return SyncPlan(
         next_state=SyncState(
             doc_hash=next_doc_hash,
-            bold_items_hash=items_hash,
+            bold_items_hash=next_bold_items_hash,
             css_style=css_style,
         ),
         widget_html=widget_html_out,
