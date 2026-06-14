@@ -123,8 +123,11 @@ def _bold_items_to_plasma_html(items: List[str]) -> str:
 
 def _bold_lines_to_plasma_html(lines: List[str]) -> str:
     doc: List[DocLine] = []
-    for line in _items_from_mirror_lines(_normalize_mirror_lines(lines)):
-        doc.append(DocLine(kind="p", state=None, segs=[(line, True)]))
+    for line in _normalize_mirror_lines(lines):
+        if line:
+            doc.append(DocLine(kind="p", state=None, segs=[(line, True)]))
+        else:
+            doc.append(DocLine(kind="p", state=None, segs=[]))
     # mirror always plain (no checkbox glyphs)
     return _doc_to_plasma_html(doc, css_style=False)
 
@@ -139,6 +142,31 @@ def _mirror_html_to_lines(mirror_html: str) -> List[str]:
 
 def _mirror_html_to_items(mirror_html: str) -> List[str]:
     return _items_from_mirror_lines(_mirror_html_to_lines(mirror_html))
+
+
+def _merge_items_into_mirror_lines(
+    existing_lines: List[str],
+    items: List[str],
+) -> List[str]:
+    cleaned_items = _dedupe_consecutive([it.strip() for it in items if it.strip()])
+    if not existing_lines:
+        return cleaned_items
+
+    out: List[str] = []
+    item_index = 0
+    for line in existing_lines:
+        if not line:
+            out.append("")
+            continue
+        if item_index < len(cleaned_items):
+            out.append(cleaned_items[item_index])
+            item_index += 1
+
+    while item_index < len(cleaned_items):
+        out.append(cleaned_items[item_index])
+        item_index += 1
+
+    return _normalize_mirror_lines(out)
 
 
 def _map_target_items_to_old_positions(

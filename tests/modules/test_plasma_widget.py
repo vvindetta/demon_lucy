@@ -112,10 +112,10 @@ def test_apply_mirror_lines_ignores_blank_lines_in_markdown():
     assert plasma_mod._doc_to_md(updated) == "**new1**\n**new2**"
 
 
-def test_mirror_html_output_contains_only_bold_items():
+def test_mirror_html_output_preserves_blank_lines_but_items_filter_them():
     html = plasma_mod._bold_lines_to_plasma_html(["a", "", "", "b"])
 
-    assert plasma_mod._mirror_html_to_lines(html) == ["a", "b"]
+    assert plasma_mod._mirror_html_to_lines(html) == ["a", "", "", "b"]
     assert plasma_mod._mirror_html_to_items(html) == ["a", "b"]
 
 
@@ -150,8 +150,37 @@ def test_bold_mirror_blank_only_edit_does_not_update_markdown_spacing():
 
     assert plan.markdown_text is None
     assert plan.widget_html is None
-    assert plan.mirror_html is not None
+    assert plan.mirror_html is None
     assert plan.next_state.bold_items_hash == state.bold_items_hash
+
+
+def test_markdown_sync_preserves_existing_mirror_blank_separators():
+    mirror_html = plasma_mod._bold_lines_to_plasma_html(["old-a", "", "old-b"])
+    doc = [
+        DocLine(kind="p", state=None, segs=[("new-a", True)]),
+        DocLine(kind="p", state=None, segs=[("new-b", True)]),
+    ]
+    state = plasma_mod.SyncState(
+        doc_hash="old-doc",
+        bold_items_hash="old-items",
+        css_style=False,
+    )
+
+    plan = plasma_mod.plan_from_markdown(
+        state=state,
+        markdown_text=plasma_mod._doc_to_md(doc),
+        markdown_exists=True,
+        widget_html_current=plasma_mod._doc_to_plasma_html(doc, css_style=False),
+        mirror_html_current=mirror_html,
+        css_style=False,
+    )
+
+    assert plan.mirror_html is not None
+    assert plasma_mod._mirror_html_to_lines(plan.mirror_html) == [
+        "new-a",
+        "",
+        "new-b",
+    ]
 
 
 def test_apply_mirror_insert_appends_new_bold_line_to_end():
