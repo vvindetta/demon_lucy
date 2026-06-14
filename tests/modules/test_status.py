@@ -741,6 +741,9 @@ def test_status_git_update_uses_recent_sync_success_marker(
 ) -> None:
     repo_root = tmp_path / "repo"
     (repo_root / ".git").mkdir(parents=True)
+    (repo_root / ".git" / "HEAD").write_text(
+        "ref: refs/heads/main\n", encoding="utf-8"
+    )
     path = repo_root / "note.md"
     path.write_text("--status git update\n", encoding="utf-8")
 
@@ -774,6 +777,9 @@ def test_status_git_prefers_sync_success_marker_timestamp(
 ) -> None:
     repo_root = tmp_path / "repo"
     (repo_root / ".git").mkdir(parents=True)
+    (repo_root / ".git" / "HEAD").write_text(
+        "ref: refs/heads/main\n", encoding="utf-8"
+    )
     path = repo_root / "note.md"
     path.write_text("--status git\n", encoding="utf-8")
 

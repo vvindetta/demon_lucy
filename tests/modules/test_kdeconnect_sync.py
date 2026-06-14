@@ -64,7 +64,7 @@ def test_modified_ignores_patch_queue_internal_files(monkeypatch):
     module = KdeconnectSync()
     called = {"value": False}
 
-    monkeypatch.setattr(kde_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(kde_mod, "find_parent_git_repo", lambda _path: "/repo")
     monkeypatch.setattr(
         module,
         "_schedule_repo_sync",
@@ -86,7 +86,7 @@ def test_modified_ignores_patch_queue_internal_files(monkeypatch):
 def test_modified_oneshot_builds_and_sends_patch(monkeypatch):
     module = KdeconnectSync()
 
-    monkeypatch.setattr(kde_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(kde_mod, "find_parent_git_repo", lambda _path: "/repo")
     monkeypatch.setattr(
         kde_mod, "ensure_queue_excluded_in_repo", lambda **_kwargs: None
     )
@@ -139,7 +139,7 @@ def test_modified_oneshot_silently_skips_when_git_repo_is_busy(monkeypatch):
     module = KdeconnectSync()
     notifications: list[dict] = []
 
-    monkeypatch.setattr(kde_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(kde_mod, "find_parent_git_repo", lambda _path: "/repo")
     monkeypatch.setattr(
         kde_mod, "ensure_queue_excluded_in_repo", lambda **_kwargs: None
     )
