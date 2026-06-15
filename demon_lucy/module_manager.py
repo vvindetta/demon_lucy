@@ -43,66 +43,13 @@ class ModuleManager:
                 "Format: name=int. Example: --modules-priority banner=5 renamer=20 todo=30",
                 False,
             ),
-            (
-                "--sys-notification-provider",
-                str,
-                "auto",
-                "Notification provider for modules: auto, termuxapi, desktop, disable.",
-                False,
-            ),
-            (
-                "--sys-notification-min-interval-seconds",
-                float,
-                10.0,
-                "Minimum interval between repeated notifications (seconds).",
-                False,
-            ),
-            (
-                "--sys-notification-error-backoff-base-seconds",
-                float,
-                10.0,
-                "Base interval (seconds) for exponential error notification backoff.",
-                False,
-            ),
-            (
-                "--sys-notification-error-backoff-max-seconds",
-                float,
-                1800.0,
-                "Maximum interval cap (seconds) for exponential error notification backoff.",
-                False,
-            ),
-            (
-                "--sys-notification-error-burst-limit",
-                int,
-                3,
-                "Maximum number of error notifications allowed inside one burst window.",
-                False,
-            ),
-            (
-                "--sys-notification-error-burst-window-seconds",
-                float,
-                600.0,
-                "Burst window length (seconds) used for global error notification limiting.",
-                False,
-            ),
-            (
-                "--sys-ignore-paths",
-                str,
-                [],
-                "Skip module execution for files under these paths.",
-                False,
-            ),
         ]
 
         for module in self.modules:
             self.template.extend(module.template)
 
         template_defaults, _ = parse_args(args=[], template=self.template)
-        inherited_system_config = {
-            key: value
-            for key, value in system_config.items()
-            if key in template_defaults
-        }
+        inherited_system_config = dict(system_config)
         explicit_args, _ = parse_args(
             args=args,
             template=self.template,

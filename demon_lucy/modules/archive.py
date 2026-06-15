@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from typing import Optional
 
-from demon_lucy.lib.path import find_parent_with
+from demon_lucy.lib.path import canonical_path, find_parent_git_repo, find_parent_with
 from demon_lucy.lib.args import Template, delete_args_from_string
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
@@ -36,14 +36,17 @@ class Archive(AbstractModule):
             str,
             [],
             "Archive pair settings: <src> <dest> [idle_hours_int]. "
-            "Example: --archive-pair src.md archive.md 12",
+            "Selectors may be relative to the event file directory, or absolute "
+            "inside the allowed root. The config file path is never archived or "
+            "used as a destination. Example: --archive-pair src.md archive.md 12",
             False,
         ),
         (
             "--archive-default-dest-path",
             str,
             "archive.md",
-            "Fallback destination archive file when --archive-pair is not provided.",
+            "Fallback destination archive file when --archive-pair is not provided. "
+            "Uses the same archive path restrictions as --archive-pair.",
             False,
         ),
         (
@@ -119,7 +122,7 @@ class Archive(AbstractModule):
             default_dest_selector = str(ctx.config["archive_default_dest_path"]).strip()
             if not default_dest_selector:
                 return None
-            return ctx.path, default_dest_selector, idle_hours
+            return os.path.basename(ctx.path), default_dest_selector, idle_hours
 
         src_selector = pair_values[0]
         dest_selector = pair_values[1]
@@ -173,6 +176,91 @@ class Archive(AbstractModule):
 
         return "\n".join(result)
 
+    @staticmethod
+    def _is_within_root(path_value: str, root_value: str) -> bool:
+        path_abs = canonical_path(path_value)
+        root_abs = canonical_path(root_value)
+        try:
+            return os.path.commonpath([path_abs, root_abs]) == root_abs
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _selector_has_parent_reference(selector: str) -> bool:
+        separators = [os.sep]
+        if os.altsep:
+            separators.append(os.altsep)
+
+        normalized = selector
+        for separator in separators:
+            normalized = normalized.replace(separator, os.sep)
+
+        return any(part == ".." for part in normalized.split(os.sep))
+
+    def _resolve_safe_selector(
+        self,
+        *,
+        selector: str,
+        base_dir: str,
+        allowed_root: str,
+    ) -> str | None:
+        raw_selector = str(selector).strip()
+        if not raw_selector:
+            return None
+        if raw_selector.startswith("~"):
+            return None
+
+        expanded_selector = os.path.expanduser(raw_selector)
+        if not os.path.isabs(expanded_selector) and self._selector_has_parent_reference(
+            expanded_selector
+        ):
+            return None
+
+        candidate_path = (
+            os.path.abspath(expanded_selector)
+            if os.path.isabs(expanded_selector)
+            else os.path.abspath(os.path.join(base_dir, expanded_selector))
+        )
+        if os.path.islink(candidate_path):
+            return None
+
+        resolved_path = canonical_path(candidate_path)
+        if not self._is_within_root(resolved_path, allowed_root):
+            return None
+        return resolved_path
+
+    def _event_path_is_inside_configured_watch_roots(self, ctx: Context) -> bool:
+        raw_watch_paths = ctx.config.get("sys_watch_paths")
+        if not raw_watch_paths:
+            return True
+
+        values = raw_watch_paths if isinstance(raw_watch_paths, list) else [raw_watch_paths]
+        event_path = canonical_path(ctx.path)
+        for value in values:
+            watch_path = str(value).strip()
+            if not watch_path:
+                continue
+            if self._is_within_root(event_path, canonical_path(watch_path)):
+                return True
+        return False
+
+    def _archive_allowed_root(self, ctx: Context) -> str | None:
+        if not self._event_path_is_inside_configured_watch_roots(ctx):
+            return None
+        repo_root = find_parent_git_repo(ctx.path)
+        if repo_root:
+            return canonical_path(repo_root)
+        return canonical_path(os.path.dirname(ctx.path))
+
+    def _archive_config_path(self, ctx: Context) -> str | None:
+        raw_config_path = ctx.config.get("sys_config_path")
+        if raw_config_path is None:
+            return None
+        config_path = str(raw_config_path).strip()
+        if not config_path:
+            return None
+        return canonical_path(config_path)
+
     def _resolve_paths(
         self,
         ctx: Context,
@@ -186,31 +274,29 @@ class Archive(AbstractModule):
                 return None
             src_selector, dest_selector, _idle_hours = settings
 
-        event_path = os.path.abspath(ctx.path)
+        event_path = canonical_path(ctx.path)
         event_dir = os.path.dirname(event_path)
+        allowed_root = self._archive_allowed_root(ctx)
+        if allowed_root is None:
+            return None
 
-        src_expanded = os.path.expanduser(src_selector)
-        dest_expanded = os.path.expanduser(dest_selector)
-
-        src_is_abs = os.path.isabs(src_expanded)
-        dest_is_abs = os.path.isabs(dest_expanded)
-
-        src_path = os.path.abspath(src_expanded) if src_is_abs else ""
-        dest_path = os.path.abspath(dest_expanded) if dest_is_abs else ""
-
-        if src_is_abs and not dest_is_abs:
-            base_dir = os.path.dirname(src_path)
-        elif dest_is_abs and not src_is_abs:
-            base_dir = os.path.dirname(dest_path)
-        else:
-            base_dir = event_dir
-
-        if not src_is_abs:
-            src_path = os.path.abspath(os.path.join(base_dir, src_expanded))
-        if not dest_is_abs:
-            dest_path = os.path.abspath(os.path.join(base_dir, dest_expanded))
+        src_path = self._resolve_safe_selector(
+            selector=src_selector,
+            base_dir=event_dir,
+            allowed_root=allowed_root,
+        )
+        dest_path = self._resolve_safe_selector(
+            selector=dest_selector,
+            base_dir=event_dir,
+            allowed_root=allowed_root,
+        )
+        if not src_path or not dest_path:
+            return None
 
         if src_path == dest_path:
+            return None
+        config_path = self._archive_config_path(ctx)
+        if config_path and (src_path == config_path or dest_path == config_path):
             return None
         return src_path, dest_path
 
@@ -284,13 +370,15 @@ class Archive(AbstractModule):
         return age_seconds >= max(0.0, float(idle_hours)) * 3600.0
 
     def _append_entry(self, dest_path: str, entry: str) -> tuple[bool, bool]:
+        if os.path.islink(dest_path):
+            return False, False
+
         old_content = ""
         if os.path.exists(dest_path):
-            try:
-                with open(dest_path, "r", encoding="utf-8") as file_handle:
-                    old_content = file_handle.read()
-            except OSError:
+            old_content_value = self._read_text_no_follow(dest_path)
+            if old_content_value is None:
                 return False, False
+            old_content = old_content_value
 
         if entry and entry in old_content:
             return True, False
@@ -302,12 +390,69 @@ class Archive(AbstractModule):
             elif not old_content.endswith("\n\n"):
                 sep = "\n"
 
+        file_descriptor: int | None = None
+        open_flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
+
         try:
-            with open(dest_path, "a", encoding="utf-8") as file_handle:
+            file_descriptor = os.open(dest_path, open_flags, 0o666)
+            with os.fdopen(file_descriptor, "a", encoding="utf-8") as file_handle:
+                file_descriptor = None
                 file_handle.write(sep + entry)
         except OSError:
+            if file_descriptor is not None:
+                try:
+                    os.close(file_descriptor)
+                except OSError:
+                    pass
             return False, False
         return True, True
+
+    @staticmethod
+    def _read_text_no_follow(path_value: str) -> str | None:
+        if os.path.islink(path_value):
+            return None
+
+        file_descriptor: int | None = None
+        open_flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
+
+        try:
+            file_descriptor = os.open(path_value, open_flags)
+            with os.fdopen(file_descriptor, "r", encoding="utf-8") as src_handle:
+                file_descriptor = None
+                return src_handle.read()
+        except (OSError, UnicodeDecodeError):
+            if file_descriptor is not None:
+                try:
+                    os.close(file_descriptor)
+                except OSError:
+                    pass
+            return None
+
+    @staticmethod
+    def _truncate_source_file(src_path: str) -> bool:
+        if os.path.islink(src_path):
+            return False
+
+        file_descriptor: int | None = None
+        open_flags = os.O_WRONLY | os.O_TRUNC
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
+
+        try:
+            file_descriptor = os.open(src_path, open_flags)
+            os.close(file_descriptor)
+            return True
+        except OSError:
+            if file_descriptor is not None:
+                try:
+                    os.close(file_descriptor)
+                except OSError:
+                    pass
+            return False
 
     def _archive_if_needed(
         self, ctx: Context, force: bool = False
@@ -332,10 +477,8 @@ class Archive(AbstractModule):
         if not force and not self._is_stale(ctx, src_path, idle_hours):
             return None
 
-        try:
-            with open(src_path, "r", encoding="utf-8") as src_handle:
-                src_text = src_handle.read()
-        except OSError:
+        src_text = self._read_text_no_follow(src_path)
+        if src_text is None:
             return None
 
         body = self._normalize_archive_body(src_text, max_blank_lines=3)
@@ -353,10 +496,7 @@ class Archive(AbstractModule):
         if not append_ok:
             return None
 
-        try:
-            with open(src_path, "w", encoding="utf-8") as src_handle:
-                src_handle.write("")
-        except OSError:
+        if not self._truncate_source_file(src_path):
             return None
 
         changed: IgnoreMap = {src_path: 1}

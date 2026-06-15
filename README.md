@@ -177,14 +177,17 @@ Optional add-ons:
 - [Termux:Boot](https://f-droid.org/packages/com.termux.boot/): place a startup script in `~/.termux/boot/` to run it automatically after boot.
 - [Termux:Widget](https://f-droid.org/packages/com.termux.widget/): place a script in `~/.shortcuts/` to run it from the widget.
 - [Termux:Tasker](https://f-droid.org/packages/com.termux.tasker/): place a script in `~/.termux/tasker/` to run it from Tasker automations.
-- [Termux:API](https://f-droid.org/packages/com.termux.api/): enables `termux-wake-lock` and notifications.
+- [Termux:API](https://f-droid.org/packages/com.termux.api/): enables `termux-job-scheduler`, `termux-wake-lock` and notifications.
 
 Ready-to-use Termux scripts are in `setup-termux`:
 - `lucy-daemon.sh`
 - `lucy-oneshot.sh`
+- `lucy-job-scheduler.sh`
 
 Script default paths:
 - repo: `$HOME/demon_lucy`
 - notes: `$HOME/storage/shared/Notes`
 - config (daemon): `$HOME/storage/shared/Notes/.lucy/config-termux.txt`
 - state/logs: `$HOME/.lucy`
+
+Periodic mobile sync can also be registered through Android JobScheduler with [lucy-job-scheduler.sh](setup-termux/lucy-job-scheduler.sh). Use Termux:Boot for this mode only to register the persisted job after reboot.

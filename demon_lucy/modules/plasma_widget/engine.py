@@ -26,9 +26,30 @@ from demon_lucy.modules.plasma_widget.plasma_html_codec import (
     _html_to_doc,
 )
 
+"""
+Three-file Plasma sync contract.
+
+- The Markdown file is the text serialization. Bold is stored as **text**.
+- The MAIN Plasma widget is rich Plasma/QTextDocument HTML for the same document,
+  not a raw Markdown source view. Markdown **text** and HTML font-weight:bold are
+  the same semantic bold segment after parsing into DocLine.
+- The optional BOLD mirror widget is an index of only semantic bold text. It may
+  be rebuilt from Markdown **segments or from MAIN HTML bold spans, and edits in
+  the mirror replace/delete/append bold segments in the shared document model.
+
+All three directions must work:
+Markdown -> MAIN + mirror, MAIN -> Markdown + mirror, mirror -> MAIN + Markdown.
+Plans therefore compare the actual target file contents before deciding writes;
+SyncState is only remembered context, not proof that widget files are already in
+sync. In particular, the first event after bootstrap must still write a missing
+or stale MAIN widget even when state was initialized from the Markdown file.
+"""
+
 
 @dataclass(frozen=True)
 class SyncState:
+    """Remember the last semantic document state for one Markdown/MAIN/mirror set."""
+
     doc_hash: Optional[str]
     bold_items_hash: Optional[str]
     css_style: Optional[bool]
@@ -36,18 +57,68 @@ class SyncState:
 
 @dataclass(frozen=True)
 class SyncPlan:
+    """Concrete file writes needed to make the other two files match one edit."""
+
     next_state: SyncState
     widget_html: Optional[str] = None
     markdown_text: Optional[str] = None
     mirror_html: Optional[str] = None
     missing_markdown: bool = False
+    blocked_empty_source: Optional[str] = None
 
 
 def _markdown_text_doc_hash(markdown_text: str) -> str:
+    """Hash Markdown by semantic DocLine content, ignoring harmless text formatting."""
+
     return _doc_hash(_md_to_doc(_normalize_md(markdown_text)))
 
 
+def _doc_has_semantic_content(doc: list[DocLine]) -> bool:
+    return bool(_doc_to_md(doc).strip())
+
+
+def _markdown_has_semantic_content(markdown_text: str) -> bool:
+    return _doc_has_semantic_content(_md_to_doc(_normalize_md(markdown_text)))
+
+
+def _plan_restore_from_markdown(
+    *,
+    state: SyncState,
+    markdown_text_current: str,
+    widget_html_current: str,
+    mirror_html_current: Optional[str],
+    css_style: bool,
+    blocked_empty_source: str,
+) -> SyncPlan:
+    doc = _md_to_doc(_normalize_md(markdown_text_current))
+    doc_hash = _doc_hash(doc)
+
+    widget_html_out: Optional[str] = None
+    candidate_widget = _doc_to_plasma_html(doc, css_style=css_style)
+    if candidate_widget != widget_html_current:
+        widget_html_out = candidate_widget
+
+    mirror_html_out, bold_items_hash = _plan_mirror_sync(
+        doc=doc,
+        mirror_html_current=mirror_html_current,
+        previous_bold_items_hash=state.bold_items_hash,
+    )
+
+    return SyncPlan(
+        next_state=SyncState(
+            doc_hash=doc_hash,
+            bold_items_hash=bold_items_hash,
+            css_style=css_style,
+        ),
+        widget_html=widget_html_out,
+        mirror_html=mirror_html_out,
+        blocked_empty_source=blocked_empty_source,
+    )
+
+
 def bootstrap_state(markdown_text: str, main_html_text: str) -> SyncState:
+    """Initialize semantic state from Markdown first, then MAIN HTML if needed."""
+
     if markdown_text.strip():
         doc = _md_to_doc(_normalize_md(markdown_text))
         return SyncState(
@@ -96,6 +167,8 @@ def _plan_mirror_sync(
     mirror_html_current: Optional[str],
     previous_bold_items_hash: Optional[str],
 ) -> tuple[Optional[str], Optional[str]]:
+    """Build the BOLD mirror from semantic bold items while preserving separators."""
+
     if mirror_html_current is None:
         return None, previous_bold_items_hash
 
@@ -123,6 +196,13 @@ def plan_from_markdown(
     mirror_html_current: Optional[str],
     css_style: bool,
 ) -> SyncPlan:
+    """Plan Markdown -> MAIN + mirror.
+
+    MAIN is generated as rich Plasma HTML from Markdown, not as literal source
+    text. Always compare the generated HTML with the current MAIN file so a
+    missing/stale widget is repaired even if SyncState already matches.
+    """
+
     if markdown_text == "" and not markdown_exists:
         return SyncPlan(next_state=state, missing_markdown=True)
 
@@ -160,11 +240,32 @@ def plan_from_main_plasma(
     mirror_html_current: Optional[str],
     css_style: bool,
 ) -> SyncPlan:
+    """Plan MAIN -> Markdown + mirror.
+
+    MAIN HTML bold and Markdown **bold** are treated as the same semantic bold
+    segments. Markdown is only rewritten when the parsed MAIN document differs
+    semantically, so a MAIN event does not churn the file just to canonicalize
+    whitespace such as a trailing newline.
+    """
+
     if not widget_exists:
         return SyncPlan(next_state=state)
 
     doc = _html_to_doc(widget_html_current)
     doc_hash = _doc_hash(doc)
+
+    if (
+        not _doc_has_semantic_content(doc)
+        and _markdown_has_semantic_content(markdown_text_current)
+    ):
+        return _plan_restore_from_markdown(
+            state=state,
+            markdown_text_current=markdown_text_current,
+            widget_html_current=widget_html_current,
+            mirror_html_current=mirror_html_current,
+            css_style=css_style,
+            blocked_empty_source="main_plasma",
+        )
 
     markdown_out: Optional[str] = None
     candidate = _doc_to_md(doc)
@@ -204,6 +305,14 @@ def plan_from_bold_mirror(
     markdown_text_current: str,
     css_style: bool,
 ) -> SyncPlan:
+    """Plan mirror -> MAIN + Markdown.
+
+    The mirror contains only semantic bold text. Editing it updates the matching
+    bold entries in the parsed MAIN document; missing old entries are deleted and
+    new mirror rows append new bold paragraphs. The resulting shared document is
+    then serialized to both MAIN HTML and Markdown.
+    """
+
     if mirror_html_current is None or not mirror_exists:
         return SyncPlan(next_state=state)
 
@@ -212,6 +321,19 @@ def plan_from_bold_mirror(
     main_doc = _html_to_doc(widget_html_current)
     new_doc = _apply_mirror_lines_to_doc(main_doc, mirror_lines)
     new_doc_hash = _doc_hash(new_doc)
+
+    if (
+        not _doc_has_semantic_content(new_doc)
+        and _markdown_has_semantic_content(markdown_text_current)
+    ):
+        return _plan_restore_from_markdown(
+            state=state,
+            markdown_text_current=markdown_text_current,
+            widget_html_current=widget_html_current,
+            mirror_html_current=mirror_html_current,
+            css_style=css_style,
+            blocked_empty_source="bold_mirror",
+        )
 
     widget_html_out: Optional[str] = None
     markdown_out: Optional[str] = None

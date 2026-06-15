@@ -21,6 +21,8 @@ def _ctx_for(
     force_archive: bool = False,
     pair_values: list[str] | None = None,
     default_dest_path: str = "past.md",
+    config_path: str | None = None,
+    watch_paths: list[str] | None = None,
 ) -> Context:
     resolved_pair = list(pair_values) if pair_values is not None else ["now.md", "past.md"]
     config: dict[str, object] = {
@@ -36,6 +38,10 @@ def _ctx_for(
         config["archive_force_filesystem_mtime"] = True
     if force_archive:
         config["archive"] = True
+    if config_path is not None:
+        config["sys_config_path"] = config_path
+    if watch_paths is not None:
+        config["sys_watch_paths"] = watch_paths
 
     return Context(
         path=str(path),
@@ -67,7 +73,7 @@ def test_supports_custom_archive_now_file(tmp_path: Path, monkeypatch) -> None:
     assert past_path.read_text(encoding="utf-8") == "-- 02.05.2026\ncustom active\n"
 
 
-def test_supports_absolute_unicode_archive_pair_paths(
+def test_allows_absolute_archive_pair_paths_inside_allowed_root(
     tmp_path: Path, monkeypatch
 ) -> None:
     _freeze_now(monkeypatch, 2026, 5, 2)
@@ -96,35 +102,317 @@ def test_supports_absolute_unicode_archive_pair_paths(
     assert past_path.read_text(encoding="utf-8") == "-- 02.05.2026\nunicode active\n"
 
 
-def test_relative_past_is_anchored_to_absolute_now_path(
+def test_rejects_absolute_archive_pair_paths_outside_allowed_root(
     tmp_path: Path, monkeypatch
 ) -> None:
     _freeze_now(monkeypatch, 2026, 5, 2)
 
-    active_dir = tmp_path / "active"
-    active_dir.mkdir(parents=True, exist_ok=True)
-    now_path = active_dir / "now.md"
-    now_path.write_text("move from fixed now\n", encoding="utf-8")
-    _make_stale(now_path, 13.0)
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    outside_path = tmp_path / "outside.md"
+    outside_path.write_text("outside must stay\n", encoding="utf-8")
+    _make_stale(outside_path, 13.0)
 
-    random_dir = tmp_path / "random"
-    random_dir.mkdir(parents=True, exist_ok=True)
-    trigger_path = random_dir / "other.md"
+    trigger_path = notes_dir / "other.md"
     trigger_path.write_text("x\n", encoding="utf-8")
 
     module = Archive()
-    ctx = _ctx_for(trigger_path, pair_values=[str(now_path), "past.md"])
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=[str(outside_path), "past.md", "2"],
+    )
     system = System(
         event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
     )
 
     ignore = module.modified(ctx, system)
 
-    expected_past = active_dir / "past.md"
-    assert ignore == {str(now_path.resolve()): 1, str(expected_past.resolve()): 1}
+    assert ignore is None
+    assert outside_path.read_text(encoding="utf-8") == "outside must stay\n"
+    assert not (notes_dir / "past.md").exists()
+
+
+def test_rejects_absolute_archive_pair_path_traversal_outside_allowed_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    outside_path = tmp_path / "outside.md"
+    outside_path.write_text("outside must stay\n", encoding="utf-8")
+    _make_stale(outside_path, 13.0)
+
+    trigger_path = notes_dir / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=[str(notes_dir / ".." / "outside.md"), "past.md", "2"],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert outside_path.read_text(encoding="utf-8") == "outside must stay\n"
+    assert not (notes_dir / "past.md").exists()
+
+
+def test_rejects_archive_pair_path_traversal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    outside_path = tmp_path / "outside.md"
+    outside_path.write_text("outside must stay\n", encoding="utf-8")
+    _make_stale(outside_path, 13.0)
+
+    trigger_path = notes_dir / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(trigger_path, pair_values=["../outside.md", "past.md"])
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert outside_path.read_text(encoding="utf-8") == "outside must stay\n"
+    assert not (notes_dir / "past.md").exists()
+
+
+def test_rejects_archive_pair_through_symlink_parent_outside_allowed_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_path = outside_dir / "outside.md"
+    outside_path.write_text("outside must stay\n", encoding="utf-8")
+    _make_stale(outside_path, 13.0)
+
+    link_dir = notes_dir / "linked"
+    link_dir.symlink_to(outside_dir, target_is_directory=True)
+
+    trigger_path = notes_dir / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(trigger_path, pair_values=["linked/outside.md", "past.md"])
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert outside_path.read_text(encoding="utf-8") == "outside must stay\n"
+    assert not (notes_dir / "past.md").exists()
+
+
+def test_archive_rejects_canonical_event_path_outside_configured_watch_roots(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+
+    outside_now = outside_dir / "now.md"
+    outside_now.write_text("outside must stay\n", encoding="utf-8")
+    _make_stale(outside_now, 13.0)
+
+    module = Archive()
+    ctx = _ctx_for(
+        outside_now,
+        force_archive=True,
+        pair_values=["now.md", "past.md"],
+        watch_paths=[str(notes_dir)],
+    )
+    system = System(
+        event=FileModifiedEvent(str(notes_dir / "linked-now.md")),
+        global_template=[],
+        modules=[module],
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert outside_now.read_text(encoding="utf-8") == "outside must stay\n"
+    assert not (outside_dir / "past.md").exists()
+
+
+def test_archive_paths_must_stay_inside_git_repo_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    repo_root = tmp_path / "repo"
+    note_dir = repo_root / "notes"
+    note_dir.mkdir(parents=True, exist_ok=True)
+    git_dir = repo_root / ".git"
+    git_dir.mkdir()
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+
+    now_path = note_dir / "now.md"
+    now_path.write_text("inside repo\n", encoding="utf-8")
+    _make_stale(now_path, 1.0)
+
+    trigger_path = note_dir / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        force_archive=True,
+        pair_values=["now.md", "past.md"],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    past_path = note_dir / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
     assert now_path.read_text(encoding="utf-8") == ""
-    assert expected_past.read_text(encoding="utf-8") == "-- 02.05.2026\nmove from fixed now\n"
-    assert not (random_dir / "past.md").exists()
+    assert past_path.read_text(encoding="utf-8") == "-- 02.05.2026\ninside repo\n"
+
+
+def test_absolute_archive_paths_can_target_repo_root_from_subdirectory_event(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    repo_root = tmp_path / "repo"
+    note_dir = repo_root / "notes"
+    note_dir.mkdir(parents=True, exist_ok=True)
+    git_dir = repo_root / ".git"
+    git_dir.mkdir()
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+
+    now_path = repo_root / "now.md"
+    now_path.write_text("root archive source\n", encoding="utf-8")
+    _make_stale(now_path, 1.0)
+
+    trigger_path = note_dir / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        force_archive=True,
+        pair_values=[str(now_path), str(repo_root / "past.md")],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    past_path = repo_root / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert (
+        past_path.read_text(encoding="utf-8")
+        == "-- 02.05.2026\nroot archive source\n"
+    )
+
+
+def test_archive_rejects_config_file_as_source(tmp_path: Path, monkeypatch) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    config_path = tmp_path / "config.txt"
+    config_path.write_text("config must stay\n", encoding="utf-8")
+    _make_stale(config_path, 13.0)
+
+    trigger_path = tmp_path / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        force_archive=True,
+        pair_values=[str(config_path), "past.md"],
+        config_path=str(config_path),
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert config_path.read_text(encoding="utf-8") == "config must stay\n"
+    assert not (tmp_path / "past.md").exists()
+
+
+def test_archive_rejects_config_file_as_destination(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("must stay active\n", encoding="utf-8")
+    _make_stale(now_path, 13.0)
+
+    config_path = tmp_path / "config.txt"
+    config_path.write_text("config must stay\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        now_path,
+        force_archive=True,
+        pair_values=["now.md", str(config_path)],
+        config_path=str(config_path),
+    )
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert now_path.read_text(encoding="utf-8") == "must stay active\n"
+    assert config_path.read_text(encoding="utf-8") == "config must stay\n"
+
+
+def test_archive_rejects_symlink_destination(tmp_path: Path, monkeypatch) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("must not leak\n", encoding="utf-8")
+    _make_stale(now_path, 1.0)
+
+    target_path = tmp_path / "target.md"
+    target_path.write_text("target\n", encoding="utf-8")
+    symlink_path = tmp_path / "past.md"
+    symlink_path.symlink_to(target_path)
+
+    module = Archive()
+    ctx = _ctx_for(now_path, force_archive=True)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert now_path.read_text(encoding="utf-8") == "must not leak\n"
+    assert target_path.read_text(encoding="utf-8") == "target\n"
 
 
 def _make_stale(path: Path, hours: float) -> None:

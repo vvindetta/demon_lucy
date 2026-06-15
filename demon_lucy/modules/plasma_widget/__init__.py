@@ -273,6 +273,31 @@ def _inc_ignore(ignore: IgnoreMap, path: str, times: int = 1) -> None:
     ignore[absolute_path] = ignore.get(absolute_path, 0) + int(times)
 
 
+def _notify_empty_source_guard(
+    *,
+    source_label: str,
+    source_path: str,
+    markdown_path: str,
+    config: Mapping[str, Any],
+) -> None:
+    source_abs = canonical_path(source_path)
+    markdown_abs = canonical_path(markdown_path)
+    logger.warning(
+        "Blocked empty Plasma source from clearing markdown | source=%s | markdown=%s",
+        source_abs,
+        markdown_abs,
+    )
+    safe_notify(
+        "plasma-empty-source:" + markdown_abs,
+        (
+            f"Blocked empty {source_label} from clearing markdown:\n"
+            f"{markdown_abs}\n\nSource:\n{source_abs}"
+        ),
+        config=config,
+        use_rare_mode=True,
+    )
+
+
 # ---------------- Startup init ---------------- #
 
 
@@ -507,6 +532,14 @@ class PlasmaWidget(AbstractModule):
             css_style=css_style,
         )
 
+        if plan.blocked_empty_source:
+            _notify_empty_source_guard(
+                source_label="MAIN Plasma widget",
+                source_path=html_path,
+                markdown_path=markdown_path,
+                config=config,
+            )
+
         ignore = _apply_sync_plan(
             sync_key=sync_key,
             plan=plan,
@@ -555,6 +588,14 @@ class PlasmaWidget(AbstractModule):
             markdown_text_current=markdown_read.content,
             css_style=css_style,
         )
+
+        if plan.blocked_empty_source:
+            _notify_empty_source_guard(
+                source_label="BOLD Plasma mirror",
+                source_path=bold_widget_path,
+                markdown_path=markdown_path,
+                config=config,
+            )
 
         ignore = _apply_sync_plan(
             sync_key=sync_key,

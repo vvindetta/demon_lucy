@@ -49,7 +49,13 @@ def test_run_oneshot_passes_oneshot_run_mode(tmp_path: Path, monkeypatch):
     captured: dict[str, str] = {}
 
     class _FakeManager:
-        def __init__(self, modules, args, system_config, run_mode="daemon"):
+        def __init__(
+            self,
+            modules,
+            args,
+            system_config,
+            run_mode="daemon",
+        ):
             _ = (modules, args, system_config)
             captured["run_mode"] = run_mode
 

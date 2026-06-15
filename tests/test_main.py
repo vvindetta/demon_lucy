@@ -49,7 +49,13 @@ def _run_main_with_flag(
             self.process_opened_events = process_opened_events
 
     class FakeModuleManager:
-        def __init__(self, modules, args, system_config=None, run_mode="daemon"):
+        def __init__(
+            self,
+            modules,
+            args,
+            system_config=None,
+            run_mode="daemon",
+        ):
             self.modules = modules
             self.args = args
             self.system_config = system_config

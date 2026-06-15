@@ -299,6 +299,97 @@ def test_from_main_plasma_updates_markdown(tmp_path: Path):
     assert md.read_text(encoding="utf-8") == "**Hello**"
 
 
+def test_empty_main_plasma_restores_from_markdown_instead_of_clearing():
+    markdown = "Line\n**Bold**"
+    empty_widget = plasma_mod._doc_to_plasma_html([], css_style=False)
+    state = plasma_mod.bootstrap_state(markdown, empty_widget)
+
+    plan = plasma_mod.plan_from_main_plasma(
+        state=state,
+        widget_html_current=empty_widget,
+        widget_exists=True,
+        markdown_text_current=markdown,
+        mirror_html_current=None,
+        css_style=False,
+    )
+
+    assert plan.blocked_empty_source == "main_plasma"
+    assert plan.markdown_text is None
+    assert plan.widget_html is not None
+    assert plasma_mod._doc_to_md(plasma_mod._html_to_doc(plan.widget_html)) == markdown
+
+
+def test_from_main_plasma_empty_source_preserves_markdown_and_restores_targets(
+    tmp_path: Path,
+    monkeypatch,
+):
+    widget = tmp_path / "widget.html"
+    md = tmp_path / "todo.md"
+    mirror = tmp_path / "mirror.html"
+    md.write_text("Line\n**Bold**", encoding="utf-8")
+    widget.write_text(
+        plasma_mod._doc_to_plasma_html([], css_style=False),
+        encoding="utf-8",
+    )
+    mirror.write_text(plasma_mod._bold_lines_to_plasma_html([]), encoding="utf-8")
+
+    notifications = []
+
+    def fake_safe_notify(name, message, **kwargs):
+        notifications.append((name, message, kwargs))
+
+    monkeypatch.setattr(plasma_mod, "safe_notify", fake_safe_notify)
+
+    ignore = PlasmaWidget()._from_main_plasma(
+        widget_path=str(widget),
+        markdown_path=str(md),
+        bold_widget_path=str(mirror),
+        css_style=False,
+        html_path=str(widget),
+        config=_NOTIFY_CFG,
+    )
+
+    assert ignore is not None
+    assert str(widget.resolve()) in ignore
+    assert str(mirror.resolve()) in ignore
+    assert str(md.resolve()) not in ignore
+    assert md.read_text(encoding="utf-8") == "Line\n**Bold**"
+    assert (
+        plasma_mod._doc_to_md(
+            plasma_mod._html_to_doc(widget.read_text(encoding="utf-8"))
+        )
+        == "Line\n**Bold**"
+    )
+    assert plasma_mod._mirror_html_to_items(mirror.read_text(encoding="utf-8")) == [
+        "Bold"
+    ]
+    assert notifications
+    assert notifications[0][0] == f"plasma-empty-source:{md.resolve()}"
+
+
+def test_empty_bold_mirror_with_empty_main_restores_from_markdown():
+    markdown = "**Keep**\nplain"
+    empty_widget = plasma_mod._doc_to_plasma_html([], css_style=False)
+    empty_mirror = plasma_mod._bold_lines_to_plasma_html([])
+    state = plasma_mod.bootstrap_state(markdown, empty_widget)
+
+    plan = plasma_mod.plan_from_bold_mirror(
+        state=state,
+        mirror_html_current=empty_mirror,
+        mirror_exists=True,
+        widget_html_current=empty_widget,
+        markdown_text_current=markdown,
+        css_style=False,
+    )
+
+    assert plan.blocked_empty_source == "bold_mirror"
+    assert plan.markdown_text is None
+    assert plan.widget_html is not None
+    assert plasma_mod._doc_to_md(plasma_mod._html_to_doc(plan.widget_html)) == markdown
+    assert plan.mirror_html is not None
+    assert plasma_mod._mirror_html_to_items(plan.mirror_html) == ["Keep"]
+
+
 @pytest.mark.parametrize(
     ("source_md", "mode_sequence", "rounds"),
     [

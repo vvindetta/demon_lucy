@@ -11,9 +11,10 @@ Use:
 --module-action-detail value
 ```
 
-## Daemon Args
+## Runtime/System Args
 
-Used by `main_daemon.py` and config files.
+Used by `main_daemon.py`, `main_oneshot.py`, and config files. Module code reads
+these values from the resolved `config[...]`.
 
 | Arg | Type | Meaning |
 |---|---:|---|
@@ -37,6 +38,8 @@ Example:
 
 ```text
 python3 main_daemon.py --sys-watch-paths ~/Notes --sys-disable-opened-events
+--sys-notification-provider desktop
+--sys-ignore-paths ~/.cache ~/Notes/private
 ```
 
 ## One-shot Args
@@ -60,18 +63,13 @@ python3 main_oneshot.py --oneshot-event moved --oneshot-move-src-path old.md --o
 
 ## Module Manager Args
 
-These can be set globally or inside notes.
+These are parsed before per-file module runs, so set them in config/startup args.
+Runtime/system args such as notifications and ignored paths are inherited from
+the startup config.
 
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--modules-priority` | `str[]` | Override module order. Format: `name=int`. Lower number runs earlier. |
-| `--sys-notification-provider` | `str` | Override notification backend for modules (`auto`, `termuxapi`, `desktop`, `disable`). |
-| `--sys-notification-min-interval-seconds` | `float` | Override module notification throttle interval. |
-| `--sys-notification-error-backoff-base-seconds` | `float` | Override base interval for exponential backoff of error notifications. |
-| `--sys-notification-error-backoff-max-seconds` | `float` | Override max interval cap for exponential backoff of error notifications. |
-| `--sys-notification-error-burst-limit` | `int` | Override max number of error notifications in one burst window. |
-| `--sys-notification-error-burst-window-seconds` | `float` | Override burst window length for global error notification limiting. |
-| `--sys-ignore-paths` | `str[]` | Override ignored paths for module execution. |
 
 Example:
 
@@ -115,6 +113,27 @@ Examples:
 | `--rename` | `str` | Rename the current file to the given name. |
 | `--rename-auto` | `bool` | On create, rename `t`/`txt` to `DD-MM.txt` and `m`/`md` to `DD-MM.md`. |
 
+## Linker
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--linker-root` | `bool` | Create a symlink in the repo root with the current note filename. |
+| `--linker-auto-clean-root-links` | `bool` | If `--linker-root` is not set, remove symlinks from the repo root. |
+| `--linker-ignore` | `str[]` | Ignore files/links for linker actions (basename or absolute/repo-relative path). |
+| `--linker-auto-update-md-links` | `bool` | On move/rename, scan markdown files in repo and update links to moved note. |
+
+## Archive
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--archive` | `bool` | Force archive move for this event. |
+| `--archive-pair` | `str[]` | Archive pair: `<src> <dest> [idle_hours_int]`. Paths may be relative to the event file directory, or absolute inside the allowed root. `~` and relative `..` are rejected; resolved paths must stay inside the Git repo root, or inside the current note directory outside Git. In daemon runs with `--sys-watch-paths`, the canonical event path must still be inside a watched root. The active config file path is never archived or used as a destination. |
+| `--archive-default-dest-path` | `str` | Fallback destination file when `--archive-pair` is missing and `--archive` is set. Uses the same archive path restrictions, including the config-file guard. |
+| `--archive-idle-hours` | `float` | Archive source when its age is at least this many hours. |
+| `--archive-date-prefix` | `str` | Text before archive date in history header. Default: `-- `. |
+| `--archive-date-suffix` | `str` | Text after archive date in history header. Default: empty string. |
+| `--archive-force-filesystem-mtime` | `bool` | Use filesystem mtime even inside Git repositories. |
+
 ## Formatter
 
 | Arg | Type | Meaning |
@@ -130,6 +149,48 @@ Examples:
 --fmt-blank down 20
 --fmt-blank both 12
 ```
+
+## Git
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--git-commit-message` | `str` | Base commit message. |
+| `--git-commit-message-timestamp` | `bool` | Append timestamp to commit message. |
+| `--git-commit-message-timestamp-format` | `str` | Python `strftime` format for commit message timestamp. |
+| `--git-sync-on-opened-disable` | `bool` | Disable git sync reaction when a repository receives an `opened` event. |
+| `--git-push-auto-merge` | `bool` | If push is rejected because remote is ahead, pull/merge and retry push. |
+| `--git-upstream-auto-set` | `bool` | Try to set upstream automatically when branch has none. |
+| `--git-merge-autoresolve` | `str` | Conflict strategy: `none`, `ours`, `theirs`, `union`, `markers` (commit with conflict markers). |
+| `--git-command-timeout-seconds` | `float` | Timeout for git add/status/commit and similar operations. |
+| `--git-pull-timeout-seconds` | `float` | Timeout for git pull/merge operations. |
+| `--git-network-probe-timeout-seconds` | `float` | Timeout for remote network reachability probe before pull. |
+| `--git-pull-offline-error-markers` | `str[]` | Error text markers treated as offline/network pull failures. |
+| `--git-push-timeout-seconds` | `float` | Timeout for git push. |
+| `--git-sync-retry-window-seconds` | `float` | Total retry window for background git sync retries. `0` disables retries. |
+| `--git-sync-retry-backoff-start-seconds` | `float` | Initial retry delay for background git sync retries. |
+| `--git-sync-retry-backoff-max-seconds` | `float` | Maximum retry delay cap for background git sync retries. |
+
+Common examples:
+
+```text
+--git-merge-autoresolve union
+```
+
+## Plasma Widget
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--plasma-widget-path` | `str` | Main Plasma note HTML widget path. Required for plasma widget sync. |
+| `--plasma-bold-widget-path` | `str` | Optional bold-only mirror widget path. |
+| `--plasma-markdown-note-path` | `str` | Markdown note path synced with Plasma widget content. Required. |
+| `--plasma-css-style` | `bool` | Render with CSS checkbox markers and real `ul/li` output. |
+
+## Dropdir
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--dropdir-archive-clean-paths` | `str[]` | Directories where moved archive source files are immediately archived. |
+| `--dropdir-archive-clean-delay-milliseconds` | `int` | Delay before triggering archive cleanup after move-back. |
 
 ## Status
 
@@ -160,35 +221,6 @@ Examples:
 --status-opened-events
 ```
 
-## Linker
-
-| Arg | Type | Meaning |
-|---|---:|---|
-| `--linker-root` | `bool` | Create a symlink in the repo root with the current note filename. |
-| `--linker-auto-clean-root-links` | `bool` | If `--linker-root` is not set, remove symlinks from the repo root. |
-| `--linker-ignore` | `str[]` | Ignore files/links for linker actions (basename or absolute/repo-relative path). |
-| `--linker-auto-update-md-links` | `bool` | On move/rename, scan markdown files in repo and update links to moved note. |
-
-## Dropdir
-
-| Arg | Type | Meaning |
-|---|---:|---|
-| `--dropdir-archive-clean-paths` | `str[]` | Directories where moved archive source files are immediately archived. |
-| `--dropdir-archive-clean-delay-milliseconds` | `int` | Delay before triggering archive cleanup after move-back. |
-
-## Archive
-
-| Arg | Type | Meaning |
-|---|---:|---|
-| `--archive` | `bool` | Force archive move for this event. |
-| `--archive-pair` | `str[]` | Archive pair: `<src> <dest> [idle_hours_int]`. |
-| `--archive-default-dest-path` | `str` | Fallback destination file when `--archive-pair` is missing and `--archive` is set. |
-| `--archive-idle-hours` | `float` | Archive source when its age is at least this many hours. |
-| `--archive-date-prefix` | `str` | Text before archive date in history header. Default: `-- `. |
-| `--archive-date-suffix` | `str` | Text after archive date in history header. Default: empty string. |
-| `--archive-force-filesystem-mtime` | `bool` | Use filesystem mtime even inside Git repositories. |
-
-
 ## Cmd Module
 
 The `cmd` module exists but is not enabled in the default module list.
@@ -207,32 +239,6 @@ Example:
 --cmd-stream stdout
 ```
 
-## Git
-
-| Arg | Type | Meaning |
-|---|---:|---|
-| `--git-commit-message` | `str` | Base commit message. |
-| `--git-commit-message-timestamp` | `bool` | Append timestamp to commit message. |
-| `--git-commit-message-timestamp-format` | `str` | Python `strftime` format for commit message timestamp. |
-| `--git-sync-on-opened-disable` | `bool` | Disable git sync reaction when a repository receives an `opened` event. |
-| `--git-push-auto-merge` | `bool` | If push is rejected because remote is ahead, pull/merge and retry push. |
-| `--git-upstream-auto-set` | `bool` | Try to set upstream automatically when branch has none. |
-| `--git-merge-autoresolve` | `str` | Conflict strategy: `none`, `ours`, `theirs`, `union`, `markers` (commit with conflict markers). |
-| `--git-command-timeout-seconds` | `float` | Timeout for git add/status/commit and similar operations. |
-| `--git-pull-timeout-seconds` | `float` | Timeout for git pull/merge operations. |
-| `--git-network-probe-timeout-seconds` | `float` | Timeout for remote network reachability probe before pull. |
-| `--git-pull-offline-error-markers` | `str[]` | Error text markers treated as offline/network pull failures. |
-| `--git-push-timeout-seconds` | `float` | Timeout for git push. |
-| `--git-sync-retry-window-seconds` | `float` | Total retry window for background git sync retries. `0` disables retries. |
-| `--git-sync-retry-backoff-start-seconds` | `float` | Initial retry delay for background git sync retries. |
-| `--git-sync-retry-backoff-max-seconds` | `float` | Maximum retry delay cap for background git sync retries. |
-
-Common examples:
-
-```text
---git-merge-autoresolve union
-```
-
 ## KDE Connect Sync
 
 | Arg | Type | Meaning |
@@ -248,12 +254,3 @@ Common examples:
 | `--kdeconnect-command-timeout-seconds` | `float` | Timeout for `kdeconnect-cli` commands. |
 | `--kdeconnect-mount-retry-seconds` | `float` | Delay between mount retries when device is temporarily unavailable. |
 | `--kdeconnect-dry-run` | `bool` | Build patch packets without transferring to phone. |
-
-## Plasma Widget
-
-| Arg | Type | Meaning |
-|---|---:|---|
-| `--plasma-widget-path` | `str` | Main Plasma note HTML widget path. Required for plasma widget sync. |
-| `--plasma-bold-widget-path` | `str` | Optional bold-only mirror widget path. |
-| `--plasma-markdown-note-path` | `str` | Markdown note path synced with Plasma widget content. Required. |
-| `--plasma-css-style` | `bool` | Render with CSS checkbox markers and real `ul/li` output. |

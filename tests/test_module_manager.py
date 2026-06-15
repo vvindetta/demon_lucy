@@ -67,7 +67,11 @@ class _RequiredMod(AbstractModule):
     ["broken-item", "a=not-int", "=5"],
 )
 def test_parse_priority_list_rejects_bad_items(value: str):
-    manager = ModuleManager(modules=[_ModA()], args=[], system_config=_SYSTEM_CONFIG)
+    manager = ModuleManager(
+        modules=[_ModA()],
+        args=[],
+        system_config=_SYSTEM_CONFIG,
+    )
     with pytest.raises(ValueError):
         manager._parse_priority_list([value])
 
