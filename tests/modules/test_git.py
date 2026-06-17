@@ -336,12 +336,12 @@ def test_detailed_commit_message_summarizes_multiple_actions():
     )
 
     assert message.subject == "Auto: sync 3 files: modify 1, add 1, delete 1"
-    assert "Event: opened" in message.body
-    assert "Repository: /repo" in message.body
+    assert "Event: opened | Triggered by: todo.md" in message.body
+    assert "Repository:" not in message.body
     assert "- todo.md (+8/-3)" in message.body
     assert "- media/photo.jpg (binary)" in message.body
     assert "- old.md (+0/-12)" in message.body
-    assert "Triggered by:\n- todo.md" in message.body
+    assert "\nTriggered by:" not in message.body
 
 
 def test_opened_processes_sync_when_repo_exists(git_module, monkeypatch):
@@ -1038,7 +1038,8 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
             )
         if arguments[:2] == ["commit", "-m"]:
             assert arguments[2] == "Auto: modify note.md"
-            assert "Event: opened" in arguments[4]
+            assert "Event: opened | Triggered by: note.md" in arguments[4]
+            assert "Repository:" not in arguments[4]
             assert "- note.md (+2/-1)" in arguments[4]
             return subprocess.CompletedProcess(
                 args=["git"] + arguments,

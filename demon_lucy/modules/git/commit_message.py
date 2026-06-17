@@ -292,6 +292,19 @@ def _triggered_paths(batch: _RepoBatch) -> list[str]:
     ]
 
 
+def _event_context_line(batch: _RepoBatch, max_paths: int) -> str:
+    event_text = batch.event_type or "change"
+    triggered = _triggered_paths(batch)
+    if not triggered:
+        return f"Event: {event_text}"
+
+    shown = triggered[:max_paths]
+    triggered_text = ", ".join(shown)
+    if len(triggered) > max_paths:
+        triggered_text += f", +{len(triggered) - max_paths} more"
+    return f"Event: {event_text} | Triggered by: {triggered_text}"
+
+
 def _body_for_changes(batch: _RepoBatch, changes: list[GitChange]) -> str:
     style = str(batch.commit_message_style).strip().lower()
     if style == "compact":
@@ -299,8 +312,7 @@ def _body_for_changes(batch: _RepoBatch, changes: list[GitChange]) -> str:
 
     max_body_files = max(1, int(batch.commit_message_max_body_files))
     lines = [
-        f"Event: {batch.event_type or 'change'}",
-        f"Repository: {batch.repo_root}",
+        _event_context_line(batch, max_body_files),
         f"Changed: {len(changes)} {_plural_files(len(changes))}",
         "",
     ]
@@ -325,14 +337,6 @@ def _body_for_changes(batch: _RepoBatch, changes: list[GitChange]) -> str:
     if remaining > 0:
         lines.append(f"... +{remaining} more")
         lines.append("")
-
-    triggered = _triggered_paths(batch)
-    if triggered:
-        lines.append("Triggered by:")
-        for path in triggered[:max_body_files]:
-            lines.append(f"- {path}")
-        if len(triggered) > max_body_files:
-            lines.append(f"... +{len(triggered) - max_body_files} more")
 
     return "\n".join(lines).strip()
 
