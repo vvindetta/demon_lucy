@@ -35,7 +35,9 @@ Three-file Plasma sync contract.
   the same semantic bold segment after parsing into DocLine.
 - The optional BOLD mirror widget is an index of only semantic bold text. It may
   be rebuilt from Markdown **segments or from MAIN HTML bold spans, and edits in
-  the mirror replace/delete/append bold segments in the shared document model.
+  the mirror replace/delete/append bold segments in the Markdown-backed document
+  model. MAIN HTML is treated as a target for mirror edits, not as the structural
+  source, because Plasma can briefly write incomplete widget snapshots.
 
 All three directions must work:
 Markdown -> MAIN + mirror, MAIN -> Markdown + mirror, mirror -> MAIN + Markdown.
@@ -65,6 +67,7 @@ class SyncPlan:
     mirror_html: Optional[str] = None
     missing_markdown: bool = False
     blocked_empty_source: Optional[str] = None
+    blocked_shrinking_source: Optional[str] = None
 
 
 def _markdown_text_doc_hash(markdown_text: str) -> str:
@@ -81,6 +84,31 @@ def _markdown_has_semantic_content(markdown_text: str) -> bool:
     return _doc_has_semantic_content(_md_to_doc(_normalize_md(markdown_text)))
 
 
+def _semantic_content_stats(doc: list[DocLine]) -> tuple[int, int]:
+    text = _doc_to_md(doc).strip()
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    return len(lines), sum(len(line) for line in lines)
+
+
+def _source_doc_is_probable_truncated_snapshot(
+    source_doc: list[DocLine],
+    markdown_text_current: str,
+) -> bool:
+    current_doc = _md_to_doc(_normalize_md(markdown_text_current))
+    current_lines, current_chars = _semantic_content_stats(current_doc)
+    source_lines, source_chars = _semantic_content_stats(source_doc)
+
+    if current_lines < 4 or current_chars < 80:
+        return False
+    if source_lines >= current_lines:
+        return False
+
+    return (
+        source_lines <= max(1, current_lines // 2)
+        and source_chars <= int(current_chars * 0.70)
+    )
+
+
 def _plan_restore_from_markdown(
     *,
     state: SyncState,
@@ -88,7 +116,8 @@ def _plan_restore_from_markdown(
     widget_html_current: str,
     mirror_html_current: Optional[str],
     css_style: bool,
-    blocked_empty_source: str,
+    blocked_empty_source: Optional[str] = None,
+    blocked_shrinking_source: Optional[str] = None,
 ) -> SyncPlan:
     doc = _md_to_doc(_normalize_md(markdown_text_current))
     doc_hash = _doc_hash(doc)
@@ -113,6 +142,7 @@ def _plan_restore_from_markdown(
         widget_html=widget_html_out,
         mirror_html=mirror_html_out,
         blocked_empty_source=blocked_empty_source,
+        blocked_shrinking_source=blocked_shrinking_source,
     )
 
 
@@ -267,6 +297,16 @@ def plan_from_main_plasma(
             blocked_empty_source="main_plasma",
         )
 
+    if _source_doc_is_probable_truncated_snapshot(doc, markdown_text_current):
+        return _plan_restore_from_markdown(
+            state=state,
+            markdown_text_current=markdown_text_current,
+            widget_html_current=widget_html_current,
+            mirror_html_current=mirror_html_current,
+            css_style=css_style,
+            blocked_shrinking_source="main_plasma",
+        )
+
     markdown_out: Optional[str] = None
     candidate = _doc_to_md(doc)
     if _markdown_text_doc_hash(markdown_text_current) != doc_hash:
@@ -307,19 +347,29 @@ def plan_from_bold_mirror(
 ) -> SyncPlan:
     """Plan mirror -> MAIN + Markdown.
 
-    The mirror contains only semantic bold text. Editing it updates the matching
-    bold entries in the parsed MAIN document; missing old entries are deleted and
-    new mirror rows append new bold paragraphs. The resulting shared document is
-    then serialized to both MAIN HTML and Markdown.
+    The mirror contains only semantic bold text. Editing it updates matching
+    bold entries in the current Markdown document; missing old entries are
+    deleted and new mirror rows append new bold paragraphs. MAIN HTML is only a
+    target here, so a transient partial Plasma HTML snapshot cannot truncate the
+    Markdown note.
     """
 
     if mirror_html_current is None or not mirror_exists:
         return SyncPlan(next_state=state)
 
     mirror_lines = _mirror_html_to_lines(mirror_html_current)
+    if not mirror_lines and _markdown_has_semantic_content(markdown_text_current):
+        return _plan_restore_from_markdown(
+            state=state,
+            markdown_text_current=markdown_text_current,
+            widget_html_current=widget_html_current,
+            mirror_html_current=mirror_html_current,
+            css_style=css_style,
+            blocked_empty_source="bold_mirror",
+        )
 
-    main_doc = _html_to_doc(widget_html_current)
-    new_doc = _apply_mirror_lines_to_doc(main_doc, mirror_lines)
+    markdown_doc = _md_to_doc(_normalize_md(markdown_text_current))
+    new_doc = _apply_mirror_lines_to_doc(markdown_doc, mirror_lines)
     new_doc_hash = _doc_hash(new_doc)
 
     if (
@@ -333,6 +383,16 @@ def plan_from_bold_mirror(
             mirror_html_current=mirror_html_current,
             css_style=css_style,
             blocked_empty_source="bold_mirror",
+        )
+
+    if _source_doc_is_probable_truncated_snapshot(new_doc, markdown_text_current):
+        return _plan_restore_from_markdown(
+            state=state,
+            markdown_text_current=markdown_text_current,
+            widget_html_current=widget_html_current,
+            mirror_html_current=mirror_html_current,
+            css_style=css_style,
+            blocked_shrinking_source="bold_mirror",
         )
 
     widget_html_out: Optional[str] = None

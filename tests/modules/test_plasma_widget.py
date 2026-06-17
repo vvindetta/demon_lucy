@@ -319,6 +319,39 @@ def test_empty_main_plasma_restores_from_markdown_instead_of_clearing():
     assert plasma_mod._doc_to_md(plasma_mod._html_to_doc(plan.widget_html)) == markdown
 
 
+def test_partial_main_plasma_restores_from_markdown_instead_of_truncating():
+    markdown = (
+        "Section alpha\n"
+        "- task alpha should stay\n"
+        "- task beta should stay\n"
+        "- task gamma should stay\n"
+        "plain context should stay\n"
+        "more context should stay\n"
+        "**Keep bold**\n"
+        "plain tail should stay"
+    )
+    partial_doc = [
+        DocLine(kind="p", state=None, segs=[("Keep bold", True)]),
+        DocLine(kind="p", state=None, segs=[("plain tail should stay", False)]),
+    ]
+    partial_widget = plasma_mod._doc_to_plasma_html(partial_doc, css_style=False)
+    state = plasma_mod.bootstrap_state(markdown, partial_widget)
+
+    plan = plasma_mod.plan_from_main_plasma(
+        state=state,
+        widget_html_current=partial_widget,
+        widget_exists=True,
+        markdown_text_current=markdown,
+        mirror_html_current=None,
+        css_style=False,
+    )
+
+    assert plan.blocked_shrinking_source == "main_plasma"
+    assert plan.markdown_text is None
+    assert plan.widget_html is not None
+    assert plasma_mod._doc_to_md(plasma_mod._html_to_doc(plan.widget_html)) == markdown
+
+
 def test_from_main_plasma_empty_source_preserves_markdown_and_restores_targets(
     tmp_path: Path,
     monkeypatch,
@@ -388,6 +421,54 @@ def test_empty_bold_mirror_with_empty_main_restores_from_markdown():
     assert plasma_mod._doc_to_md(plasma_mod._html_to_doc(plan.widget_html)) == markdown
     assert plan.mirror_html is not None
     assert plasma_mod._mirror_html_to_items(plan.mirror_html) == ["Keep"]
+
+
+def test_bold_mirror_uses_markdown_structure_when_main_plasma_is_truncated(
+    tmp_path: Path,
+):
+    md_path = tmp_path / "todo.md"
+    widget_path = tmp_path / "widget.html"
+    mirror_path = tmp_path / "mirror.html"
+    markdown = (
+        "Section alpha\n"
+        "- task alpha should stay\n"
+        "- task beta should stay\n"
+        "- task gamma should stay\n"
+        "plain context should stay\n"
+        "more context should stay\n"
+        "**Keep bold**\n"
+        "plain tail should stay"
+    )
+    truncated_doc = [
+        DocLine(kind="p", state=None, segs=[("Keep bold", True)]),
+        DocLine(kind="p", state=None, segs=[("plain tail should stay", False)]),
+    ]
+
+    md_path.write_text(markdown, encoding="utf-8")
+    widget_path.write_text(
+        plasma_mod._doc_to_plasma_html(truncated_doc, css_style=False),
+        encoding="utf-8",
+    )
+    mirror_path.write_text(_bold_items_to_plasma_html(["Keep bold"]), encoding="utf-8")
+
+    ignore = PlasmaWidget()._from_bold_mirror(
+        widget_path=str(widget_path),
+        markdown_path=str(md_path),
+        bold_widget_path=str(mirror_path),
+        css_style=False,
+        config=_NOTIFY_CFG,
+    )
+
+    assert ignore is not None
+    assert str(widget_path.resolve()) in ignore
+    assert str(md_path.resolve()) not in ignore
+    assert md_path.read_text(encoding="utf-8") == markdown
+    assert (
+        plasma_mod._doc_to_md(
+            plasma_mod._html_to_doc(widget_path.read_text(encoding="utf-8"))
+        )
+        == markdown
+    )
 
 
 @pytest.mark.parametrize(

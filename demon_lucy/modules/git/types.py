@@ -41,6 +41,9 @@ class _RepoBatch:
     base_message: str
     add_timestamp_to_message: bool
     timestamp_format: str
+    commit_message_style: str
+    commit_message_max_subject_files: int
+    commit_message_max_body_files: int
     environment: Dict[str, str]
 
     git_timeout_seconds: float

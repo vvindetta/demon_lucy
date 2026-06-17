@@ -85,7 +85,8 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 - `formatter`: formats note text, including todo list conversion and blank-space padding.
 
 **Integrations:**
-- `git`: syncs notes with a remote Git repository.
+- `git`: syncs notes with a remote Git repository and writes commit messages from
+  the staged diff summary.
 - `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
 **Experimental:**

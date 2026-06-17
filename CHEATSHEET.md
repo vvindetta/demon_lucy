@@ -157,6 +157,9 @@ Examples:
 | `--git-commit-message` | `str` | Base commit message. |
 | `--git-commit-message-timestamp` | `bool` | Append timestamp to commit message. |
 | `--git-commit-message-timestamp-format` | `str` | Python `strftime` format for commit message timestamp. |
+| `--git-commit-message-style` | `str` | Commit message style: `detailed` adds a body with staged file actions; `compact` uses subject only. |
+| `--git-commit-message-max-subject-files` | `int` | Maximum changed files named directly in the subject before switching to counts. |
+| `--git-commit-message-max-body-files` | `int` | Maximum changed files listed in a detailed commit body. |
 | `--git-sync-on-opened-disable` | `bool` | Disable git sync reaction when a repository receives an `opened` event. |
 | `--git-push-auto-merge` | `bool` | If push is rejected because remote is ahead, pull/merge and retry push. |
 | `--git-upstream-auto-set` | `bool` | Try to set upstream automatically when branch has none. |
@@ -174,6 +177,7 @@ Common examples:
 
 ```text
 --git-merge-autoresolve union
+--git-commit-message-style detailed
 ```
 
 ## Plasma Widget

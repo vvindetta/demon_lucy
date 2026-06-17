@@ -298,6 +298,31 @@ def _notify_empty_source_guard(
     )
 
 
+def _notify_shrinking_source_guard(
+    *,
+    source_label: str,
+    source_path: str,
+    markdown_path: str,
+    config: Mapping[str, Any],
+) -> None:
+    source_abs = canonical_path(source_path)
+    markdown_abs = canonical_path(markdown_path)
+    logger.warning(
+        "Blocked shrinking Plasma source from truncating markdown | source=%s | markdown=%s",
+        source_abs,
+        markdown_abs,
+    )
+    safe_notify(
+        "plasma-shrinking-source:" + markdown_abs,
+        (
+            f"Blocked shrinking {source_label} from truncating markdown:\n"
+            f"{markdown_abs}\n\nSource:\n{source_abs}"
+        ),
+        config=config,
+        use_rare_mode=True,
+    )
+
+
 # ---------------- Startup init ---------------- #
 
 
@@ -539,6 +564,13 @@ class PlasmaWidget(AbstractModule):
                 markdown_path=markdown_path,
                 config=config,
             )
+        if plan.blocked_shrinking_source:
+            _notify_shrinking_source_guard(
+                source_label="MAIN Plasma widget",
+                source_path=html_path,
+                markdown_path=markdown_path,
+                config=config,
+            )
 
         ignore = _apply_sync_plan(
             sync_key=sync_key,
@@ -591,6 +623,13 @@ class PlasmaWidget(AbstractModule):
 
         if plan.blocked_empty_source:
             _notify_empty_source_guard(
+                source_label="BOLD Plasma mirror",
+                source_path=bold_widget_path,
+                markdown_path=markdown_path,
+                config=config,
+            )
+        if plan.blocked_shrinking_source:
+            _notify_shrinking_source_guard(
                 source_label="BOLD Plasma mirror",
                 source_path=bold_widget_path,
                 markdown_path=markdown_path,

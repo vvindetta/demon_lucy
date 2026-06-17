@@ -12,6 +12,11 @@ from typing import Any, Callable
 from demon_lucy.lib import safe_notify
 from demon_lucy.lib.path import git_dir_for_repo_root
 from demon_lucy.modules.git.batch_factory import make_repo_batch
+from demon_lucy.modules.git.commit_message import (
+    GitChange,
+    build_commit_message,
+    changes_from_staged_diff,
+)
 from demon_lucy.modules.git.helpers import (
     failure_looks_like_network_issue,
     parse_porcelain_paths,
@@ -673,6 +678,56 @@ def _stage_and_collect_changes(
     return True, porcelain_text, parse_porcelain_paths(porcelain_text)
 
 
+def _collect_staged_changes_for_commit_message(
+    self,
+    repo_root: str,
+    environment: dict[str, str],
+    git_timeout_seconds: float,
+) -> list[GitChange]:
+    try:
+        name_status_result = run_git(
+            self,
+            repo_root,
+            ["diff", "--cached", "--name-status", "-z"],
+            environment,
+            timeout_seconds=git_timeout_seconds,
+        )
+        numstat_result = run_git(
+            self,
+            repo_root,
+            ["diff", "--cached", "--numstat", "-z"],
+            environment,
+            timeout_seconds=git_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "git diff for commit message timed out; using fallback message | repo=%s",
+            repo_root,
+        )
+        return []
+
+    if name_status_result.returncode != 0 or numstat_result.returncode != 0:
+        details = (
+            name_status_result.stderr
+            or numstat_result.stderr
+            or name_status_result.stdout
+            or numstat_result.stdout
+            or "git diff failed"
+        ).strip()
+        logger.warning(
+            "git diff for commit message failed; using fallback message | repo=%s | error=%s",
+            repo_root,
+            details[:1200],
+        )
+        return []
+
+    return changes_from_staged_diff(
+        name_status_z=name_status_result.stdout or "",
+        numstat_z=numstat_result.stdout or "",
+        repo_root=repo_root,
+    )
+
+
 def _commit_if_needed(
     self,
     batch: _RepoBatch,
@@ -686,12 +741,22 @@ def _commit_if_needed(
     if not porcelain_text:
         return True
 
-    commit_message = self._build_commit_message(batch, changed_paths)
+    staged_changes = _collect_staged_changes_for_commit_message(
+        self=self,
+        repo_root=repo_root,
+        environment=environment,
+        git_timeout_seconds=git_timeout_seconds,
+    )
+    commit_message = build_commit_message(
+        batch,
+        changed_paths,
+        changes=staged_changes,
+    )
     try:
         commit_result = run_git(
             self,
             repo_root,
-            ["commit", "-m", commit_message],
+            commit_message.to_git_args(),
             environment,
             timeout_seconds=git_timeout_seconds,
         )

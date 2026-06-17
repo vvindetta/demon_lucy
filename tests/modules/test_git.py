@@ -11,6 +11,7 @@ import pytest
 from watchdog.events import FileMovedEvent, FileOpenedEvent
 
 import demon_lucy.modules.git as git_mod
+import demon_lucy.modules.git.commit_message as git_commit_message
 import demon_lucy.modules.git.helpers as git_helpers
 import demon_lucy.modules.git.operations as git_ops
 import demon_lucy.modules.git.worker as git_worker
@@ -87,6 +88,9 @@ def _mk_batch(**overrides) -> _RepoBatch:
         "base_message": "Auto",
         "add_timestamp_to_message": False,
         "timestamp_format": "%Y",
+        "commit_message_style": "detailed",
+        "commit_message_max_subject_files": 3,
+        "commit_message_max_body_files": 30,
         "environment": {},
         "git_timeout_seconds": 5.0,
         "pull_timeout_seconds": 6.0,
@@ -241,7 +245,7 @@ def test_build_commit_message_includes_event_summary_and_names(git_module, monke
         def now(cls):
             return datetime(2026, 4, 21, 12, 0, 0)
 
-    monkeypatch.setattr(git_mod, "datetime", _FakeDateTime)
+    monkeypatch.setattr(git_commit_message, "datetime", _FakeDateTime)
 
     batch = _mk_batch(
         add_timestamp_to_message=True,
@@ -250,15 +254,94 @@ def test_build_commit_message_includes_event_summary_and_names(git_module, monke
     )
 
     message = git_module._build_commit_message(batch, ["/repo/a.md", "/repo/b.md"])
-    assert message.startswith("Auto: created")
+    assert message.startswith("Auto: add a.md, b.md")
     assert "a.md, b.md" in message
-    assert message.endswith("[2026]")
+    assert "Event: created" in message
+    assert message.splitlines()[0].endswith("[2026]")
 
 
 def test_build_commit_message_sanitizes_git_escaped_file_names(git_module):
     batch = _mk_batch(event_type="modified")
     message = git_module._build_commit_message(batch, ['"\\342\\206\\222 now.md"'])
-    assert message == "Auto: modified now.md"
+    assert message.startswith("Auto: modify now.md")
+
+
+def test_changes_from_staged_diff_handles_actions_rename_and_binary():
+    changes = git_commit_message.changes_from_staged_diff(
+        name_status_z=(
+            "M\x00todo.md\x00"
+            "A\x00media/photo.jpg\x00"
+            "R100\x00old.md\x00new.md\x00"
+        ),
+        numstat_z=(
+            "8\t3\ttodo.md\x00"
+            "-\t-\tmedia/photo.jpg\x00"
+            "1\t1\t\x00old.md\x00new.md\x00"
+        ),
+        repo_root="/repo",
+    )
+
+    assert changes == [
+        git_commit_message.GitChange(
+            action="modified",
+            path="todo.md",
+            additions=8,
+            deletions=3,
+        ),
+        git_commit_message.GitChange(
+            action="added",
+            path="media/photo.jpg",
+            additions=None,
+            deletions=None,
+            binary=True,
+        ),
+        git_commit_message.GitChange(
+            action="renamed",
+            path="new.md",
+            old_path="old.md",
+            additions=1,
+            deletions=1,
+        ),
+    ]
+
+
+def test_detailed_commit_message_summarizes_multiple_actions():
+    batch = _mk_batch(
+        event_type="opened",
+        hinted_paths=["/repo/todo.md"],
+        commit_message_max_subject_files=2,
+    )
+    message = git_commit_message.build_commit_message(
+        batch,
+        changed_paths=[],
+        changes=[
+            git_commit_message.GitChange(
+                action="modified",
+                path="todo.md",
+                additions=8,
+                deletions=3,
+            ),
+            git_commit_message.GitChange(
+                action="added",
+                path="media/photo.jpg",
+                binary=True,
+            ),
+            git_commit_message.GitChange(
+                action="deleted",
+                path="old.md",
+                additions=0,
+                deletions=12,
+            ),
+        ],
+    )
+
+    assert message.subject == "Auto: sync 3 files: modify 1, add 1, delete 1"
+    assert "Event: opened" in message.body
+    assert "Repository: /repo" in message.body
+    assert "- todo.md (+8/-3)" in message.body
+    assert "- media/photo.jpg (binary)" in message.body
+    assert "- old.md (+0/-12)" in message.body
+    assert "Triggered by:\n- todo.md" in message.body
 
 
 def test_opened_processes_sync_when_repo_exists(git_module, monkeypatch):
@@ -939,7 +1022,24 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
                 stdout=" M note.md\n",
                 stderr="",
             )
+        if arguments == ["diff", "--cached", "--name-status", "-z"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="M\x00note.md\x00",
+                stderr="",
+            )
+        if arguments == ["diff", "--cached", "--numstat", "-z"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="2\t1\tnote.md\x00",
+                stderr="",
+            )
         if arguments[:2] == ["commit", "-m"]:
+            assert arguments[2] == "Auto: modify note.md"
+            assert "Event: opened" in arguments[4]
+            assert "- note.md (+2/-1)" in arguments[4]
             return subprocess.CompletedProcess(
                 args=["git"] + arguments,
                 returncode=0,
@@ -962,8 +1062,10 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
     assert git_worker.process_batch(git_module, batch) is True
     assert calls[0] == ["add", "-A"]
     assert calls[1] == ["status", "--porcelain"]
-    assert calls[2][:2] == ["commit", "-m"]
-    assert calls[3] == ["push"]
+    assert ["diff", "--cached", "--name-status", "-z"] in calls
+    assert ["diff", "--cached", "--numstat", "-z"] in calls
+    assert any(call[:2] == ["commit", "-m"] for call in calls)
+    assert calls[-1] == ["push"]
 
 
 def test_process_batch_writes_sync_success_marker_on_push_success(
@@ -1001,6 +1103,20 @@ def test_process_batch_writes_sync_success_marker_on_push_success(
                 stdout=" M note.md\n",
                 stderr="",
             )
+        if arguments == ["diff", "--cached", "--name-status", "-z"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="M\x00note.md\x00",
+                stderr="",
+            )
+        if arguments == ["diff", "--cached", "--numstat", "-z"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="2\t1\tnote.md\x00",
+                stderr="",
+            )
         if arguments[:2] == ["commit", "-m"]:
             return subprocess.CompletedProcess(
                 args=["git"] + arguments,
@@ -1029,8 +1145,10 @@ def test_process_batch_writes_sync_success_marker_on_push_success(
     assert before_ts - 1.0 <= marker_ts <= after_ts + 1.0
     assert calls[0] == ["add", "-A"]
     assert calls[1] == ["status", "--porcelain"]
-    assert calls[2][:2] == ["commit", "-m"]
-    assert calls[3] == ["push"]
+    assert ["diff", "--cached", "--name-status", "-z"] in calls
+    assert ["diff", "--cached", "--numstat", "-z"] in calls
+    assert any(call[:2] == ["commit", "-m"] for call in calls)
+    assert calls[-1] == ["push"]
 
 
 def test_process_batch_wraps_pipeline_with_repo_process_lock(git_module, monkeypatch):
@@ -1262,6 +1380,9 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
             "git_commit_message": "Auto",
             "git_commit_message_timestamp": False,
             "git_commit_message_timestamp_format": "%Y",
+            "git_commit_message_style": "detailed",
+            "git_commit_message_max_subject_files": 3,
+            "git_commit_message_max_body_files": 30,
             "git_command_timeout_seconds": 5.0,
             "git_pull_timeout_seconds": 6.0,
             "git_push_timeout_seconds": 7.0,

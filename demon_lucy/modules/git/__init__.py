@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
-from datetime import datetime
 from typing import Optional
 
 from demon_lucy.lib.args import Template
@@ -20,8 +18,8 @@ from demon_lucy.modules.abstract_module import (
 from demon_lucy.modules.git.config import (
     GIT_TEMPLATE,
 )
+from demon_lucy.modules.git.commit_message import build_commit_message
 from demon_lucy.modules.git.helpers import to_str
-from demon_lucy.modules.git.helpers import format_path_for_commit_message
 from demon_lucy.modules.git.types import _RepoBatch
 from demon_lucy.modules.git.worker import process_event
 
@@ -38,29 +36,7 @@ class Git(AbstractModule):
         super().__init__()
 
     def _build_commit_message(self, batch: _RepoBatch, changed_paths: list[str]) -> str:
-        event_summary = batch.event_type or "change"
-
-        file_names = [
-            os.path.basename(format_path_for_commit_message(path_item))
-            for path_item in changed_paths
-            if path_item
-        ]
-        if not file_names and batch.hinted_paths:
-            file_names = [
-                os.path.basename(format_path_for_commit_message(path_item))
-                for path_item in batch.hinted_paths
-            ]
-
-        shown_names = ", ".join(file_names[:8])
-        if len(file_names) > 8:
-            shown_names += f", +{len(file_names) - 8} more"
-
-        message_text = f"{batch.base_message}: {event_summary}"
-        if shown_names:
-            message_text += f" {shown_names}"
-        if batch.add_timestamp_to_message:
-            message_text += f" [{datetime.now().strftime(batch.timestamp_format)}]"
-        return message_text
+        return build_commit_message(batch, changed_paths).as_text()
 
     @staticmethod
     def _should_run_in_background(system: System) -> bool:

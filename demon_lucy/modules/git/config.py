@@ -25,6 +25,27 @@ GIT_TEMPLATE: Template = [
         False,
     ),
     (
+        "--git-commit-message-style",
+        str,
+        "detailed",
+        "Commit message style: detailed or compact. Detailed adds a commit body with staged file actions.",
+        False,
+    ),
+    (
+        "--git-commit-message-max-subject-files",
+        int,
+        3,
+        "Maximum number of changed files named directly in the commit subject before using counts.",
+        False,
+    ),
+    (
+        "--git-commit-message-max-body-files",
+        int,
+        30,
+        "Maximum number of changed files listed in the detailed commit message body.",
+        False,
+    ),
+    (
         "--git-sync-on-opened-disable",
         bool,
         False,

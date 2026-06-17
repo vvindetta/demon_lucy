@@ -40,6 +40,13 @@ def _repo_batch_kwargs(
         "base_message": config_snapshot["git_commit_message"],
         "add_timestamp_to_message": config_snapshot["git_commit_message_timestamp"],
         "timestamp_format": config_snapshot["git_commit_message_timestamp_format"],
+        "commit_message_style": config_snapshot["git_commit_message_style"],
+        "commit_message_max_subject_files": config_snapshot[
+            "git_commit_message_max_subject_files"
+        ],
+        "commit_message_max_body_files": config_snapshot[
+            "git_commit_message_max_body_files"
+        ],
         "environment": environment,
         "git_timeout_seconds": config_snapshot["git_command_timeout_seconds"],
         "pull_timeout_seconds": config_snapshot["git_pull_timeout_seconds"],
