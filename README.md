@@ -112,7 +112,8 @@ pip install -r requirements.txt
 ```
 
 3. Set up startup args (via config or CLI):
-   - In `config.txt`, add: `--sys-watch-paths "/home/user/Notes"`
+   - `config.txt` is a commented template. Uncomment and edit the lines you need.
+   - At minimum, set `--sys-watch-paths "/home/user/Notes"`.
    - Or pass it directly at run time: `python3 main_daemon.py --sys-watch-paths "/home/user/Notes"`
    - `--sys-modules` is optional. If you do not set it, only basic modules are loaded by default.
 

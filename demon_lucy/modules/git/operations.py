@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 
-from demon_lucy.lib import safe_notify
+from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.modules.git.executor import GitExecutor, combined_output
 from demon_lucy.modules.git.helpers import union_resolve_text
 from demon_lucy.modules.git.helpers import failure_looks_like_network_issue

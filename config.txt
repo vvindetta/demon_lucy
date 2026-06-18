@@ -1,1 +1,102 @@
-# --sys-watch-paths "/path/to/note/dir"
+# Demon Lucy config template.
+#
+# Every option below is commented out on purpose. Uncomment only the lines you
+# need. Config files use the same Unix-style flags as the CLI and note files.
+# See CHEATSHEET.md for the full argument list.
+
+# QUICK START: set your notes directory. Use absolute paths.
+# --sys-watch-paths "/home/user/Notes" "/home/user/Projects/wiki"
+
+
+# --- runtime/system ---
+
+# Common desktop modules. The cmd module is intentionally excluded.
+# --sys-modules "banner" "renamer" "linker" "formatter" "archive" "sys" "git"
+
+# Override module order. Lower number runs earlier.
+# --modules-priority sys=0 banner=10 renamer=20 linker=22 archive=25 formatter=40 git=50
+
+# Ignore generated/internal trees so module writes do not re-trigger workflows.
+# --sys-ignore-paths "/home/user/Notes/.status" "/home/user/Notes/.archive"
+
+# Disable opened events if editors, Git, indexers, or file managers create too
+# much noise. Oneshot synthetic opened events still work independently.
+# --sys-disable-opened-events
+
+# If opened events stay enabled, keep a cooldown so repeated reads are collapsed.
+# --sys-opened-event-cooldown-seconds 60
+
+# Keep daemon logs quiet by default. Use debug only while investigating.
+# --sys-log-level warning
+
+# Disable notifications completely.
+# --sys-notification-provider disable
+
+
+# --- linker ---
+
+# Keep markdown links valid when a note is moved or renamed.
+# --linker-auto-update-md-links
+
+# Cleanup for --linker-root: if a note used to create a root symlink and later
+# no longer has --linker-root, remove the old symlink.
+# --linker-auto-clean-root-links
+
+# Ignore files or link names by basename, repo-relative path, or absolute path.
+# --linker-ignore "AGENTS.md"
+
+
+# --- renamer ---
+
+# On create, rename simple scratch files:
+#   t/txt -> DD-MM.txt
+#   m/md  -> DD-MM.md
+# --rename-auto
+
+
+# --- archive ---
+
+# Text mode appends old content to an archive file under a date header.
+# File mode creates a new dated archive file.
+# --archive-default-mode text
+
+# Archive one active scratch note into one archive file after idle hours.
+# --archive-auto-pair "/home/user/Notes/now.md" "/home/user/Notes/past.md" 12 text
+
+# Archive a file beside itself. If .archive/ exists nearby, Lucy uses it.
+# --archive-auto-local "/home/user/Notes/inbox.md" 24 text
+
+# Use one global archive destination for configured sources.
+# --archive-global-dest-path "/home/user/Notes/archive.md"
+# --archive-auto-global "/home/user/Notes/inbox.md" 24 text
+
+# Tune archive date headers.
+# --archive-date-prefix "--- "
+# --archive-date-suffix ""
+
+
+# --- plasma_widget ---
+
+# Enable plasma_widget in --sys-modules when using these paths.
+# --plasma-widget-path "/home/user/.local/share/plasma_notes/<widget-id>"
+# --plasma-markdown-note-path "/home/user/Notes/todo.md"
+
+# Optional bold-only mirror widget.
+# --plasma-bold-widget-path "/home/user/.local/share/plasma_notes/<bold-widget-id>"
+
+# Experimental: render checkboxes as CSS markers instead of plain text.
+# --plasma-css-style
+
+
+# --- git ---
+
+# Enable git in --sys-modules and make sure the git binary works in PATH.
+
+# Disable Git reaction to opened events. Useful when editor/indexer reads should
+# not trigger sync, while creates/modifies/moves/deletes still do.
+# --git-sync-on-opened-disable
+
+# Merge conflict policy. Default is union: keep both local and remote lines and
+# remove conflict markers. Other modes: none (leave unresolved), ours (keep
+# local), theirs (keep remote), markers (commit conflict markers).
+# --git-merge-autoresolve union

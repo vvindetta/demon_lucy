@@ -28,8 +28,8 @@ watchdog file events.
   deletion from note lines.
 - `demon_lucy/lib/path.py`: path normalization, parent marker lookup, Git repo
   discovery, and `.git` file/directory support.
-- `demon_lucy/lib/__init__.py`: notifications (`safe_notify`, `notify`) and
-  throttled/rare-mode error notification state.
+- `demon_lucy/lib/notifications.py`: notifications (`safe_notify`, `notify`)
+  and throttled/rare-mode error notification state.
 - `demon_lucy/migrations/`: class-based config migration modules. `__init__.py`
   owns the sync `Migration` interface, config-file migration methods using
   `lib.args.line_edit` arg-segment helpers, and the `MIGRATIONS` registry.

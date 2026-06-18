@@ -395,6 +395,73 @@ def test_opened_skips_when_sync_on_opened_disabled(git_module, monkeypatch):
     assert recorded["called"] is False
 
 
+def test_opened_skips_when_repo_process_lock_is_active(
+    git_module, tmp_path, monkeypatch
+):
+    repo_root = tmp_path / "repo"
+    git_dir = _mk_git_metadata(repo_root)
+    lock_path = git_dir / "demon_lucy-sync.lock"
+    lock_path.write_text(f"pid={os.getpid()}\n", encoding="utf-8")
+    recorded = {"called": False}
+
+    monkeypatch.setattr(git_mod, "find_parent_git_repo", lambda _p: str(repo_root))
+    monkeypatch.setattr(
+        git_mod,
+        "process_event",
+        lambda *_args, **_kwargs: recorded.__setitem__("called", True),
+    )
+
+    ctx = Context(
+        path=str(repo_root / "note.md"),
+        config={"git_sync_on_opened_disable": False},
+        arg_lines={},
+    )
+    system = System(
+        event=FileOpenedEvent(str(repo_root / "note.md")),
+        global_template=[],
+        modules=[git_module],
+    )
+
+    git_module.opened(ctx, system)
+
+    assert recorded["called"] is False
+    assert lock_path.exists()
+
+
+def test_opened_removes_stale_repo_process_lock_and_syncs(
+    git_module, tmp_path, monkeypatch
+):
+    repo_root = tmp_path / "repo"
+    git_dir = _mk_git_metadata(repo_root)
+    lock_path = git_dir / "demon_lucy-sync.lock"
+    lock_path.write_text("pid=999999\n", encoding="utf-8")
+    recorded = {}
+
+    monkeypatch.setattr(git_mod, "find_parent_git_repo", lambda _p: str(repo_root))
+    monkeypatch.setattr(
+        git_mod,
+        "process_event",
+        lambda _self, **kwargs: recorded.update(kwargs),
+    )
+
+    ctx = Context(
+        path=str(repo_root / "note.md"),
+        config={"git_sync_on_opened_disable": False},
+        arg_lines={},
+    )
+    system = System(
+        event=FileOpenedEvent(str(repo_root / "note.md")),
+        global_template=[],
+        modules=[git_module],
+    )
+
+    git_module.opened(ctx, system)
+
+    assert recorded["repo_root"] == str(repo_root)
+    assert recorded["event_type"] == "opened"
+    assert not lock_path.exists()
+
+
 def test_opened_runs_sync_in_oneshot_mode(git_module, monkeypatch):
     recorded = {}
     monkeypatch.setattr(git_mod, "find_parent_git_repo", lambda _p: "/repo")

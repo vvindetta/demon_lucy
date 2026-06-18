@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from demon_lucy.lib import safe_notify
+from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import git_dir_for_repo_root
 from demon_lucy.modules.git.batch_factory import make_repo_batch
 from demon_lucy.modules.git.commit_message import (
@@ -293,6 +293,17 @@ def _remove_stale_repo_process_lock(lock_path: str) -> bool:
         owner_pid if owner_pid is not None else "unknown",
     )
     return True
+
+
+def repo_process_lock_is_active(repo_root: str) -> bool:
+    lock_path = _repo_process_lock_path(repo_root)
+    if not lock_path:
+        return False
+    if not os.path.exists(lock_path):
+        return False
+    if _remove_stale_repo_process_lock(lock_path):
+        return False
+    return os.path.exists(lock_path)
 
 
 def _try_create_repo_process_lock(lock_path: str) -> bool:

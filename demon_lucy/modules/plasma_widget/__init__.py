@@ -5,7 +5,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 
-from demon_lucy.lib import safe_notify
+from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 from demon_lucy.modules.plasma_widget.config import PLASMA_WIDGET_TEMPLATE

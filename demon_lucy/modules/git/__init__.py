@@ -21,7 +21,7 @@ from demon_lucy.modules.git.config import (
 from demon_lucy.modules.git.commit_message import build_commit_message
 from demon_lucy.modules.git.helpers import to_str
 from demon_lucy.modules.git.types import _RepoBatch
-from demon_lucy.modules.git.worker import process_event
+from demon_lucy.modules.git.worker import process_event, repo_process_lock_is_active
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,13 @@ class Git(AbstractModule):
             return None
 
         if ctx.config["git_sync_on_opened_disable"]:
+            return None
+
+        if repo_process_lock_is_active(repo_root):
+            logger.debug(
+                "skipping opened git sync while repo process lock is active | repo=%s",
+                repo_root,
+            )
             return None
 
         process_event(

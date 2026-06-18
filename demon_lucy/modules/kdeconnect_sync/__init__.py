@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Optional
 
-from demon_lucy.lib import safe_notify
+from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.args.parser import Template
 from demon_lucy.lib.path import (
     abs_expand_path,

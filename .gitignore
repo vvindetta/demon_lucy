@@ -1,5 +1,3 @@
-config.txt
-test_notes/
 .codex
 
 # ---> Python
@@ -166,6 +164,3 @@ cython_debug/
 #.idea/
 
 agent/
-
-# Local docs
-KDECONNECT_SYNC_MODULE.md
