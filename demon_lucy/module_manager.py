@@ -5,7 +5,7 @@ from typing import Dict, List
 from watchdog.events import FileSystemEvent
 
 from demon_lucy.lib import safe_notify
-from demon_lucy.lib.args import (
+from demon_lucy.lib.args.parser import (
     Template,
     flag_to_dest,
     get_args_from_file,

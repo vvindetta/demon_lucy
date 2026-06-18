@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from watchdog.events import FileModifiedEvent
 
-from demon_lucy.lib.args import Template
+from demon_lucy.lib.args.parser import Template
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 
 

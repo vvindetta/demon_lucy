@@ -79,6 +79,7 @@ def test_run_oneshot_passes_oneshot_run_mode(tmp_path: Path, monkeypatch):
 
 
 def test_main_returns_2_when_startup_args_are_invalid(monkeypatch):
+    monkeypatch.setattr(oneshot_mod, "run_config_migrations", lambda _path: [])
     monkeypatch.setattr(
         oneshot_mod,
         "setup_config_and_cli_args",

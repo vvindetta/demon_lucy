@@ -2,7 +2,6 @@ import argparse
 import logging
 import shlex
 import sys
-from collections.abc import Iterable
 from typing import Any, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -57,7 +56,7 @@ def parse_args(
                 flag,
                 dest=dest,
                 type=typ,
-                nargs="+",
+                nargs="*",
                 default=list(default) if include_defaults else argparse.SUPPRESS,
             )
         else:
@@ -287,70 +286,3 @@ def get_args_from_file(
                 merged_known[key] = value
 
     return merged_known, merged_unknown, arg_lines
-
-
-def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
-    """
-    Remove flags and their values from a single line.
-
-    - flags: flags to remove (e.g. ["--banner"])
-    - If removed flag is in form "--flag=value" -> removed fully.
-    - If removed flag is in form "--flag" -> removes ALL following value tokens
-      until the next flag-like token (greedy).
-    - Preserves trailing newline automatically.
-
-    Heuristic for "flag-like token":
-      --something  -> flag
-      -s           -> flag
-      but NOT negative numbers like -1, -2.5
-    """
-
-    def looks_like_flag(token: str) -> bool:
-        if token.startswith("--") and len(token) > 2:
-            return True
-        if token.startswith("-") and len(token) > 1:
-            return not (token[1].isdigit() or token[1] == ".")
-        return False
-
-    newline = "\n" if line.endswith("\n") else ""
-    raw = line[:-1] if newline else line
-    if not raw:
-        return line
-
-    remove = set(flags)
-    if not remove:
-        return line
-    if not any(flag in raw for flag in remove):
-        return line
-
-    tokens = shlex.split(raw)
-
-    out: list[str] = []
-    removed_any = False
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-
-        # handle --flag=value by checking only the head part
-        head = tok.split("=", 1)[0] if tok.startswith("-") else tok
-
-        if head in remove:
-            removed_any = True
-            i += 1
-
-            # "--flag=value" -> already contains value, nothing else to consume
-            if "=" in tok:
-                continue
-
-            # consume value tokens until next flag-like token
-            while i < len(tokens) and not looks_like_flag(tokens[i]):
-                i += 1
-            continue
-
-        out.append(tok)
-        i += 1
-
-    if not removed_any:
-        return line
-
-    return (shlex.join(out) if out else "") + newline

@@ -69,6 +69,7 @@ def _run_main_with_flag(
     monkeypatch.setattr(main_daemon, "FileHandler", FakeFileHandler)
     monkeypatch.setattr(main_daemon, "ModuleManager", FakeModuleManager)
     monkeypatch.setattr(main_daemon.threading, "Event", FakeEvent)
+    monkeypatch.setattr(main_daemon, "run_config_migrations", lambda _path: [])
     monkeypatch.setattr(
         main_daemon,
         "setup_config_and_cli_args",
@@ -126,6 +127,7 @@ def test_main_schedules_observer_and_modules(
 
 
 def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
+    monkeypatch.setattr(main_daemon, "run_config_migrations", lambda _path: [])
     monkeypatch.setattr(
         main_daemon,
         "setup_config_and_cli_args",
@@ -150,6 +152,7 @@ def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
 
 
 def test_main_raises_when_startup_args_are_invalid(monkeypatch):
+    monkeypatch.setattr(main_daemon, "run_config_migrations", lambda _path: [])
     monkeypatch.setattr(
         main_daemon,
         "setup_config_and_cli_args",

@@ -4,7 +4,8 @@ import logging
 from collections.abc import Iterable
 from typing import List
 
-from demon_lucy.lib.args import Template
+from demon_lucy.lib.args.parser import Template
+from demon_lucy.migrations import MIGRATIONS, Migration
 from demon_lucy.modules.abstract_module import AbstractModule
 from demon_lucy.modules.banner import Banner
 from demon_lucy.modules.dropdir import DropDir
@@ -126,6 +127,27 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         False,
     ),
 ]
+
+
+def run_config_migrations(config_path: str) -> list[Migration]:
+    path_value = str(config_path).strip()
+    if not path_value:
+        return []
+
+    migrated: list[Migration] = []
+    for migration_factory in MIGRATIONS:
+        migration = migration_factory(path_value)
+        try:
+            if migration.is_migration_needed():
+                migration.migrate()
+                migrated.append(migration)
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.exception(
+                "Error while migrating %s",
+                migration.get_migration_name(),
+            )
+    return migrated
 
 
 def configure_logging(config: dict) -> None:

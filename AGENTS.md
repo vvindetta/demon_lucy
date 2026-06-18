@@ -10,8 +10,8 @@ watchdog file events.
   creates `ModuleManager`, and schedules `FileHandler` for `--sys-watch-paths`.
 - `main_oneshot.py`: synthetic single-run entry point for created/modified/moved/
   deleted/opened events. Useful for scripts, systemd timers, and Termux.
-- `demon_lucy/runtime.py`: startup template, logging, module selection, module
-  include/exclude validation, startup log line.
+- `demon_lucy/runtime.py`: startup template, config migration hook, logging,
+  module selection, module include/exclude validation, startup log line.
 - `demon_lucy/file_handler.py`: watchdog event filtering, `.git`/dotfile skips,
   opened-event cooldown, ignore-count loop prevention after module writes.
 - `demon_lucy/module_manager.py`: builds the global args template from all loaded
@@ -22,12 +22,29 @@ watchdog file events.
 
 ## Core Helpers
 
-- `demon_lucy/lib/args.py`: typed flag templates, argparse setup, config-file
-  parsing, per-note flag parsing, and flag deletion from note lines.
+- `demon_lucy/lib/args/parser.py`: typed flag templates, argparse setup,
+  config-file parsing, per-note flag parsing, and config/CLI merge helpers.
+- `demon_lucy/lib/args/line_edit.py`: reusable arg-segment helpers and flag
+  deletion from note lines.
 - `demon_lucy/lib/path.py`: path normalization, parent marker lookup, Git repo
   discovery, and `.git` file/directory support.
 - `demon_lucy/lib/__init__.py`: notifications (`safe_notify`, `notify`) and
   throttled/rare-mode error notification state.
+- `demon_lucy/migrations/`: class-based config migration modules. `__init__.py`
+  owns the sync `Migration` interface, config-file migration methods using
+  `lib.args.line_edit` arg-segment helpers, and the `MIGRATIONS` registry.
+  `runtime.py` checks `is_migration_needed()` and runs needed migrations before
+  normal config parsing in daemon and oneshot.
+
+## Library Usage
+
+- Prefer existing helpers from `demon_lucy/lib/` before adding local module
+  utilities or ad-hoc parsing/path/arg/notification logic.
+- If a needed helper does not exist and the behavior is reusable outside one
+  narrow module, add it to the appropriate `demon_lucy/lib/` module first, then
+  use it from feature code.
+- Keep module code focused on module behavior; shared mechanics belong in
+  `demon_lucy/lib/`.
 
 ## Modules
 
@@ -36,8 +53,9 @@ watchdog file events.
 - `modules/banner.py`: inserts pyfiglet banners or date banners at flag lines.
 - `modules/renamer.py`: manual `--rename` and create-time `--rename-auto`.
 - `modules/formatter.py`: TODO checkbox formatting and top/bottom blank padding.
-- `modules/archive.py`: moves stale or forced source note content into archive
-  destination notes with date headers.
+- `modules/archive.py`: archives stale or forced source note content through
+  pair/local/global routes. Text mode appends date-header sections; file mode
+  creates dated files under archive directories.
 - `modules/linker.py`: root symlink creation/cleanup and markdown link updates on
   move/rename.
 - `modules/dropdir.py`: moved-file drop-directory workflow that can trigger
@@ -65,6 +83,8 @@ watchdog file events.
 - `tests/test_*.py`: core runtime, args, manager, file handler, and entry-point
   tests.
 - `tests/modules/test_*.py`: module-specific behavior tests.
+- `tests/migrations/test_*.py`: migration toolkit tests and one file per
+  concrete config migration.
 - `setup-systemd/`: user service/timer examples for daemon and oneshot runs.
 - `setup-termux/`: Android/Termux daemon and oneshot scripts.
 - `agent/`: planning notes, currently Git refactor and KDE Connect sync design.
@@ -73,6 +93,7 @@ watchdog file events.
 ## Fast Search Targets
 
 - Args/templates: `rg "template:|TEMPLATE|DEMON_LUCY_STARTUP_TEMPLATE"`
+- Config migrations: `rg "run_config_migrations|migrate\\(" demon_lucy/migrations demon_lucy/runtime.py`
 - Config reads: `rg "config\\[" demon_lucy`
 - Event handlers: `rg "def (created|modified|moved|deleted|opened)" demon_lucy`
 - Notifications: `rg "safe_notify" demon_lucy`

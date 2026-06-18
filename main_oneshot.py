@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Sequence
 
 from watchdog.events import (
@@ -12,7 +13,7 @@ from watchdog.events import (
     FileSystemEvent,
 )
 
-from demon_lucy.lib.args import Template, setup_config_and_cli_args
+from demon_lucy.lib.args.parser import Template, parse_args, setup_config_and_cli_args
 from demon_lucy.lib.path import abs_expand_path
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.runtime import (
@@ -20,6 +21,7 @@ from demon_lucy.runtime import (
     configure_logging,
     log_startup_message,
     normalize_name_list,
+    run_config_migrations,
     select_demon_lucy_modules,
 )
 
@@ -158,6 +160,13 @@ def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
 
 def main() -> int:
     try:
+        startup_args, _unknown_startup_args = parse_args(
+            template=ONESHOT_STARTUP_TEMPLATE,
+            args=sys.argv[1:],
+        )
+        config_path = startup_args.get("sys_config_path")
+        if isinstance(config_path, str) and config_path.strip():
+            run_config_migrations(config_path)
         config, unknown_args = setup_config_and_cli_args(
             template=ONESHOT_STARTUP_TEMPLATE
         )

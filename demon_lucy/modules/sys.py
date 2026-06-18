@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, List, Optional
 
-from demon_lucy.lib.args import (
-    delete_args_from_string,
+from demon_lucy.lib.args.line_edit import delete_args_from_string
+from demon_lucy.lib.args.parser import (
     flag_to_dest,
     parse_template_item,
 )

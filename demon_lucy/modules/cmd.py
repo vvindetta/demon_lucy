@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from demon_lucy.lib.args import delete_args_from_string
+from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,

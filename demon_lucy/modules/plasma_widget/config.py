@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from demon_lucy.lib.args import Template
+from demon_lucy.lib.args.parser import Template
 
 PLASMA_WIDGET_TEMPLATE: Template = [
     (

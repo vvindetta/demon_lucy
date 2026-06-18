@@ -198,6 +198,37 @@ def test_apply_mirror_insert_appends_new_bold_line_to_end():
     )
 
 
+def test_apply_mirror_reorders_existing_bold_lines_without_append():
+    main_doc = [
+        DocLine(kind="p", state=None, segs=[("read book", True)]),
+        DocLine(kind="p", state=None, segs=[("work", True)]),
+        DocLine(kind="p", state=None, segs=[("- reply", True)]),
+        DocLine(kind="p", state=None, segs=[("- reset account", True)]),
+    ]
+
+    updated = plasma_mod._apply_mirror_lines_to_doc(
+        main_doc,
+        ["work", "read book", "- reply", "- reset account"],
+    )
+    assert plasma_mod._doc_to_md(updated) == (
+        "**work**\n"
+        "**read book**\n"
+        "**- reply**\n"
+        "**- reset account**"
+    )
+
+    updated = plasma_mod._apply_mirror_lines_to_doc(
+        main_doc,
+        ["- reset account", "read book", "work", "- reply"],
+    )
+    assert plasma_mod._doc_to_md(updated) == (
+        "**- reset account**\n"
+        "**read book**\n"
+        "**work**\n"
+        "**- reply**"
+    )
+
+
 def test_cfg_parses_paths_and_boolean_values(tmp_path: Path):
     widget = tmp_path / "widget.html"
     md = tmp_path / "note.md"

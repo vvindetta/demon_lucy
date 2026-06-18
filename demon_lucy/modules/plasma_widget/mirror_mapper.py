@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter, defaultdict, deque
 from difflib import SequenceMatcher
 from typing import List, Optional
 
@@ -190,6 +191,32 @@ def _map_target_items_to_old_positions(
     return mapping
 
 
+def _is_pure_reorder(old_items: List[str], target_items: List[str]) -> bool:
+    return old_items != target_items and Counter(old_items) == Counter(target_items)
+
+
+def _apply_pure_mirror_reorder(
+    main_doc: List[DocLine],
+    bold_entries: List[tuple[int, str]],
+    target_items: List[str],
+) -> List[DocLine]:
+    entries_by_text = defaultdict(deque)
+    for position, text in bold_entries:
+        entries_by_text[text].append(main_doc[position])
+
+    reordered_by_position: dict[int, DocLine] = {}
+    for position, target_text in zip(
+        [position for position, _text in bold_entries],
+        target_items,
+    ):
+        reordered_by_position[position] = entries_by_text[target_text].popleft()
+
+    out: List[DocLine] = []
+    for index, dl in enumerate(main_doc):
+        out.append(reordered_by_position.get(index, dl))
+    return out
+
+
 def _apply_mirror_items_to_doc(
     main_doc: List[DocLine], items: List[str]
 ) -> List[DocLine]:
@@ -219,6 +246,9 @@ def _apply_mirror_lines_to_doc(
             continue
         bold_entries.append((index, bold_text))
         old_items.append(bold_text)
+
+    if _is_pure_reorder(old_items, target_items):
+        return _apply_pure_mirror_reorder(main_doc, bold_entries, target_items)
 
     mapping = _map_target_items_to_old_positions(old_items, target_items)
     replace_by_doc_index: dict[int, str] = {}

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE, select_demon_lucy_modules
-from demon_lucy.lib.args import parse_args
+from demon_lucy.runtime import (
+    DEMON_LUCY_STARTUP_TEMPLATE,
+    select_demon_lucy_modules,
+)
+from demon_lucy.lib.args.parser import parse_args
 
 
 def _module_names(modules) -> list[str]:

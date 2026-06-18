@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from demon_lucy.lib.args import (
-    delete_args_from_string,
+from demon_lucy.lib.args.line_edit import delete_args_from_string
+from demon_lucy.lib.args.parser import (
     get_args_from_file,
     get_config_args,
     merge_known_args,
@@ -44,6 +44,22 @@ def test_parse_args_handles_bool_and_nargs():
     assert known["name"] == "alice"
     assert known["tags"] == ["x", "y"]
     assert unknown == ["--unknown"]
+
+
+def test_parse_args_allows_empty_list_flag_value():
+    template = [
+        ("--archive-local", str, [], "", False),
+        ("--name", str, None, "", False),
+    ]
+
+    known, unknown = parse_args(
+        args=["--archive-local", "--name", "note"],
+        template=template,
+    )
+
+    assert known["archive_local"] == []
+    assert known["name"] == "note"
+    assert unknown == []
 
 
 def test_parse_args_supports_required_field_in_template_item():

@@ -4,7 +4,7 @@ import os
 import re
 from typing import Optional
 
-from demon_lucy.lib.args import Template, get_args_from_file
+from demon_lucy.lib.args.parser import Template, get_args_from_file
 from demon_lucy.lib.path import canonical_path, find_parent_with
 from demon_lucy.modules.abstract_module import (
     AbstractModule,

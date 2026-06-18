@@ -126,13 +126,25 @@ Examples:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--archive` | `bool` | Force archive move for this event. |
-| `--archive-pair` | `str[]` | Archive pair: `<src> <dest> [idle_hours_int]`. Paths may be relative to the event file directory, or absolute inside the allowed root. `~` and relative `..` are rejected; resolved paths must stay inside the Git repo root, or inside the current note directory outside Git. In daemon runs with `--sys-watch-paths`, the canonical event path must still be inside a watched root. The active config file path is never archived or used as a destination. |
-| `--archive-default-dest-path` | `str` | Fallback destination file when `--archive-pair` is missing and `--archive` is set. Uses the same archive path restrictions, including the config-file guard. |
+| `--archive-pair` | `str[]` | Force archive through the configured `--archive-auto-pair` rule. Optional value: `text` or `file`. |
+| `--archive-local` | `str[]` | Force archive the current file beside itself. Optional value: `text` or `file`. Text mode appends to `.archive/archive.md` when `.archive/` exists, otherwise to `archive.md`; file mode creates `.archive/YYYY-MM-DD--name.md`. |
+| `--archive-global` | `str[]` | Force archive the current file into the global destination. Optional value: `text` or `file`. |
+| `--archive-auto-pair` | `str[]` | Automatic pair rule: `<src> <dest> [idle_hours] [text\|file]`. In text mode `dest` is an archive file; in file mode `dest` is an archive directory. |
+| `--archive-auto-local` | `str[]` | Automatic local rule: `<src> [idle_hours] [text\|file]`. Archives one configured source beside itself. |
+| `--archive-auto-global` | `str[]` | Automatic global rule: `<src> [idle_hours] [text\|file]`. Archives one configured source into the global destination. |
+| `--archive-default-mode` | `str` | Default archive output mode for rules without explicit mode: `text` or `file`. Default: `text`. |
+| `--archive-global-dest-path` | `str` | Global archive destination. In text mode this is a file path; in file mode this is a directory path. If empty, text mode uses `archive.md` at the Git repo root and file mode uses `.archive/` at the Git repo root. |
 | `--archive-idle-hours` | `float` | Archive source when its age is at least this many hours. |
-| `--archive-date-prefix` | `str` | Text before archive date in history header. Default: `-- `. |
+| `--archive-date-prefix` | `str` | Text before archive date in history header. Header date uses the latest Git commit date for the source file when available, otherwise today's date. Default: `-- `. |
 | `--archive-date-suffix` | `str` | Text after archive date in history header. Default: empty string. |
 | `--archive-force-filesystem-mtime` | `bool` | Use filesystem mtime even inside Git repositories. |
+
+Archive paths may be relative to the event/source directory, or absolute inside
+the allowed root. `~` and relative `..` are rejected; resolved paths must stay
+inside the Git repo root, or inside the current note directory outside Git. In
+daemon runs with `--sys-watch-paths`, the canonical event path must still be
+inside a watched root. The active config file path is never archived or used as
+an archive destination.
 
 ## Formatter
 

@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from demon_lucy.lib.args import Template
+from demon_lucy.lib.args.parser import Template
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,

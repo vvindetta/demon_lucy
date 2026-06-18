@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from demon_lucy.lib.args import Template
+from demon_lucy.lib.args.parser import Template
 
 KDECONNECT_SYNC_TEMPLATE: Template = [
     (

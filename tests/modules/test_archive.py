@@ -20,15 +20,24 @@ def _ctx_for(
     force_fs: bool = False,
     force_archive: bool = False,
     pair_values: list[str] | None = None,
-    default_dest_path: str = "past.md",
+    global_dest_path: str = "",
+    manual_route: str | None = None,
+    manual_mode: str | None = None,
+    auto_local_values: list[str] | None = None,
+    auto_global_values: list[str] | None = None,
     config_path: str | None = None,
     watch_paths: list[str] | None = None,
 ) -> Context:
     resolved_pair = list(pair_values) if pair_values is not None else ["now.md", "past.md"]
     config: dict[str, object] = {
-        "archive": False,
-        "archive_pair": resolved_pair,
-        "archive_default_dest_path": default_dest_path,
+        "archive_pair": [],
+        "archive_local": [],
+        "archive_global": [],
+        "archive_auto_pair": resolved_pair,
+        "archive_auto_local": list(auto_local_values or []),
+        "archive_auto_global": list(auto_global_values or []),
+        "archive_default_mode": "text",
+        "archive_global_dest_path": global_dest_path,
         "archive_idle_hours": 12.0,
         "archive_date_prefix": "-- ",
         "archive_date_suffix": "",
@@ -36,8 +45,14 @@ def _ctx_for(
     }
     if force_fs:
         config["archive_force_filesystem_mtime"] = True
-    if force_archive:
-        config["archive"] = True
+    arg_lines: dict[str, list[int]] = {}
+    selected_manual_route = manual_route
+    if force_archive and selected_manual_route is None:
+        selected_manual_route = "pair"
+    if selected_manual_route is not None:
+        route_key = f"archive_{selected_manual_route}"
+        config[route_key] = [manual_mode] if manual_mode else []
+        arg_lines[route_key] = [1]
     if config_path is not None:
         config["sys_config_path"] = config_path
     if watch_paths is not None:
@@ -46,7 +61,7 @@ def _ctx_for(
     return Context(
         path=str(path),
         config=config,
-        arg_lines={},
+        arg_lines=arg_lines,
     )
 
 
@@ -415,6 +430,59 @@ def test_archive_rejects_symlink_destination(tmp_path: Path, monkeypatch) -> Non
     assert target_path.read_text(encoding="utf-8") == "target\n"
 
 
+def test_archive_rejects_hardlink_destination(tmp_path: Path, monkeypatch) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("must not write through hardlink\n", encoding="utf-8")
+    _make_stale(now_path, 1.0)
+
+    target_path = tmp_path / "target.md"
+    target_path.write_text("target\n", encoding="utf-8")
+    hardlink_path = tmp_path / "past.md"
+    try:
+        os.link(target_path, hardlink_path)
+    except OSError:
+        pytest.skip("filesystem does not support hardlinks")
+
+    module = Archive()
+    ctx = _ctx_for(now_path, force_archive=True)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert now_path.read_text(encoding="utf-8") == "must not write through hardlink\n"
+    assert target_path.read_text(encoding="utf-8") == "target\n"
+
+
+def test_archive_rejects_hardlink_source(tmp_path: Path, monkeypatch) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+
+    target_path = tmp_path / "target.md"
+    target_path.write_text("target must stay\n", encoding="utf-8")
+    now_path = tmp_path / "now.md"
+    try:
+        os.link(target_path, now_path)
+    except OSError:
+        pytest.skip("filesystem does not support hardlinks")
+    _make_stale(now_path, 1.0)
+
+    module = Archive()
+    ctx = _ctx_for(now_path, force_archive=True)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert target_path.read_text(encoding="utf-8") == "target must stay\n"
+    assert not (tmp_path / "past.md").exists()
+
+
 def _make_stale(path: Path, hours: float) -> None:
     old = time.time() - (hours * 3600.0)
     os.utime(path, (old, old))
@@ -545,7 +613,7 @@ def test_compact_archive_arg_without_idle_value_uses_default_idle_hours(
     assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nuse default idle\n"
 
 
-def test_uses_default_dest_when_pair_is_missing_with_archive_flag(
+def test_archive_global_uses_configured_global_dest_path(
     tmp_path: Path, monkeypatch
 ) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)
@@ -557,9 +625,9 @@ def test_uses_default_dest_when_pair_is_missing_with_archive_flag(
     module = Archive()
     ctx = _ctx_for(
         src_path,
-        force_archive=True,
         pair_values=[],
-        default_dest_path="journal.md",
+        manual_route="global",
+        global_dest_path="journal.md",
     )
     system = System(
         event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
@@ -571,6 +639,192 @@ def test_uses_default_dest_when_pair_is_missing_with_archive_flag(
     assert ignore == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
     assert src_path.read_text(encoding="utf-8") == ""
     assert dest_path.read_text(encoding="utf-8") == "-- 01.05.2026\nfallback archive\n"
+
+
+def test_archive_local_text_prefers_existing_dot_archive_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    src_path = tmp_path / "note.md"
+    src_path.write_text("fallback archive dir\n", encoding="utf-8")
+    (tmp_path / ".archive").mkdir()
+
+    module = Archive()
+    ctx = _ctx_for(
+        src_path,
+        pair_values=[],
+        manual_route="local",
+    )
+    system = System(
+        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    dest_path = tmp_path / ".archive" / "archive.md"
+    assert ignore == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert src_path.read_text(encoding="utf-8") == ""
+    assert (
+        dest_path.read_text(encoding="utf-8")
+        == "-- 01.05.2026\nfallback archive dir\n"
+    )
+    assert not (tmp_path / "archive.md").exists()
+
+
+def test_archive_local_file_creates_new_file_under_dot_archive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    src_path = tmp_path / "note.md"
+    src_path.write_text("--archive-local file\nlocal file archive\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        src_path,
+        pair_values=[],
+        manual_route="local",
+        manual_mode="file",
+    )
+    system = System(
+        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    dest_path = tmp_path / ".archive" / "2026-05-01--note.md"
+    assert ignore == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert src_path.read_text(encoding="utf-8") == ""
+    assert dest_path.read_text(encoding="utf-8") == "local file archive\n"
+    assert not (tmp_path / "archive.md").exists()
+
+
+def test_archive_file_mode_uses_unique_name_without_overwrite(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    archive_dir = tmp_path / ".archive"
+    archive_dir.mkdir()
+    existing_path = archive_dir / "2026-05-01--note.md"
+    existing_path.write_text("older copy\n", encoding="utf-8")
+
+    src_path = tmp_path / "note.md"
+    src_path.write_text("second copy\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        src_path,
+        pair_values=[],
+        manual_route="local",
+        manual_mode="file",
+    )
+    system = System(
+        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    dest_path = archive_dir / "2026-05-01--note-2.md"
+    assert ignore == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert existing_path.read_text(encoding="utf-8") == "older copy\n"
+    assert dest_path.read_text(encoding="utf-8") == "second copy\n"
+
+
+def test_archive_global_without_dest_uses_repo_root_archive_text(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    repo_root = tmp_path / "repo"
+    note_dir = repo_root / "notes"
+    note_dir.mkdir(parents=True)
+    git_dir = repo_root / ".git"
+    git_dir.mkdir()
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+
+    src_path = note_dir / "note.md"
+    src_path.write_text("global text archive\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        src_path,
+        pair_values=[],
+        manual_route="global",
+    )
+    system = System(
+        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    dest_path = repo_root / "archive.md"
+    assert ignore == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert src_path.read_text(encoding="utf-8") == ""
+    assert dest_path.read_text(encoding="utf-8") == "-- 01.05.2026\nglobal text archive\n"
+
+
+def test_archive_auto_local_file_archives_stale_configured_source(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    src_path = tmp_path / "now.md"
+    src_path.write_text("auto local file\n", encoding="utf-8")
+    _make_stale(src_path, 2.0)
+
+    trigger_path = tmp_path / "other.md"
+    trigger_path.write_text("trigger\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=[],
+        auto_local_values=["now.md", "1", "file"],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    dest_path = tmp_path / ".archive" / "2026-05-01--now.md"
+    assert ignore == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert src_path.read_text(encoding="utf-8") == ""
+    assert dest_path.read_text(encoding="utf-8") == "auto local file\n"
+
+
+def test_archive_file_mode_rejects_global_dest_outside_allowed_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+
+    src_path = notes_dir / "note.md"
+    src_path.write_text("must stay\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        src_path,
+        pair_values=[],
+        manual_route="global",
+        manual_mode="file",
+        global_dest_path=str(outside_dir),
+    )
+    system = System(
+        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert src_path.read_text(encoding="utf-8") == "must stay\n"
+    assert not list(outside_dir.iterdir())
 
 
 def test_does_not_use_default_dest_when_pair_is_missing_without_archive_flag(
@@ -586,7 +840,7 @@ def test_does_not_use_default_dest_when_pair_is_missing_without_archive_flag(
     ctx = _ctx_for(
         src_path,
         pair_values=[],
-        default_dest_path="journal.md",
+        global_dest_path="journal.md",
     )
     system = System(
         event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
@@ -628,7 +882,7 @@ def test_custom_archive_date_prefix_and_suffix(
     )
 
 
-def test_archive_flag_archives_even_when_not_stale(
+def test_manual_archive_pair_archives_even_when_not_stale(
     tmp_path: Path, monkeypatch
 ) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)
@@ -651,7 +905,7 @@ def test_archive_flag_archives_even_when_not_stale(
     assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nmove now\n"
 
 
-def test_archive_flag_does_not_archive_archive_command(
+def test_archive_does_not_copy_old_archive_command(
     tmp_path: Path, monkeypatch
 ) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)
@@ -687,7 +941,7 @@ def test_archive_pair_command_is_removed_from_archive_text(
 
     now_path = tmp_path / "now.md"
     now_path.write_text(
-        "--fmt-blank up --archive --archive-pair now.md past.md 1 --fmt-todo\nreal text\n",
+        "--fmt-blank up --archive-pair text --fmt-todo\nreal text\n",
         encoding="utf-8",
     )
     _make_stale(now_path, 1.0)
@@ -872,7 +1126,7 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
     now_path.write_text("from git clock\n", encoding="utf-8")
     _make_stale(now_path, 1.0)  # fresh by filesystem mtime
 
-    now_ts = time.time()
+    now_ts = datetime(2026, 6, 2, 9, 0, 0).timestamp()
     monkeypatch.setattr(archive_mod.time, "time", lambda: now_ts)
 
     module = Archive()
@@ -905,7 +1159,50 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
     past_path = tmp_path / "past.md"
     assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
     assert now_path.read_text(encoding="utf-8") == ""
-    assert past_path.read_text(encoding="utf-8") == "-- 02.06.2026\nfrom git clock\n"
+    assert past_path.read_text(encoding="utf-8") == "-- 01.06.2026\nfrom git clock\n"
+
+
+def test_archive_header_uses_git_commit_date_for_dirty_forced_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 6, 2)
+
+    now_path = tmp_path / "note.md"
+    now_path.write_text("--archive-global\nold note text\n", encoding="utf-8")
+
+    module = Archive()
+    monkeypatch.setattr(archive_mod, "find_parent_with", lambda _p, _m: "/repo")
+
+    git_commit_ts = datetime(2026, 5, 20, 9, 0, 0).timestamp()
+
+    def _fake_run(cmd: list[str], **_kwargs):
+        if cmd[:4] == ["git", "log", "-1", "--format=%ct"]:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=f"{int(git_commit_ts)}\n",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(archive_mod.subprocess, "run", _fake_run)
+
+    ctx = _ctx_for(
+        now_path,
+        pair_values=[],
+        manual_route="global",
+        global_dest_path="archive.md",
+    )
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    dest_path = tmp_path / "archive.md"
+    assert ignore == {str(now_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert dest_path.read_text(encoding="utf-8") == "-- 20.05.2026\nold note text\n"
 
 
 def test_force_fs_flag_skips_git_even_in_repo(tmp_path: Path, monkeypatch) -> None:

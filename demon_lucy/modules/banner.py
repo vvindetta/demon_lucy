@@ -5,7 +5,8 @@ from typing import Optional
 
 import pyfiglet
 
-from demon_lucy.lib.args import Template, delete_args_from_string
+from demon_lucy.lib.args.line_edit import delete_args_from_string
+from demon_lucy.lib.args.parser import Template
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,

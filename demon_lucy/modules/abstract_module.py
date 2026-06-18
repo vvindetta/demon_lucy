@@ -6,7 +6,7 @@ from typing import Dict, List, Literal, Optional
 
 from watchdog.events import FileSystemEvent
 
-from demon_lucy.lib.args import Template
+from demon_lucy.lib.args.parser import Template
 
 IgnoreMap = Dict[str, int]
 RunMode = Literal["daemon", "oneshot"]

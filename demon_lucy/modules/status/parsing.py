@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from demon_lucy.lib.args import flag_to_dest, parse_template_item
+from demon_lucy.lib.args.parser import flag_to_dest, parse_template_item
 
 
 class _StatusParsingHost(Protocol):

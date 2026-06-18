@@ -1,23 +1,34 @@
 from __future__ import annotations
 
+import sys
 import threading
 
 from watchdog.observers import Observer
 
 from demon_lucy.file_handler import FileHandler
-from demon_lucy.lib.args import setup_config_and_cli_args
+from demon_lucy.lib.args.parser import parse_args, setup_config_and_cli_args
 from demon_lucy.lib.path import abs_expand_path
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.runtime import (
     DEMON_LUCY_STARTUP_TEMPLATE,
     configure_logging,
     log_startup_message,
+    run_config_migrations,
     select_demon_lucy_modules,
 )
 
 
 def main() -> int:
-    config, unknown_args = setup_config_and_cli_args(template=DEMON_LUCY_STARTUP_TEMPLATE)
+    startup_args, _unknown_startup_args = parse_args(
+        template=DEMON_LUCY_STARTUP_TEMPLATE,
+        args=sys.argv[1:],
+    )
+    config_path = startup_args.get("sys_config_path")
+    if isinstance(config_path, str) and config_path.strip():
+        run_config_migrations(config_path)
+    config, unknown_args = setup_config_and_cli_args(
+        template=DEMON_LUCY_STARTUP_TEMPLATE
+    )
     notes_dirs = config.get("sys_watch_paths")
     if not notes_dirs:
         raise ValueError("No --sys-watch-paths was setuped")
