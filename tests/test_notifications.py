@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 import types
 
@@ -132,21 +133,32 @@ def test_notify_termux_provider_uses_termux_api(monkeypatch):
         lambda args, **_kwargs: calls.append(list(args)) or _Result(),
     )
 
-    notifications_mod.notify("hello termux", title="Demon Lucy", config=_TERMUX_CONFIG)
+    result = notifications_mod.notify(
+        "hello termux", title="Demon Lucy", config=_TERMUX_CONFIG
+    )
 
+    assert result is True
     assert calls
     assert calls[0][0].endswith("termux-notification")
     assert "--title" in calls[0]
     assert "--content" in calls[0]
 
 
-def test_notify_termux_provider_silent_when_termux_missing(monkeypatch):
+def test_notify_termux_provider_logs_when_termux_missing(monkeypatch, caplog):
     monkeypatch.setattr(notifications_mod.shutil, "which", lambda _name: None)
 
-    notifications_mod.notify("missing-termux", title="Demon Lucy", config=_TERMUX_CONFIG)
+    with caplog.at_level(logging.ERROR, logger="demon_lucy.lib.notifications"):
+        result = notifications_mod.notify(
+            "missing-termux", title="Demon Lucy", config=_TERMUX_CONFIG
+        )
+
+    assert result is False
+    assert "notification.failed" in caplog.text
+    assert "provider=termuxapi" in caplog.text
+    assert "reason=backend_returned_false" in caplog.text
 
 
-def test_notify_disable_provider_skips_termux_call(monkeypatch):
+def test_notify_disable_provider_skips_termux_call(monkeypatch, caplog):
     called: dict[str, bool] = {"value": False}
 
     def _mark(*_args, **_kwargs):
@@ -154,14 +166,17 @@ def test_notify_disable_provider_skips_termux_call(monkeypatch):
         return True
 
     monkeypatch.setattr(notifications_mod, "_notify_termux", _mark)
-    notifications_mod.notify(
-        "disabled",
-        config={
-            "sys_notification_provider": "disable",
-            "sys_notification_min_interval_seconds": 10.0,
-        },
-    )
+    with caplog.at_level(logging.ERROR, logger="demon_lucy.lib.notifications"):
+        result = notifications_mod.notify(
+            "disabled",
+            config={
+                "sys_notification_provider": "disable",
+                "sys_notification_min_interval_seconds": 10.0,
+            },
+        )
+    assert result is False
     assert called["value"] is False
+    assert caplog.text == ""
 
 
 def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
@@ -173,6 +188,7 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
 
         def send(self):
             self.sent = True
+            return True
 
     dummy = DummyNotify()
     monkeypatch.setitem(
@@ -188,7 +204,7 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
         ),
     )
 
-    notifications_mod.notify(
+    result = notifications_mod.notify(
         "desktop notification",
         title="Demon Lucy",
         config={
@@ -197,9 +213,64 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
         },
     )
 
+    assert result is True
     assert dummy.sent is True
     assert dummy.title == "Demon Lucy"
     assert dummy.message == "desktop notification"
+
+
+def test_notify_desktop_provider_logs_backend_false(monkeypatch, caplog):
+    class DummyNotify:
+        def __init__(self):
+            self.title = ""
+            self.message = ""
+
+        def send(self):
+            return False
+
+    monkeypatch.setitem(
+        sys.modules,
+        "notifypy",
+        types.SimpleNamespace(Notify=DummyNotify),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="demon_lucy.lib.notifications"):
+        result = notifications_mod.notify(
+            "desktop notification",
+            title="Demon Lucy",
+            config={
+                "sys_notification_provider": "desktop",
+                "sys_notification_min_interval_seconds": 10.0,
+            },
+        )
+
+    assert result is False
+    assert "notification.failed" in caplog.text
+    assert "provider=desktop" in caplog.text
+    assert "reason=backend_returned_false" in caplog.text
+
+
+def test_notify_desktop_provider_logs_exception(monkeypatch, caplog):
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("dbus unavailable")
+
+    monkeypatch.setattr(notifications_mod, "_notify_desktop", _raise)
+
+    with caplog.at_level(logging.ERROR, logger="demon_lucy.lib.notifications"):
+        result = notifications_mod.notify(
+            "desktop notification",
+            title="Demon Lucy",
+            config={
+                "sys_notification_provider": "desktop",
+                "sys_notification_min_interval_seconds": 10.0,
+            },
+        )
+
+    assert result is False
+    assert "notification.failed" in caplog.text
+    assert "provider=desktop" in caplog.text
+    assert "reason=provider_exception" in caplog.text
+    assert "error=dbus unavailable" in caplog.text
 
 
 def test_notify_auto_provider_uses_termux_on_termux(monkeypatch):
@@ -223,8 +294,11 @@ def test_notify_auto_provider_uses_termux_on_termux(monkeypatch):
         or True,
     )
 
-    notifications_mod.notify("auto termux", title="Demon Lucy", config=_AUTO_CONFIG)
+    result = notifications_mod.notify(
+        "auto termux", title="Demon Lucy", config=_AUTO_CONFIG
+    )
 
+    assert result is True
     assert calls == {"termux": 1, "desktop": 0}
 
 
@@ -245,6 +319,9 @@ def test_notify_auto_provider_uses_desktop_when_termux_missing(monkeypatch):
         or True,
     )
 
-    notifications_mod.notify("auto desktop", title="Demon Lucy", config=_AUTO_CONFIG)
+    result = notifications_mod.notify(
+        "auto desktop", title="Demon Lucy", config=_AUTO_CONFIG
+    )
 
+    assert result is True
     assert calls == {"termux": 0, "desktop": 1}

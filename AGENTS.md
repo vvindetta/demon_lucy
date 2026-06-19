@@ -232,3 +232,6 @@ When renaming a flag, update all related places at once:
   temporary backoff, or "will retry later" conditions. Log them without popup and keep retrying.
 - Notify only when the operation reached a final critical failure state or requires user action,
   not when Demon Lucy is still able to recover on its own.
+- Notification backend delivery failures must be logged as `notification.failed`
+  with `provider`, `reason`, and short `error` text when available. Do not let
+  desktop/Termux backend failures disappear silently.

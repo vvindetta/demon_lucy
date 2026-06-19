@@ -31,6 +31,7 @@
 # --sys-log-level warning
 
 # Disable notifications completely.
+# Failed notification delivery attempts are logged as notification.failed.
 # --sys-notification-provider disable
 
 

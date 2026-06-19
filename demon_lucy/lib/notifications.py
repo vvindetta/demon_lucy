@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -7,6 +8,10 @@ import threading
 import time
 from collections import deque
 from typing import Any, Dict, Mapping
+
+from demon_lucy.lib.logfmt import log_record
+
+logger = logging.getLogger(__name__)
 
 _NOTIFY_LAST: Dict[str, float] = {}
 _ERROR_NOTIFY_LAST: Dict[str, float] = {}
@@ -37,38 +42,31 @@ def _notify_termux(message: str, title: str) -> bool:
     if not executable:
         return False
 
-    try:
-        result = subprocess.run(
-            [
-                executable,
-                "--title",
-                title,
-                "--content",
-                message,
-            ],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=3,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
+    result = subprocess.run(
+        [
+            executable,
+            "--title",
+            title,
+            "--content",
+            message,
+        ],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=3,
+    )
 
     return result.returncode == 0
 
 
 def _notify_desktop(message: str, title: str, icon_path: str) -> bool:
-    try:
-        from notifypy import Notify
+    from notifypy import Notify
 
-        notifier = Notify()
-        notifier.title = title
-        notifier.message = message
-        notifier.icon = icon_path
-        notifier.send()
-    except Exception:
-        return False
-    return True
+    notifier = Notify()
+    notifier.title = title
+    notifier.message = message
+    notifier.icon = icon_path
+    return bool(notifier.send())
 
 
 def safe_notify(
@@ -79,12 +77,12 @@ def safe_notify(
     title: str = "Demon Lucy Note Manager",
     icon_path: str = DEFAULT_NOTIFICATION_ICON_PATH,
     use_rare_mode: bool = True,
-) -> None:
+) -> bool:
     """
     Throttle notifications by `key`.
 
     - If called again within configured min interval, it does nothing.
-    - Otherwise calls notify(message=...).
+    - Otherwise calls notify(message=...) and returns whether backend accepted it.
     - Rare mode supports exponential backoff + burst window limit.
     """
     min_interval_seconds = max(0.0, config["sys_notification_min_interval_seconds"])
@@ -112,7 +110,7 @@ def safe_notify(
             if burst_limit > 0 and burst_window_seconds > 0.0:
                 _prune_error_notify_history(now, burst_window_seconds)
                 if len(_ERROR_NOTIFY_HISTORY) >= burst_limit:
-                    return
+                    return False
 
             last = _ERROR_NOTIFY_LAST.get(name)
             level = max(0, _ERROR_NOTIFY_LEVEL.get(name, 0))
@@ -121,7 +119,7 @@ def safe_notify(
                 backoff_max_seconds,
             )
             if last is not None and (now - last) < required_interval:
-                return
+                return False
 
             _ERROR_NOTIFY_LAST[name] = now
             _ERROR_NOTIFY_LEVEL[name] = level + 1
@@ -130,10 +128,10 @@ def safe_notify(
         else:
             last = _NOTIFY_LAST.get(name)
             if last is not None and (now - last) < min_interval_seconds:
-                return
+                return False
             _NOTIFY_LAST[name] = now
 
-    notify(message=message, title=title, icon_path=icon_path, config=config)
+    return notify(message=message, title=title, icon_path=icon_path, config=config)
 
 
 def notify(
@@ -142,17 +140,50 @@ def notify(
     *,
     icon_path: str = DEFAULT_NOTIFICATION_ICON_PATH,
     config: Mapping[str, Any],
-) -> None:
+) -> bool:
     """
     Send a notification via configured provider.
-    Fails silently if notify-py (or its backend) is unavailable.
+    Returns whether the backend accepted it and logs failed delivery attempts.
     """
     provider = _resolve_notification_provider(config)
 
     try:
         if provider == "desktop":
-            _notify_desktop(message=message, title=title, icon_path=icon_path)
+            delivered = _notify_desktop(
+                message=message, title=title, icon_path=icon_path
+            )
         elif provider == "termuxapi":
-            _notify_termux(message=message, title=title)
-    except Exception:
-        return None
+            delivered = _notify_termux(message=message, title=title)
+        elif provider == "disable":
+            return False
+        else:
+            logger.error(
+                log_record(
+                    "notification.failed",
+                    provider=provider,
+                    reason="unsupported_provider",
+                )
+            )
+            return False
+    except Exception as exc:
+        logger.error(
+            log_record(
+                "notification.failed",
+                provider=provider,
+                reason="provider_exception",
+                error=exc,
+            )
+        )
+        return False
+
+    if not delivered:
+        logger.error(
+            log_record(
+                "notification.failed",
+                provider=provider,
+                reason="backend_returned_false",
+            )
+        )
+        return False
+
+    return True
