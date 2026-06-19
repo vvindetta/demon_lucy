@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import (
     abs_expand_path,
     find_parent_git_repo,
@@ -58,8 +59,14 @@ class Git(AbstractModule):
 
         if repo_process_lock_is_active(repo_root):
             logger.debug(
-                "skipping opened git sync while repo process lock is active | repo=%s",
-                repo_root,
+                log_record(
+                    "git.sync_skip",
+                    id=system.event_id,
+                    reason="repo_process_lock_active",
+                    event="opened",
+                    repo=repo_root,
+                    path=ctx_path,
+                )
             )
             return None
 

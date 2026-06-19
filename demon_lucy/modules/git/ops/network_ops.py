@@ -5,6 +5,8 @@ import threading
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
+from demon_lucy.lib.logfmt import log_record
+
 
 def resolve_address_infos(
     host_name: str,
@@ -120,9 +122,12 @@ def remote_is_reachable(
     ]
     if not timeout_candidates:
         logger.info(
-            "invalid network probe timeout; waiting for network before pull | repo=%s | remote=%s",
-            repo_root,
-            remote_name,
+            log_record(
+                "git.pull_wait_network",
+                reason="invalid_probe_timeout",
+                repo=repo_root,
+                remote=remote_name,
+            )
         )
         return False
     connect_timeout_seconds = min(timeout_candidates)
@@ -135,18 +140,24 @@ def remote_is_reachable(
         )
     except OSError:
         logger.info(
-            "remote host resolution failed; waiting for network before pull | repo=%s | remote=%s | host=%s",
-            repo_root,
-            remote_name,
-            host_name,
+            log_record(
+                "git.pull_wait_network",
+                reason="dns_failed",
+                repo=repo_root,
+                remote=remote_name,
+                host=host_name,
+            )
         )
         return False
     if dns_resolution_timed_out:
         logger.info(
-            "remote host resolution timed out; waiting for network before pull | repo=%s | remote=%s | host=%s",
-            repo_root,
-            remote_name,
-            host_name,
+            log_record(
+                "git.pull_wait_network",
+                reason="dns_timeout",
+                repo=repo_root,
+                remote=remote_name,
+                host=host_name,
+            )
         )
         return False
 
@@ -172,10 +183,13 @@ def remote_is_reachable(
             continue
 
     logger.info(
-        "remote endpoint unreachable; waiting for network before pull | repo=%s | remote=%s | host=%s | port=%s",
-        repo_root,
-        remote_name,
-        host_name,
-        port_number,
+        log_record(
+            "git.pull_wait_network",
+            reason="endpoint_unreachable",
+            repo=repo_root,
+            remote=remote_name,
+            host=host_name,
+            port=port_number,
+        )
     )
     return False

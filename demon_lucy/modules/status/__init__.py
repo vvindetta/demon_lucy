@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional
 
 from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import find_parent_with
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
@@ -680,7 +681,7 @@ class Status(
                 )
                 self._ticker_stop.wait(wait_seconds)
             except Exception as exc:
-                logger.warning("status ticker iteration failed: %s", exc)
+                logger.warning(log_record("status.ticker_error", error=exc))
                 self._last_tick_key = None
                 self._ticker_stop.wait(1.0)
 

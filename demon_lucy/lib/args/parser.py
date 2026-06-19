@@ -4,6 +4,8 @@ import shlex
 import sys
 from typing import Any, Dict, List, Tuple
 
+from demon_lucy.lib.logfmt import log_record
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,10 +92,12 @@ def get_config_args(path: str, template: Template) -> Tuple[Dict[str, Any], List
                 config_args_raw.extend(shlex.split(line))
             except ValueError as exc:
                 logger.warning(
-                    "Skipping invalid config line %s:%d (%s)",
-                    path,
-                    lineno,
-                    exc,
+                    log_record(
+                        "args.config_line_invalid",
+                        path=path,
+                        line=lineno,
+                        error=exc,
+                    )
                 )
                 continue
 
@@ -154,9 +158,12 @@ def setup_config_and_cli_args(
             template=template,
         )
     except FileNotFoundError:
-        logging.basicConfig(level=logging.INFO)
-        logging.warning(
-            f"Config file {config_path} not found, using only startup arguments",
+        logger.warning(
+            log_record(
+                "args.config_missing",
+                path=config_path,
+                fallback="startup_args",
+            )
         )
         return known_startup_args, unknown_startup_args
 
@@ -207,10 +214,10 @@ def get_args_from_file(
         with open(path, "r", encoding="utf-8") as file:
             lines = file.readlines()
     except FileNotFoundError:
-        logger.info(f"File: {path} not found.")
+        logger.debug(log_record("args.file_missing", path=path))
         return {}, [], {}
     except (UnicodeDecodeError, OSError) as exc:
-        logger.debug(f"Skipping unreadable/non-text file: {path}. Reason: {exc}")
+        logger.debug(log_record("args.file_unreadable", path=path, error=exc))
         return {}, [], {}
 
     if not lines:
@@ -233,7 +240,9 @@ def get_args_from_file(
         try:
             tokens = shlex.split(stripped, comments=False, posix=True)
         except ValueError as e:
-            logger.debug(f"shlex.split failed for line {lineno} in {path}: {e}")
+            logger.debug(
+                log_record("args.file_line_invalid", path=path, line=lineno, error=e)
+            )
             continue
 
         # collect "--flag" + values until next flag

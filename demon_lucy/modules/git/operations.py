@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.modules.git.executor import GitExecutor, combined_output
 from demon_lucy.modules.git.helpers import union_resolve_text
@@ -18,7 +19,7 @@ _RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS = 15
 _RECENT_INDEX_LOCK_RETRY_SLEEP_SECONDS = 1.0
 
 
-def _index_lock_path(repo_root: str) -> str:
+def _index_lock_path(repo_root: str) -> str | None:
     return command_ops.index_lock_path(repo_root)
 
 
@@ -336,28 +337,7 @@ def resolve_merge_conflicts_with_fallback(
 @dataclass(frozen=True)
 class _PullPlan:
     command: list[str]
-    command_for_notification: str
     remote_name: Optional[str]
-
-
-def _notify_pull_waiting_for_network(
-    repo_root: str,
-    remote_name: Optional[str],
-    reason: str,
-    notify_config: Mapping[str, Any],
-) -> None:
-    remote_label = remote_name or "unknown"
-    safe_notify(
-        name=f"git-network:{repo_root}",
-        message=(
-            f"Repository:\n{repo_root}\n\n"
-            f"Remote:\n{remote_label}\n\n"
-            f"Git sync waiting for network.\n\n"
-            f"Reason:\n{reason[:600]}"
-        ),
-        config=notify_config,
-        use_rare_mode=True,
-    )
 
 
 def _remote_is_reachable_or_wait(
@@ -386,7 +366,6 @@ def _resolve_pull_plan(
     operation_timeout_seconds: float,
     auto_set_upstream: bool,
     network_probe_timeout_seconds: float,
-    notify_config: Mapping[str, Any],
 ) -> Optional[_PullPlan]:
     if has_upstream(self, repo_root, environment, operation_timeout_seconds):
         remote_name = upstream_remote_name(
@@ -400,16 +379,9 @@ def _resolve_pull_plan(
             operation_timeout_seconds=operation_timeout_seconds,
             network_probe_timeout_seconds=network_probe_timeout_seconds,
         ):
-            _notify_pull_waiting_for_network(
-                repo_root=repo_root,
-                remote_name=remote_name,
-                reason="Remote endpoint is unreachable.",
-                notify_config=notify_config,
-            )
             return None
         return _PullPlan(
             command=["pull", "--no-rebase", "--no-edit"],
-            command_for_notification="git pull --no-rebase",
             remote_name=remote_name,
         )
 
@@ -419,17 +391,11 @@ def _resolve_pull_plan(
     remote_name = pick_remote(self, repo_root, environment, operation_timeout_seconds)
     if not branch_name or not remote_name:
         logger.warning(
-            "no upstream and cannot infer remote/branch; skip auto-pull | repo=%s",
-            repo_root,
-        )
-        safe_notify(
-            name=f"pull-noupstream:{repo_root}",
-            message=(
-                f"Repository:\n{repo_root}\n\n"
-                f"No upstream configured and cannot infer remote/branch; skip pull."
-            ),
-            config=notify_config,
-            use_rare_mode=True,
+            log_record(
+                "git.pull_skip",
+                reason="missing_upstream_and_remote",
+                repo=repo_root,
+            )
         )
         return None
 
@@ -441,12 +407,6 @@ def _resolve_pull_plan(
         operation_timeout_seconds=operation_timeout_seconds,
         network_probe_timeout_seconds=network_probe_timeout_seconds,
     ):
-        _notify_pull_waiting_for_network(
-            repo_root=repo_root,
-            remote_name=remote_name,
-            reason="Remote endpoint is unreachable.",
-            notify_config=notify_config,
-        )
         return None
 
     remote_branch_exists_value = remote_branch_exists(
@@ -459,21 +419,13 @@ def _resolve_pull_plan(
     )
     if not remote_branch_exists_value:
         logger.warning(
-            "no upstream and remote branch missing; skip pull | repo=%s | remote=%s | branch=%s",
-            repo_root,
-            remote_name,
-            branch_name,
-        )
-        safe_notify(
-            name=f"pull-noremotebranch:{repo_root}",
-            message=(
-                f"Repository:\n{repo_root}\n\n"
-                f"No upstream configured and remote branch does not exist:\n"
-                f"{remote_name}/{branch_name}\n\n"
-                f"Skip pull."
-            ),
-            config=notify_config,
-            use_rare_mode=True,
+            log_record(
+                "git.pull_skip",
+                reason="remote_branch_missing",
+                repo=repo_root,
+                remote=remote_name,
+                branch=branch_name,
+            )
         )
         return None
 
@@ -489,7 +441,6 @@ def _resolve_pull_plan(
 
     return _PullPlan(
         command=["pull", "--no-rebase", "--no-edit", remote_name, branch_name],
-        command_for_notification=f"git pull --no-rebase {remote_name} {branch_name}",
         remote_name=remote_name,
     )
 
@@ -501,7 +452,6 @@ def _handle_pull_timeout(
     operation_timeout_seconds: float,
     network_probe_timeout_seconds: float,
     remote_name: Optional[str],
-    notify_config: Mapping[str, Any],
 ) -> bool:
     if remote_name and not _remote_is_reachable_or_wait(
         self=self,
@@ -511,25 +461,17 @@ def _handle_pull_timeout(
         operation_timeout_seconds=operation_timeout_seconds,
         network_probe_timeout_seconds=network_probe_timeout_seconds,
     ):
-        logger.info(
-            "git pull timed out while network is offline; waiting for network | repo=%s",
-            repo_root,
-        )
-        _notify_pull_waiting_for_network(
-            repo_root=repo_root,
-            remote_name=remote_name,
-            reason="git pull timed out and remote looks offline.",
-            notify_config=notify_config,
+        logger.warning(
+            log_record(
+                "git.pull_wait_network",
+                reason="timeout_remote_offline",
+                repo=repo_root,
+                remote=remote_name,
+            )
         )
         return False
 
-    logger.error("git pull timed out | repo=%s", repo_root)
-    _notify_pull_waiting_for_network(
-        repo_root=repo_root,
-        remote_name=remote_name,
-        reason="git pull timed out.",
-        notify_config=notify_config,
-    )
+    logger.warning(log_record("git.pull_failed", reason="timeout", repo=repo_root))
     return False
 
 
@@ -548,7 +490,6 @@ def _handle_pull_failure(
     autoresolve_mode: str,
     pull_result: subprocess.CompletedProcess[str],
     pull_offline_error_markers: list[str] | None,
-    command_for_notification: str,
     notify_config: Mapping[str, Any],
 ) -> bool:
     if merge_in_progress(self, repo_root, environment, operation_timeout_seconds):
@@ -569,12 +510,14 @@ def _handle_pull_failure(
             environment=environment,
             timeout_seconds=operation_timeout_seconds,
         )
-        abort_suffix = "" if abort_ok else " | merge abort failed"
         logger.error(
-            "git pull conflict; auto-resolve failed; merge aborted%s | repo=%s | error=%s",
-            abort_suffix,
-            repo_root,
-            pull_error[:1200],
+            log_record(
+                "git.pull_conflict",
+                autoresolve="failed",
+                abort="failed" if not abort_ok else "done",
+                repo=repo_root,
+                error=pull_error[:1200],
+            )
         )
         merge_abort_note = (
             ""
@@ -600,28 +543,17 @@ def _handle_pull_failure(
         pull_error,
         pull_offline_error_markers,
     ):
-        logger.info(
-            "git pull failed because network is offline; waiting for network | repo=%s",
-            repo_root,
-        )
-        _notify_pull_waiting_for_network(
-            repo_root=repo_root,
-            remote_name=None,
-            reason=f"git pull failed with offline marker.\n{pull_error[:600]}",
-            notify_config=notify_config,
+        logger.warning(
+            log_record(
+                "git.pull_wait_network",
+                reason="offline_marker",
+                repo=repo_root,
+            )
         )
         return False
 
-    logger.error("git pull failed | repo=%s | error=%s", repo_root, pull_error[:1200])
-    safe_notify(
-        name=f"pullfail:{repo_root}",
-        message=(
-            f"Repository:\n{repo_root}\n\n"
-            f"Command:\n{command_for_notification}\n\n"
-            f"Error:\n{pull_error[:1200]}"
-        ),
-        config=notify_config,
-        use_rare_mode=True,
+    logger.warning(
+        log_record("git.pull_failed", repo=repo_root, error=pull_error[:1200])
     )
     return False
 
@@ -646,7 +578,6 @@ def safe_pull_merge(
         operation_timeout_seconds=operation_timeout_seconds,
         auto_set_upstream=auto_set_upstream,
         network_probe_timeout_seconds=network_probe_timeout_seconds,
-        notify_config=notify_config,
     )
     if pull_plan is None:
         return False
@@ -667,7 +598,6 @@ def safe_pull_merge(
             operation_timeout_seconds=operation_timeout_seconds,
             network_probe_timeout_seconds=network_probe_timeout_seconds,
             remote_name=pull_plan.remote_name,
-            notify_config=notify_config,
         )
 
     if pull_result.returncode == 0:
@@ -681,6 +611,5 @@ def safe_pull_merge(
         autoresolve_mode=autoresolve_mode,
         pull_result=pull_result,
         pull_offline_error_markers=pull_offline_error_markers,
-        command_for_notification=pull_plan.command_for_notification,
         notify_config=notify_config,
     )

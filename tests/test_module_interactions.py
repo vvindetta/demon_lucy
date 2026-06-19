@@ -226,13 +226,6 @@ def test_banner_formatter_linker_plasma_complex_note_stays_consistent(
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "ModuleManager.run currently shadows the event path while merging an "
-        "ignore map, so later modules can run on a generated side-effect path."
-    ),
-)
 def test_linker_and_formatter_keep_the_original_event_path_between_modules(
     tmp_path: Path,
 ):

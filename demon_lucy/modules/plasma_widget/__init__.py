@@ -5,6 +5,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
@@ -193,7 +194,9 @@ def _write_text_atomic(
             try:
                 os.remove(temp_path)
             except OSError:
-                logger.debug("Failed to remove temp file: %s", temp_path)
+                logger.debug(
+                    log_record("plasma.temp_cleanup_failed", path=temp_path)
+                )
 
 
 def _collect_pending_writes(
@@ -231,7 +234,8 @@ def _restore_previous_writes(
     applied: list[PendingWrite],
     *,
     config: Mapping[str, Any],
-) -> None:
+) -> list[str]:
+    rollback_failed_paths: list[str] = []
     for write in reversed(applied):
         restored = _write_text_atomic(
             write.path,
@@ -239,13 +243,33 @@ def _restore_previous_writes(
             notify_errors=False,
         )
         if not restored:
-            logger.error("Rollback failed for %s", write.path)
-            safe_notify(
-                "write_rollback:" + write.path,
-                f"Rollback failed for file:\n{write.path}",
-                config=config,
-                use_rare_mode=True,
-            )
+            logger.error(log_record("plasma.rollback_failed", path=write.path))
+            rollback_failed_paths.append(write.path)
+    return rollback_failed_paths
+
+
+def _notify_write_failure(
+    *,
+    failed_path: str,
+    rollback_failed_paths: list[str],
+    config: Mapping[str, Any],
+) -> None:
+    logger.error(
+        log_record(
+            "plasma.write_failed",
+            path=failed_path,
+            rollback_failed_paths=len(rollback_failed_paths),
+        )
+    )
+    details = f"Failed to write Plasma sync file:\n{failed_path}"
+    if rollback_failed_paths:
+        details += "\n\nRollback also failed for:\n" + "\n".join(rollback_failed_paths)
+    safe_notify(
+        "plasma-write:" + canonical_path(failed_path),
+        details,
+        config=config,
+        use_rare_mode=True,
+    )
 
 
 def _apply_pending_writes(
@@ -261,7 +285,12 @@ def _apply_pending_writes(
             write.next_content,
             notify_errors=True,
         ):
-            _restore_previous_writes(applied, config=config)
+            rollback_failed_paths = _restore_previous_writes(applied, config=config)
+            _notify_write_failure(
+                failed_path=write.path,
+                rollback_failed_paths=rollback_failed_paths,
+                config=config,
+            )
             return False
         _inc_ignore(ignore, write.path, _IGNORE_BURST)
         applied.append(write)
@@ -282,10 +311,13 @@ def _notify_empty_source_guard(
 ) -> None:
     source_abs = canonical_path(source_path)
     markdown_abs = canonical_path(markdown_path)
-    logger.warning(
-        "Blocked empty Plasma source from clearing markdown | source=%s | markdown=%s",
-        source_abs,
-        markdown_abs,
+    logger.error(
+        log_record(
+            "plasma.guard_blocked",
+            reason="empty_source",
+            source=source_abs,
+            markdown=markdown_abs,
+        )
     )
     safe_notify(
         "plasma-empty-source:" + markdown_abs,
@@ -307,10 +339,13 @@ def _notify_shrinking_source_guard(
 ) -> None:
     source_abs = canonical_path(source_path)
     markdown_abs = canonical_path(markdown_path)
-    logger.warning(
-        "Blocked shrinking Plasma source from truncating markdown | source=%s | markdown=%s",
-        source_abs,
-        markdown_abs,
+    logger.error(
+        log_record(
+            "plasma.guard_blocked",
+            reason="shrinking_source",
+            source=source_abs,
+            markdown=markdown_abs,
+        )
     )
     safe_notify(
         "plasma-shrinking-source:" + markdown_abs,
@@ -517,8 +552,13 @@ class PlasmaWidget(AbstractModule):
 
         if ignore:
             logger.info(
-                "Sync todo.md (**bold**) -> MAIN Plasma"
-                + (" + BOLD mirror" if bold_widget_path else "")
+                log_record(
+                    "plasma.sync_applied",
+                    direction="markdown_to_widget",
+                    source=canonical_path(markdown_path),
+                    widget=canonical_path(widget_path),
+                    mirror=canonical_path(bold_widget_path) if bold_widget_path else None,
+                )
             )
         return ignore
 
@@ -583,8 +623,13 @@ class PlasmaWidget(AbstractModule):
 
         if ignore:
             logger.info(
-                "Sync MAIN Plasma -> todo.md (with **bold**)"
-                + (" + BOLD mirror" if bold_widget_path else "")
+                log_record(
+                    "plasma.sync_applied",
+                    direction="widget_to_markdown",
+                    source=canonical_path(html_path),
+                    markdown=canonical_path(markdown_path),
+                    mirror=canonical_path(bold_widget_path) if bold_widget_path else None,
+                )
             )
         return ignore
 
@@ -646,5 +691,13 @@ class PlasmaWidget(AbstractModule):
         )
 
         if ignore:
-            logger.info("Sync BOLD mirror -> MAIN -> todo.md")
+            logger.info(
+                log_record(
+                    "plasma.sync_applied",
+                    direction="mirror_to_widget_to_markdown",
+                    source=canonical_path(bold_widget_path),
+                    widget=canonical_path(widget_path),
+                    markdown=canonical_path(markdown_path),
+                )
+            )
         return ignore

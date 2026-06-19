@@ -59,8 +59,8 @@ def test_run_oneshot_passes_oneshot_run_mode(tmp_path: Path, monkeypatch):
             _ = (modules, args, system_config)
             captured["run_mode"] = run_mode
 
-        def run(self, path, event):
-            _ = (path, event)
+        def run(self, path, event, event_id=None):
+            _ = (path, event, event_id)
             return None
 
     monkeypatch.setattr(oneshot_mod, "configure_logging", lambda _config: None)

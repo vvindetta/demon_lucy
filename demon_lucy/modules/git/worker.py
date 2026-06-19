@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import git_dir_for_repo_root
 from demon_lucy.modules.git.batch_factory import make_repo_batch
@@ -131,25 +132,6 @@ def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
     }
 
 
-def _notify_git_network_issue(
-    repo_root: str,
-    command_text: str,
-    reason_text: str,
-    notify_config: dict[str, Any],
-) -> None:
-    safe_notify(
-        name=f"git-network:{repo_root}",
-        message=(
-            f"Repository:\n{repo_root}\n\n"
-            f"Git sync waiting for network.\n\n"
-            f"Command:\n{command_text}\n\n"
-            f"Reason:\n{reason_text[:1200]}"
-        ),
-        config=notify_config,
-        use_rare_mode=True,
-    )
-
-
 def _notify_git_sync_issue(
     repo_root: str,
     summary_text: str,
@@ -195,8 +177,7 @@ def _attempt_rebuild_git_index(
     git_timeout_seconds: float,
 ) -> bool:
     logger.warning(
-        "detected corrupted git index; trying recovery reset --mixed | repo=%s",
-        repo_root,
+        log_record("git.index_recovery_start", reason="corrupted_index", repo=repo_root)
     )
     try:
         reset_result = run_git(
@@ -207,18 +188,24 @@ def _attempt_rebuild_git_index(
             timeout_seconds=git_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error("git index recovery timed out | repo=%s", repo_root)
+        logger.error(
+            log_record("git.index_recovery_failed", reason="timeout", repo=repo_root)
+        )
         return False
 
     if reset_result.returncode == 0:
-        logger.warning("git index recovery succeeded | repo=%s", repo_root)
+        logger.warning(log_record("git.index_recovery_done", repo=repo_root))
         return True
 
     reset_error = (
         reset_result.stderr or reset_result.stdout or "git reset failed"
     ).strip()
     logger.error(
-        "git index recovery failed | repo=%s | error=%s", repo_root, reset_error[:1200]
+        log_record(
+            "git.index_recovery_failed",
+            repo=repo_root,
+            error=reset_error[:1200],
+        )
     )
     return False
 
@@ -287,10 +274,13 @@ def _remove_stale_repo_process_lock(lock_path: str) -> bool:
         return False
 
     logger.warning(
-        "removed stale repo process lock | lock=%s | age_seconds=%.1f | owner_pid=%s",
-        lock_path,
-        lock_age_seconds,
-        owner_pid if owner_pid is not None else "unknown",
+        log_record(
+            "git.repo_lock_removed",
+            reason="stale",
+            lock=lock_path,
+            age_seconds=lock_age_seconds,
+            owner_pid=owner_pid if owner_pid is not None else "unknown",
+        )
     )
     return True
 
@@ -327,21 +317,22 @@ def _release_repo_process_lock(lock_path: str) -> None:
     except FileNotFoundError:
         return
     except OSError:
-        logger.warning("failed to release repo process lock | lock=%s", lock_path)
+        logger.warning(log_record("git.repo_lock_release_failed", lock=lock_path))
 
 
 def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
     lock_path = _repo_process_lock_path(repo_root)
     if not lock_path:
-        logger.warning("invalid git repo root; skipping git batch | repo=%s", repo_root)
+        logger.warning(
+            log_record("git.batch_skip", reason="invalid_repo_root", repo=repo_root)
+        )
         return False
     lock_dir = os.path.dirname(lock_path)
     try:
         os.makedirs(lock_dir, exist_ok=True)
     except OSError:
         logger.exception(
-            "failed to prepare repo lock directory; running without lock | repo=%s",
-            repo_root,
+            log_record("git.repo_lock_prepare_failed", repo=repo_root)
         )
         return run_fn()
 
@@ -351,8 +342,7 @@ def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
             acquired = _try_create_repo_process_lock(lock_path)
         except OSError:
             logger.exception(
-                "failed to create repo process lock; running without lock | repo=%s",
-                repo_root,
+                log_record("git.repo_lock_create_failed", repo=repo_root)
             )
             return run_fn()
 
@@ -367,8 +357,7 @@ def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
 
         if time.monotonic() >= deadline:
             logger.warning(
-                "repo process lock is busy; skipping git batch for now | repo=%s",
-                repo_root,
+                log_record("git.batch_skip", reason="repo_lock_busy", repo=repo_root)
             )
             return False
         time.sleep(_REPO_PROCESS_LOCK_RETRY_SLEEP_SECONDS)
@@ -384,8 +373,11 @@ def _with_repo_process_lock_status(
     lock_path = _repo_process_lock_path(repo_root)
     if not lock_path:
         logger.warning(
-            "invalid git repo root; skipping git lock-wrapped operation | repo=%s",
-            repo_root,
+            log_record(
+                "git.locked_operation_skip",
+                reason="invalid_repo_root",
+                repo=repo_root,
+            )
         )
         return on_invalid_repo_fn()
     lock_dir = os.path.dirname(lock_path)
@@ -393,8 +385,7 @@ def _with_repo_process_lock_status(
         os.makedirs(lock_dir, exist_ok=True)
     except OSError:
         logger.exception(
-            "failed to prepare repo lock directory; running without lock | repo=%s",
-            repo_root,
+            log_record("git.repo_lock_prepare_failed", repo=repo_root)
         )
         return run_fn()
 
@@ -404,8 +395,7 @@ def _with_repo_process_lock_status(
             acquired = _try_create_repo_process_lock(lock_path)
         except OSError:
             logger.exception(
-                "failed to create repo process lock; running without lock | repo=%s",
-                repo_root,
+                log_record("git.repo_lock_create_failed", repo=repo_root)
             )
             return run_fn()
 
@@ -579,14 +569,16 @@ def _ensure_merge_state_clean(
             )
             if abort_ok:
                 logger.warning(
-                    "merge abort succeeded after git index recovery | repo=%s",
-                    repo_root,
+                    log_record("git.merge_abort_done", after="index_recovery", repo=repo_root)
                 )
     abort_note = "" if abort_ok else " Merge abort failed or timed out."
     logger.error(
-        "found unfinished merge; auto-resolve failed; merge aborted%s | repo=%s",
-        " (abort failed)" if not abort_ok else "",
-        repo_root,
+        log_record(
+            "git.merge_unfinished",
+            autoresolve="failed",
+            abort="failed" if not abort_ok else "done",
+            repo=repo_root,
+        )
     )
     _notify_git_sync_issue(
         repo_root=repo_root,
@@ -614,7 +606,7 @@ def _stage_and_collect_changes(
                 timeout_seconds=git_timeout_seconds,
             )
         except subprocess.TimeoutExpired:
-            logger.error("git add timed out | repo=%s", repo_root)
+            logger.error(log_record("git.stage_failed", reason="timeout", repo=repo_root))
             _notify_git_sync_issue(
                 repo_root=repo_root,
                 summary_text="git add timed out.",
@@ -628,9 +620,13 @@ def _stage_and_collect_changes(
         add_error = (add_result.stderr or add_result.stdout or "git add failed").strip()
         if failure_is_index_lock(add_error):
             if _should_log_index_lock_error(repo_root):
-                logger.warning(
-                    "git add blocked by active index.lock; will retry later | repo=%s",
-                    repo_root,
+                logger.debug(
+                    log_record(
+                        "git.sync_skip",
+                        reason="index_lock_active",
+                        stage="add",
+                        repo=repo_root,
+                    )
                 )
             return False, "", []
 
@@ -644,7 +640,9 @@ def _stage_and_collect_changes(
             if recovered_index:
                 continue
 
-        logger.error("git add failed | repo=%s | error=%s", repo_root, add_error[:1200])
+        logger.error(
+            log_record("git.stage_failed", repo=repo_root, error=add_error[:1200])
+        )
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git add failed.",
@@ -662,7 +660,7 @@ def _stage_and_collect_changes(
             timeout_seconds=git_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error("git status timed out | repo=%s", repo_root)
+        logger.error(log_record("git.status_failed", reason="timeout", repo=repo_root))
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git status timed out.",
@@ -675,7 +673,11 @@ def _stage_and_collect_changes(
             status_result.stderr or status_result.stdout or "git status failed"
         ).strip()
         logger.error(
-            "git status failed | repo=%s | error=%s", repo_root, status_error[:1200]
+            log_record(
+                "git.status_failed",
+                repo=repo_root,
+                error=status_error[:1200],
+            )
         )
         _notify_git_sync_issue(
             repo_root=repo_root,
@@ -711,9 +713,12 @@ def _collect_staged_changes_for_commit_message(
             timeout_seconds=git_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.warning(
-            "git diff for commit message timed out; using fallback message | repo=%s",
-            repo_root,
+        logger.info(
+            log_record(
+                "git.commit_message_fallback",
+                reason="diff_timeout",
+                repo=repo_root,
+            )
         )
         return []
 
@@ -725,10 +730,13 @@ def _collect_staged_changes_for_commit_message(
             or numstat_result.stdout
             or "git diff failed"
         ).strip()
-        logger.warning(
-            "git diff for commit message failed; using fallback message | repo=%s | error=%s",
-            repo_root,
-            details[:1200],
+        logger.info(
+            log_record(
+                "git.commit_message_fallback",
+                reason="diff_failed",
+                repo=repo_root,
+                error=details[:1200],
+            )
         )
         return []
 
@@ -772,7 +780,7 @@ def _commit_if_needed(
             timeout_seconds=git_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error("git commit timed out | repo=%s", repo_root)
+        logger.error(log_record("git.commit_failed", reason="timeout", repo=repo_root))
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git commit timed out.",
@@ -795,7 +803,7 @@ def _commit_if_needed(
         commit_result.stderr or commit_result.stdout or "git commit failed"
     ).strip()
     logger.error(
-        "git commit failed | repo=%s | error=%s", repo_root, commit_error[:1200]
+        log_record("git.commit_failed", repo=repo_root, error=commit_error[:1200])
     )
     _notify_git_sync_issue(
         repo_root=repo_root,
@@ -843,7 +851,14 @@ def _attempt_push_with_retry(
             push_timeout_seconds=push_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error("git push timed out | repo=%s | attempt=1/2", repo_root)
+        logger.warning(
+            log_record(
+                "git.push_retry",
+                reason="timeout",
+                repo=repo_root,
+                attempt="1/2",
+            )
+        )
         first_push_result = None
 
     if first_push_result is not None and first_push_result.returncode == 0:
@@ -851,10 +866,14 @@ def _attempt_push_with_retry(
 
     if first_push_result is not None:
         first_push_error = _push_error_text(first_push_result)
-        logger.error(
-            "git push failed | repo=%s | attempt=1/2 | error=%s",
-            repo_root,
-            first_push_error[:1200],
+        logger.warning(
+            log_record(
+                "git.push_retry",
+                reason="push_failed",
+                repo=repo_root,
+                attempt="1/2",
+                error=first_push_error[:1200],
+            )
         )
 
     should_pull_before_retry = False
@@ -882,8 +901,11 @@ def _attempt_push_with_retry(
         )
         if not pulled:
             logger.warning(
-                "git pull before push retry was skipped/failed | repo=%s",
-                repo_root,
+                log_record(
+                    "git.push_retry",
+                    reason="pre_retry_pull_failed",
+                    repo=repo_root,
+                )
             )
 
     try:
@@ -894,13 +916,7 @@ def _attempt_push_with_retry(
             push_timeout_seconds=push_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error("git push timed out | repo=%s", repo_root)
-        _notify_git_network_issue(
-            repo_root=repo_root,
-            command_text="git push",
-            reason_text="git push timed out.",
-            notify_config=notify_config,
-        )
+        logger.error(log_record("git.push_failed", reason="timeout", repo=repo_root))
         return False
 
     if second_push_result.returncode == 0:
@@ -908,20 +924,17 @@ def _attempt_push_with_retry(
 
     push_error = _push_error_text(second_push_result)
     logger.error(
-        "git push failed | repo=%s | attempt=2/2 | error=%s",
-        repo_root,
-        push_error[:1200],
+        log_record(
+            "git.push_failed",
+            repo=repo_root,
+            attempt="2/2",
+            error=push_error[:1200],
+        )
     )
     if failure_looks_like_network_issue(
         output_text=push_error,
         error_markers=list(batch.policy.pull_offline_error_markers),
     ):
-        _notify_git_network_issue(
-            repo_root=repo_root,
-            command_text="git push",
-            reason_text=push_error,
-            notify_config=notify_config,
-        )
         return False
 
     _notify_git_sync_issue(
@@ -987,7 +1000,7 @@ def _process_batch_unlocked(self, batch: _RepoBatch) -> bool:
         return False
 
     if not write_sync_success_timestamp(repo_root):
-        logger.warning("failed to write git sync success marker | repo=%s", repo_root)
+        logger.warning(log_record("git.sync_marker_write_failed", repo=repo_root))
     return True
 
 

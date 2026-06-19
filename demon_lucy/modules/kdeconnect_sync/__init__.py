@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
-import os
 import platform
 import threading
 import time
 from typing import Optional
 
-from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.logfmt import log_record
+from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import (
     abs_expand_path,
     find_parent_git_repo,
@@ -68,7 +68,16 @@ def _repo_sync_notify(
     config_snapshot: dict,
     summary_text: str,
     details_text: str = "",
+    action: str = "kdeconnect.sync_failed",
 ) -> None:
+    logger.error(
+        log_record(
+            action,
+            repo=repo_root,
+            summary=summary_text,
+            error=details_text[:1200] if details_text else None,
+        )
+    )
     message_text = f"Repository:\n{repo_root}\n\n{summary_text}"
     if details_text:
         message_text += f"\n\nDetails:\n{details_text[:1200]}"
@@ -78,6 +87,14 @@ def _repo_sync_notify(
         config=_notify_config(config_snapshot),
         use_rare_mode=True,
     )
+
+
+def _transfer_error_requires_notification(error_text: str) -> bool:
+    normalized = (error_text or "").strip().lower()
+    return normalized in {
+        "empty kdeconnect device id",
+        "empty kdeconnect remote root",
+    }
 
 
 def _author_device_name() -> str:
@@ -221,9 +238,13 @@ class KdeconnectSync(AbstractModule):
         if commit_result.status == "noop":
             return
         if commit_result.status == "busy":
-            logger.info(
-                "kdeconnect sync skipped because git repo is busy | repo=%s",
-                repo_root,
+            logger.debug(
+                log_record(
+                    "kdeconnect.sync_skip",
+                    reason="repo_busy",
+                    stage="commit",
+                    repo=repo_root,
+                )
             )
             return
         if commit_result.status != "committed":
@@ -249,9 +270,13 @@ class KdeconnectSync(AbstractModule):
             config_snapshot=config_snapshot,
         )
         if packet_result.status == "busy":
-            logger.info(
-                "kdeconnect patch build skipped because git repo is busy | repo=%s",
-                repo_root,
+            logger.debug(
+                log_record(
+                    "kdeconnect.sync_skip",
+                    reason="repo_busy",
+                    stage="build_patch",
+                    repo=repo_root,
+                )
             )
             return
         if packet_result.status != "built":
@@ -281,16 +306,29 @@ class KdeconnectSync(AbstractModule):
         )
         if transfer_result.status == "sent":
             logger.info(
-                "kdeconnect patch packet sent | repo=%s | patch_id=%s | remote_dir=%s",
-                repo_root,
-                packet_result.patch_id,
-                transfer_result.remote_incoming_dir,
+                log_record(
+                    "kdeconnect.packet_sent",
+                    repo=repo_root,
+                    patch_id=packet_result.patch_id,
+                    remote_dir=transfer_result.remote_incoming_dir,
+                )
             )
             return
 
-        _repo_sync_notify(
-            repo_root=repo_root,
-            config_snapshot=config_snapshot,
-            summary_text="failed to transfer patch packet to phone.",
-            details_text=transfer_result.error_text,
+        if _transfer_error_requires_notification(transfer_result.error_text):
+            _repo_sync_notify(
+                repo_root=repo_root,
+                config_snapshot=config_snapshot,
+                summary_text="kdeconnect transfer is misconfigured.",
+                details_text=transfer_result.error_text,
+                action="kdeconnect.transfer_failed",
+            )
+            return
+
+        logger.warning(
+            log_record(
+                "kdeconnect.transfer_failed",
+                repo=repo_root,
+                error=transfer_result.error_text[:1200],
+            )
         )

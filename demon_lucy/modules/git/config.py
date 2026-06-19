@@ -94,7 +94,7 @@ GIT_TEMPLATE: Template = [
         float,
         2.0,
         "Timeout (seconds) for remote host network probe before pull. "
-        "Used to decide whether to wait for network and skip pull/notify when offline.",
+        "Used to decide whether to wait for network and skip pull while offline.",
         False,
     ),
     (

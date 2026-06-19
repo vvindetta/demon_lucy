@@ -942,6 +942,12 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
     widget_path = tmp_path / "widget.html"
     md_path.write_text("**new**\n", encoding="utf-8")
     widget_path.write_text("old-widget", encoding="utf-8")
+    notifications = []
+
+    def fake_safe_notify(name, message, **kwargs):
+        notifications.append((name, message, kwargs))
+
+    monkeypatch.setattr(plasma_mod, "safe_notify", fake_safe_notify)
 
     initial_state = plasma_mod.SyncState(
         doc_hash="doc-before",
@@ -984,6 +990,9 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
     assert ignore is None
     assert plasma_mod._STATE_BY_KEY.get(sync_key) == initial_state
     assert widget_path.read_text(encoding="utf-8") == "old-widget"
+    assert len(notifications) == 1
+    assert notifications[0][0] == f"plasma-write:{widget_path.resolve()}"
+    assert str(widget_path.resolve()) in notifications[0][1]
 
 
 def test_read_error_is_not_treated_as_empty_input(tmp_path: Path, monkeypatch):
@@ -1033,6 +1042,12 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
     md_path.write_text("**new-main**\n", encoding="utf-8")
     widget_path.write_text("old-widget", encoding="utf-8")
     mirror_path.write_text("old-mirror", encoding="utf-8")
+    notifications = []
+
+    def fake_safe_notify(name, message, **kwargs):
+        notifications.append((name, message, kwargs))
+
+    monkeypatch.setattr(plasma_mod, "safe_notify", fake_safe_notify)
 
     initial_state = plasma_mod.SyncState(
         doc_hash="doc-before",
@@ -1082,3 +1097,87 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
     assert plasma_mod._STATE_BY_KEY.get(sync_key) == initial_state
     assert widget_path.read_text(encoding="utf-8") == "old-widget"
     assert mirror_path.read_text(encoding="utf-8") == "old-mirror"
+    assert len(notifications) == 1
+    assert notifications[0][0] == f"plasma-write:{mirror_path.resolve()}"
+    assert "Rollback also failed" not in notifications[0][1]
+
+
+def test_multi_file_write_failure_reports_failed_rollback_once(
+    tmp_path: Path, monkeypatch
+):
+    md_path = tmp_path / "todo.md"
+    widget_path = tmp_path / "widget.html"
+    mirror_path = tmp_path / "mirror.html"
+
+    md_path.write_text("**new-main**\n", encoding="utf-8")
+    widget_path.write_text("old-widget", encoding="utf-8")
+    mirror_path.write_text("old-mirror", encoding="utf-8")
+    notifications = []
+
+    def fake_safe_notify(name, message, **kwargs):
+        notifications.append((name, message, kwargs))
+
+    monkeypatch.setattr(plasma_mod, "safe_notify", fake_safe_notify)
+
+    sync_key = (
+        str(widget_path.resolve()),
+        str(md_path.resolve()),
+        str(mirror_path.resolve()),
+    )
+    monkeypatch.setattr(
+        plasma_mod,
+        "_STATE_BY_KEY",
+        {
+            sync_key: plasma_mod.SyncState(
+                doc_hash="doc-before",
+                bold_items_hash="bold-before",
+                css_style=False,
+            )
+        },
+    )
+
+    mirror_old = mirror_path.read_text(encoding="utf-8")
+    real_write = plasma_mod._write_text_atomic
+
+    def fail_mirror_write_and_widget_rollback(
+        path: str,
+        content: str,
+        *,
+        notify_errors: bool = True,
+    ) -> bool:
+        if (
+            plasma_mod.canonical_path(path) == str(mirror_path.resolve())
+            and content != mirror_old
+            and notify_errors
+        ):
+            return False
+        if (
+            plasma_mod.canonical_path(path) == str(widget_path.resolve())
+            and content == "old-widget"
+            and not notify_errors
+        ):
+            return False
+        return real_write(
+            path,
+            content,
+            notify_errors=notify_errors,
+        )
+
+    monkeypatch.setattr(
+        plasma_mod, "_write_text_atomic", fail_mirror_write_and_widget_rollback
+    )
+
+    ignore = PlasmaWidget()._from_markdown(
+        sync_key=sync_key,
+        markdown_path=str(md_path),
+        widget_path=str(widget_path),
+        bold_widget_path=str(mirror_path),
+        css_style=False,
+        config=_NOTIFY_CFG,
+    )
+
+    assert ignore is None
+    assert len(notifications) == 1
+    assert notifications[0][0] == f"plasma-write:{mirror_path.resolve()}"
+    assert "Rollback also failed" in notifications[0][1]
+    assert str(widget_path.resolve()) in notifications[0][1]

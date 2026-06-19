@@ -4,6 +4,8 @@ import os
 import subprocess
 from typing import Callable, Dict
 
+from demon_lucy.lib.logfmt import log_record
+
 
 def abort_merge_safely(
     self_obj,
@@ -24,10 +26,10 @@ def abort_merge_safely(
             timeout_seconds=timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error("git merge --abort timed out | repo=%s", repo_root)
+        logger.error(log_record("git.merge_abort_failed", reason="timeout", repo=repo_root))
         return False
     except Exception:
-        logger.exception("git merge --abort crashed | repo=%s", repo_root)
+        logger.exception(log_record("git.merge_abort_failed", reason="crashed", repo=repo_root))
         return False
 
     if abort_result.returncode == 0:
@@ -35,9 +37,11 @@ def abort_merge_safely(
 
     abort_error = combined_output_fn(abort_result) or "git merge --abort failed"
     logger.error(
-        "git merge --abort failed | repo=%s | error=%s",
-        repo_root,
-        abort_error[:1200],
+        log_record(
+            "git.merge_abort_failed",
+            repo=repo_root,
+            error=abort_error[:1200],
+        )
     )
     return False
 
@@ -120,11 +124,16 @@ def auto_resolve_merge_conflicts(
             )
             if checkout_result.returncode != 0:
                 logger.error(
-                    "auto-resolve checkout failed | repo=%s | file=%s | mode=%s | err=%s",
-                    repo_root,
-                    relative_path,
-                    normalized_mode,
-                    (checkout_result.stderr or checkout_result.stdout or "")[:1200],
+                    log_record(
+                        "git.autoresolve_failed",
+                        stage="checkout",
+                        repo=repo_root,
+                        file=relative_path,
+                        mode=normalized_mode,
+                        error=(checkout_result.stderr or checkout_result.stdout or "")[
+                            :1200
+                        ],
+                    )
                 )
                 return False
 
@@ -149,31 +158,46 @@ def auto_resolve_merge_conflicts(
                             file_obj.write(resolved_text)
                     else:
                         logger.warning(
-                            "auto-resolve union could not resolve conflict | repo=%s | file=%s",
-                            repo_root,
-                            relative_path,
+                            log_record(
+                                "git.autoresolve_failed",
+                                stage="union",
+                                reason="unresolved_markers",
+                                repo=repo_root,
+                                file=relative_path,
+                            )
                         )
                         return False
                 else:
                     logger.warning(
-                        "auto-resolve union does not support non-file conflict path | repo=%s | path=%s",
-                        repo_root,
-                        relative_path,
+                        log_record(
+                            "git.autoresolve_failed",
+                            stage="union",
+                            reason="non_file_conflict",
+                            repo=repo_root,
+                            path=relative_path,
+                        )
                     )
                     return False
             except OSError:
                 logger.exception(
-                    "auto-resolve union IO failed | repo=%s | file=%s",
-                    repo_root,
-                    relative_path,
+                    log_record(
+                        "git.autoresolve_failed",
+                        stage="union",
+                        reason="io_error",
+                        repo=repo_root,
+                        file=relative_path,
+                    )
                 )
                 return False
 
         elif normalized_mode == "markers":
             logger.warning(
-                "auto-resolve markers mode keeps conflict markers in file | repo=%s | file=%s",
-                repo_root,
-                relative_path,
+                log_record(
+                    "git.autoresolve_markers",
+                    policy="keep_conflict_markers",
+                    repo=repo_root,
+                    file=relative_path,
+                )
             )
 
         add_result = run_git_fn(
@@ -185,10 +209,13 @@ def auto_resolve_merge_conflicts(
         )
         if add_result.returncode != 0:
             logger.error(
-                "auto-resolve git add failed | repo=%s | file=%s | err=%s",
-                repo_root,
-                relative_path,
-                (add_result.stderr or add_result.stdout or "")[:1200],
+                log_record(
+                    "git.autoresolve_failed",
+                    stage="add",
+                    repo=repo_root,
+                    file=relative_path,
+                    error=(add_result.stderr or add_result.stdout or "")[:1200],
+                )
             )
             return False
 
@@ -201,15 +228,20 @@ def auto_resolve_merge_conflicts(
     )
     if commit_result.returncode != 0:
         logger.error(
-            "auto-resolve commit failed | repo=%s | err=%s",
-            repo_root,
-            (commit_result.stderr or commit_result.stdout or "")[:1200],
+            log_record(
+                "git.autoresolve_failed",
+                stage="commit",
+                repo=repo_root,
+                error=(commit_result.stderr or commit_result.stdout or "")[:1200],
+            )
         )
     elif normalized_mode == "markers":
         logger.warning(
-            "auto-resolve markers committed merge with conflict markers | repo=%s | files=%d",
-            repo_root,
-            len(conflicted_paths),
+            log_record(
+                "git.autoresolve_markers_committed",
+                repo=repo_root,
+                files=len(conflicted_paths),
+            )
         )
     return commit_result.returncode == 0
 
@@ -239,9 +271,12 @@ def resolve_merge_conflicts_with_fallback(
         return False
 
     logger.warning(
-        "auto-resolve failed; retrying with markers mode | repo=%s | mode=%s",
-        repo_root,
-        normalized_mode,
+        log_record(
+            "git.autoresolve_retry",
+            reason="fallback_to_markers",
+            repo=repo_root,
+            mode=normalized_mode,
+        )
     )
     return auto_resolve_fn(
         self_obj,

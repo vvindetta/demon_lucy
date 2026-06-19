@@ -18,6 +18,7 @@ class System:
     Runtime system info.
 
     - event: watchdog event that triggered the run
+    - event_id: short id shared by logs from the same event block
     - global_template: full args template used by ModuleManager
     - modules: ordered module instances in the pipeline
     - run_mode: runtime mode ("daemon" or "oneshot")
@@ -27,6 +28,7 @@ class System:
     global_template: Template
     modules: List["AbstractModule"]
     run_mode: RunMode = "daemon"
+    event_id: str = ""
 
 
 @dataclass(frozen=True)

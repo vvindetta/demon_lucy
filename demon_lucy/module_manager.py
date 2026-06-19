@@ -1,9 +1,11 @@
 import logging
 import os
+import time
 from typing import Dict, List
 
 from watchdog.events import FileSystemEvent
 
+from demon_lucy.lib.logfmt import ignore_summary, log_record, next_event_id
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.args.parser import (
     Template,
@@ -101,14 +103,53 @@ class ModuleManager:
                 missing_flags.append(flag)
         return missing_flags
 
-    def run(self, path: str, event: FileSystemEvent) -> Dict[str, int] | None:
+    def _next_context_path(
+        self,
+        current_path: str,
+        event_ignore: Dict[str, int] | None,
+    ) -> str:
+        if not event_ignore or os.path.exists(current_path):
+            return current_path
+
+        current_abs = canonical_path(current_path)
+        candidates: list[str] = []
+        for path_value in event_ignore:
+            candidate_path = canonical_path(path_value)
+            if candidate_path == current_abs:
+                continue
+            if not os.path.exists(candidate_path) or os.path.isdir(candidate_path):
+                continue
+            candidates.append(candidate_path)
+        if len(candidates) != 1:
+            return current_path
+        return candidates[0]
+
+    def run(
+        self,
+        path: str,
+        event: FileSystemEvent,
+        event_id: str | None = None,
+    ) -> Dict[str, int] | None:
+        event_id = event_id or next_event_id()
+        event_type = str(event.event_type)
+
         if self._is_blacklisted_path(path, self.config["sys_ignore_paths"]):
-            logger.debug("SKIPPED BLACKLISTED PATH: %s", path)
+            logger.debug(
+                log_record(
+                    "event.skip",
+                    id=event_id,
+                    reason="ignored_path",
+                    event=event_type,
+                    path=path,
+                )
+            )
             return None
 
-        def _update_config():
+        current_path = canonical_path(path)
+
+        def _update_config(config_path: str):
             known_args, _, arg_lines = get_args_from_file(
-                path=path,
+                path=config_path,
                 template=self.template,
             )
             merged_known_args = merge_known_args(
@@ -116,7 +157,7 @@ class ModuleManager:
             )
             return merged_known_args, arg_lines
 
-        config, arg_lines = _update_config()
+        config, arg_lines = _update_config(current_path)
 
         ignore_paths: Dict[str, int] = {}
 
@@ -128,7 +169,17 @@ class ModuleManager:
             if missing_required:
                 missing_text = ", ".join(missing_required)
                 message = f"Skipping module '{module.name}': missing required args: {missing_text}"
-                logger.error(message)
+                logger.error(
+                    log_record(
+                        "module.skip",
+                        id=event_id,
+                        module=module.name,
+                        reason="missing_required_args",
+                        missing=missing_text,
+                        event=event_type,
+                        path=current_path,
+                    )
+                )
                 safe_notify(
                     f"module_missing_required:{module.name}",
                     message,
@@ -139,29 +190,68 @@ class ModuleManager:
 
             action = getattr(module, event.event_type)
 
-            logger.info(f"STARTING: {module.name}")
-            event_ignore = action(
-                Context(
-                    path=path,
-                    config=config,
-                    arg_lines=arg_lines,
-                ),
-                System(
-                    event=event,
-                    global_template=self.template,
-                    modules=self.modules,
-                    run_mode=self.run_mode,
-                ),
+            logger.info(
+                log_record(
+                    "module.start",
+                    id=event_id,
+                    module=module.name,
+                    event=event_type,
+                    path=current_path,
+                )
             )
-            logger.info(f"END: {module.name}")
+            started_at = time.monotonic()
+            try:
+                event_ignore = action(
+                    Context(
+                        path=current_path,
+                        config=config,
+                        arg_lines=arg_lines,
+                    ),
+                    System(
+                        event=event,
+                        global_template=self.template,
+                        modules=self.modules,
+                        run_mode=self.run_mode,
+                        event_id=event_id,
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    log_record(
+                        "module.error",
+                        id=event_id,
+                        module=module.name,
+                        event=event_type,
+                        path=current_path,
+                        duration_ms=(time.monotonic() - started_at) * 1000.0,
+                    )
+                )
+                raise
+
+            changed_paths_count, changed_events_count = ignore_summary(event_ignore)
+            logger.info(
+                log_record(
+                    "module.done",
+                    id=event_id,
+                    module=module.name,
+                    event=event_type,
+                    path=current_path,
+                    changed_paths=changed_paths_count,
+                    changed_events=changed_events_count,
+                    duration_ms=(time.monotonic() - started_at) * 1000.0,
+                )
+            )
 
             if event_ignore:
-                for path, times in event_ignore.items():
+                for changed_path, times in event_ignore.items():
                     if not times:
                         continue
-                    ignore_paths[path] = ignore_paths.get(path, 0) + int(times)
+                    ignore_paths[changed_path] = (
+                        ignore_paths.get(changed_path, 0) + int(times)
+                    )
 
-                config, arg_lines = _update_config()
+                current_path = self._next_context_path(current_path, event_ignore)
+                config, arg_lines = _update_config(current_path)
 
         return ignore_paths or None
 

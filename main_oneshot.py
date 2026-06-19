@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from typing import Sequence
 
 from watchdog.events import (
@@ -14,6 +15,12 @@ from watchdog.events import (
 )
 
 from demon_lucy.lib.args.parser import Template, parse_args, setup_config_and_cli_args
+from demon_lucy.lib.logfmt import (
+    event_paths,
+    ignore_summary,
+    log_record,
+    next_event_id,
+)
 from demon_lucy.lib.path import abs_expand_path
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.runtime import (
@@ -151,10 +158,58 @@ def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
         ],
     )
     for path_value, event in plan:
-        logging.info("ONESHOT EVENT: %s %s", event.event_type, path_value)
-        manager.run(path=path_value, event=event)
+        event_id = next_event_id()
+        event_type = str(event.event_type)
+        path_fields = event_paths(event, path_value)
+        started_at = time.monotonic()
+        ignore_paths = None
+        status = "ok"
 
-    logging.info("ONESHOT DONE: events=%d modules=%d", len(plan), len(modules))
+        logging.info(
+            log_record(
+                "event.start",
+                id=event_id,
+                mode="oneshot",
+                source="synthetic",
+                event=event_type,
+                **path_fields,
+            )
+        )
+        try:
+            ignore_paths = manager.run(
+                path=path_value,
+                event=event,
+                event_id=event_id,
+            )
+        except Exception:
+            status = "error"
+            logging.error(
+                log_record(
+                    "event.error",
+                    id=event_id,
+                    mode="oneshot",
+                    event=event_type,
+                    **path_fields,
+                )
+            )
+            raise
+        finally:
+            changed_paths_count, changed_events_count = ignore_summary(ignore_paths)
+            logging.info(
+                log_record(
+                    "event.done",
+                    id=event_id,
+                    mode="oneshot",
+                    event=event_type,
+                    status=status,
+                    changed_paths=changed_paths_count,
+                    changed_events=changed_events_count,
+                    duration_ms=(time.monotonic() - started_at) * 1000.0,
+                    **path_fields,
+                )
+            )
+
+    logging.info(log_record("oneshot.done", events=len(plan), modules=len(modules)))
     return 0
 
 
@@ -173,7 +228,7 @@ def main() -> int:
         return run_oneshot(config=config, unknown_args=unknown_args)
     except (ValueError, KeyError) as exc:
         logging.basicConfig(level=logging.ERROR, force=True)
-        logging.error(str(exc))
+        logging.error(log_record("runtime.config_error", error=exc))
         return 2
 
 

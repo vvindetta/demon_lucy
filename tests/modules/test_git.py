@@ -525,7 +525,7 @@ def test_parse_remote_endpoint_handles_common_git_remote_shapes(
     assert git_ops.parse_remote_endpoint(remote) == expected
 
 
-def test_safe_pull_merge_waits_for_network_and_notifies_when_upstream(
+def test_safe_pull_merge_waits_for_network_without_notification(
     git_module, monkeypatch
 ):
     notifications: list[dict] = []
@@ -558,10 +558,10 @@ def test_safe_pull_merge_waits_for_network_and_notifies_when_upstream(
     )
 
     assert pulled is False
-    assert [item["name"] for item in notifications] == ["git-network:/repo"]
+    assert notifications == []
 
 
-def test_safe_pull_merge_skips_remote_branch_lookup_and_notifies_when_offline(
+def test_safe_pull_merge_skips_remote_branch_lookup_without_notification_when_offline(
     git_module, monkeypatch
 ):
     notifications: list[dict] = []
@@ -595,10 +595,10 @@ def test_safe_pull_merge_skips_remote_branch_lookup_and_notifies_when_offline(
     )
 
     assert pulled is False
-    assert [item["name"] for item in notifications] == ["git-network:/repo"]
+    assert notifications == []
 
 
-def test_safe_pull_merge_timeout_while_offline_notifies_waiting_state(
+def test_safe_pull_merge_timeout_while_offline_does_not_notify(
     git_module, monkeypatch
 ):
     notifications: list[dict] = []
@@ -637,10 +637,10 @@ def test_safe_pull_merge_timeout_while_offline_notifies_waiting_state(
     )
 
     assert pulled is False
-    assert [item["name"] for item in notifications] == ["git-network:/repo"]
+    assert notifications == []
 
 
-def test_safe_pull_merge_offline_marker_notifies_waiting_state(git_module, monkeypatch):
+def test_safe_pull_merge_offline_marker_does_not_notify(git_module, monkeypatch):
     notifications: list[dict] = []
 
     monkeypatch.setattr(
@@ -675,7 +675,7 @@ def test_safe_pull_merge_offline_marker_notifies_waiting_state(git_module, monke
     )
 
     assert pulled is False
-    assert [item["name"] for item in notifications] == ["git-network:/repo"]
+    assert notifications == []
 
 
 def test_run_git_retries_after_stale_index_lock(git_module, monkeypatch, tmp_path):
@@ -1663,7 +1663,7 @@ def test_retry_window_retries_with_backoff_until_success(git_module, monkeypatch
     assert sleeps == [1.0, 2.0]
 
 
-def test_attempt_push_with_retry_second_push_timeout_notifies_once(
+def test_attempt_push_with_retry_second_push_timeout_does_not_notify(
     git_module, monkeypatch
 ):
     notifications: list[dict] = []
@@ -1704,7 +1704,7 @@ def test_attempt_push_with_retry_second_push_timeout_notifies_once(
         notify_config=_NOTIFY_CFG,
     )
 
-    assert [item["name"] for item in notifications] == ["git-network:/repo"]
+    assert notifications == []
 
 
 def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypatch):

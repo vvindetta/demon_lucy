@@ -6,6 +6,12 @@ from typing import Dict
 
 from watchdog.events import FileSystemEventHandler
 
+from demon_lucy.lib.logfmt import (
+    event_paths,
+    ignore_summary,
+    log_record,
+    next_event_id,
+)
 from demon_lucy.lib.path import canonical_path, path_has_component
 from demon_lucy.module_manager import ModuleManager
 
@@ -49,23 +55,73 @@ class FileHandler(FileSystemEventHandler):
             )
             if src_ignored or dest_ignored:
                 return
-            logger.info(f"EVENT: Moved: {src_path} → {dest_path}")
         else:
             if self._check_and_delete_ignore(file_path):
                 return
-            logger.info(f"EVENT: {str(event.event_type).capitalize()}: {src_path}")
 
-        ignore_paths = self.modules.run(path=file_path, event=event)
-        if ignore_paths:
-            self._mark_to_ignore(ignore_paths=ignore_paths)
+        event_id = next_event_id()
+        event_type = str(event.event_type)
+        path_fields = event_paths(event, file_path)
+        started_at = time.perf_counter()
+        ignore_paths: Dict[str, int] | None = None
+        status = "ok"
 
-        logging.info("--- END ---\n\n")
+        logger.info(
+            log_record(
+                "event.start",
+                id=event_id,
+                mode="daemon",
+                source="watchdog",
+                event=event_type,
+                **path_fields,
+            )
+        )
+        try:
+            ignore_paths = self.modules.run(
+                path=file_path,
+                event=event,
+                event_id=event_id,
+            )
+            if ignore_paths:
+                self._mark_to_ignore(ignore_paths=ignore_paths, event_id=event_id)
+        except Exception:
+            status = "error"
+            logger.error(
+                log_record(
+                    "event.error",
+                    id=event_id,
+                    mode="daemon",
+                    event=event_type,
+                    **path_fields,
+                )
+            )
+            raise
+        finally:
+            changed_paths_count, changed_events_count = ignore_summary(ignore_paths)
+            logger.info(
+                log_record(
+                    "event.done",
+                    id=event_id,
+                    mode="daemon",
+                    event=event_type,
+                    status=status,
+                    changed_paths=changed_paths_count,
+                    changed_events=changed_events_count,
+                    duration_ms=(time.perf_counter() - started_at) * 1000.0,
+                    **path_fields,
+                )
+            )
 
-    def _mark_to_ignore(self, ignore_paths: Dict[str, int]) -> None:
+    def _mark_to_ignore(self, ignore_paths: Dict[str, int], event_id: str) -> None:
         for path, count in ignore_paths.items():
             new_count = self._bump_ignore(path, count)
-            logger.info(
-                "MARKED TO IGNORE: %s (count=%d)", canonical_path(path), new_count
+            logger.debug(
+                log_record(
+                    "event.ignore_mark",
+                    id=event_id,
+                    path=canonical_path(path),
+                    count=new_count,
+                )
             )
 
     def _check_and_delete_ignore(self, input_path: str) -> bool:
@@ -74,8 +130,13 @@ class FileHandler(FileSystemEventHandler):
             return False
 
         remaining = self._bump_ignore(input_path, -1)
-        logger.info(
-            "IGNORED: %s (remaining=%d)\n\n", canonical_path(input_path), remaining
+        logger.debug(
+            log_record(
+                "event.skip",
+                reason="ignore_map",
+                path=canonical_path(input_path),
+                remaining=remaining,
+            )
         )
         return True
 
@@ -143,5 +204,14 @@ class FileHandler(FileSystemEventHandler):
         if path_has_component(canonical_path(src_path), ".git"):
             return
         if not self._should_process_open(file_path=src_path):
+            logger.debug(
+                log_record(
+                    "event.skip",
+                    reason="opened_cooldown",
+                    event="opened",
+                    path=canonical_path(src_path),
+                    cooldown_seconds=self._open_cooldown_seconds,
+                )
+            )
             return
         self._process_file(event=event)

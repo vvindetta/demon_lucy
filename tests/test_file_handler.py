@@ -21,8 +21,13 @@ class _FakeModules:
         self.paths: list[str] = []
         self._ignore_maps = list(ignore_maps or [])
 
-    def run(self, path: str, event: FileSystemEvent) -> dict[str, int] | None:
-        _ = event
+    def run(
+        self,
+        path: str,
+        event: FileSystemEvent,
+        event_id: str | None = None,
+    ) -> dict[str, int] | None:
+        _ = (event, event_id)
         self.calls += 1
         self.paths.append(path)
         if self._ignore_maps:

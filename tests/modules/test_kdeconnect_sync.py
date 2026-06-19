@@ -170,3 +170,98 @@ def test_modified_oneshot_silently_skips_when_git_repo_is_busy(monkeypatch):
 
     assert result is None
     assert notifications == []
+
+
+def test_run_repo_sync_transfer_failure_does_not_notify_for_transient_phone_error(
+    monkeypatch,
+):
+    module = KdeconnectSync()
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(kde_mod, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        kde_mod, "ensure_queue_excluded_in_repo", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        kde_mod,
+        "commit_dirty_tree",
+        lambda *_args, **_kwargs: DirtyTreeCommitResult(
+            status="committed",
+            repo_root="/repo",
+            commit_sha="abc123",
+            changed_paths=("note.md",),
+        ),
+    )
+    monkeypatch.setattr(
+        kde_mod,
+        "build_patch_packet",
+        lambda *_args, **_kwargs: PatchPacketBuildResult(
+            status="built",
+            repo_root="/repo",
+            patch_id="p-1",
+            patch_path="/tmp/p-1.patch",
+            metadata_path="/tmp/p-1.json",
+        ),
+    )
+    monkeypatch.setattr(
+        kde_mod,
+        "transfer_packet_to_phone",
+        lambda **_kwargs: TransferResult(status="error", error_text="mount failed"),
+    )
+
+    module._run_repo_sync(
+        repo_root="/repo",
+        event_type="modified",
+        trigger_paths=["/repo/note.md"],
+        config_snapshot=_base_config(enabled=True),
+    )
+
+    assert notifications == []
+
+
+def test_run_repo_sync_transfer_misconfig_notifies_once(monkeypatch):
+    module = KdeconnectSync()
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(kde_mod, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        kde_mod, "ensure_queue_excluded_in_repo", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        kde_mod,
+        "commit_dirty_tree",
+        lambda *_args, **_kwargs: DirtyTreeCommitResult(
+            status="committed",
+            repo_root="/repo",
+            commit_sha="abc123",
+            changed_paths=("note.md",),
+        ),
+    )
+    monkeypatch.setattr(
+        kde_mod,
+        "build_patch_packet",
+        lambda *_args, **_kwargs: PatchPacketBuildResult(
+            status="built",
+            repo_root="/repo",
+            patch_id="p-1",
+            patch_path="/tmp/p-1.patch",
+            metadata_path="/tmp/p-1.json",
+        ),
+    )
+    monkeypatch.setattr(
+        kde_mod,
+        "transfer_packet_to_phone",
+        lambda **_kwargs: TransferResult(
+            status="error", error_text="empty kdeconnect device id"
+        ),
+    )
+
+    module._run_repo_sync(
+        repo_root="/repo",
+        event_type="modified",
+        trigger_paths=["/repo/note.md"],
+        config_snapshot=_base_config(enabled=True),
+    )
+
+    assert [item["name"] for item in notifications] == ["kdeconnect-sync:/repo"]
+    assert "misconfigured" in notifications[0]["message"]

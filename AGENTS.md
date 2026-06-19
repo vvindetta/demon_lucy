@@ -28,6 +28,8 @@ watchdog file events.
   deletion from note lines.
 - `demon_lucy/lib/path.py`: path normalization, parent marker lookup, Git repo
   discovery, and `.git` file/directory support.
+- `demon_lucy/lib/logfmt.py`: structured one-line log records, event ids, event
+  path rendering, and ignore-count summaries.
 - `demon_lucy/lib/notifications.py`: notifications (`safe_notify`, `notify`)
   and throttled/rare-mode error notification state.
 - `demon_lucy/migrations/`: class-based config migration modules. `__init__.py`
@@ -45,6 +47,9 @@ watchdog file events.
   use it from feature code.
 - Keep module code focused on module behavior; shared mechanics belong in
   `demon_lucy/lib/`.
+- Use absolute imports inside the project, including intra-package imports. For
+  example, use `from demon_lucy.modules.archive import notify`, not
+  `from . import notify`.
 
 ## Modules
 
@@ -53,9 +58,13 @@ watchdog file events.
 - `modules/banner.py`: inserts pyfiglet banners or date banners at flag lines.
 - `modules/renamer.py`: manual `--rename` and create-time `--rename-auto`.
 - `modules/formatter.py`: TODO checkbox formatting and top/bottom blank padding.
-- `modules/archive.py`: archives stale or forced source note content through
-  pair/local/global routes. Text mode appends date-header sections; file mode
-  creates dated files under archive directories.
+- `modules/archive/`: archives stale or forced source note content through
+  pair/local/global routes. `module.py` owns orchestration and event handlers,
+  `requests.py` builds `ArchiveRequest` objects from already-parsed config/note
+  values, `paths.py` owns path safety and
+  destination resolution, `storage.py` owns no-follow IO and text/file archive
+  writes, `clock.py` owns Git/mtime dates, and `notify.py` owns archive
+  error/security notifications.
 - `modules/linker.py`: root symlink creation/cleanup and markdown link updates on
   move/rename.
 - `modules/dropdir.py`: moved-file drop-directory workflow that can trigger
@@ -96,6 +105,7 @@ watchdog file events.
 - Config migrations: `rg "run_config_migrations|migrate\\(" demon_lucy/migrations demon_lucy/runtime.py`
 - Config reads: `rg "config\\[" demon_lucy`
 - Event handlers: `rg "def (created|modified|moved|deleted|opened)" demon_lucy`
+- Logging: `rg "log_record|event.start|module.start|sync_skip" demon_lucy`
 - Notifications: `rg "safe_notify" demon_lucy`
 - Git sync flow: start in `demon_lucy/modules/git/__init__.py`, then
   `worker.py`, then `operations.py`/`ops/`.
@@ -171,14 +181,50 @@ When renaming a flag, update all related places at once:
   not just because an old test asserts it.
 
 
+# Logging
+
+- Use `demon_lucy.lib.logfmt.log_record()` for new structured logs instead of
+  ad-hoc formatted strings. Keep records one line: `action | key=value | ...`.
+- Treat every file event as a block. `FileHandler`/`main_oneshot.py` create the
+  event id and log `event.start`/`event.done`; module code should preserve that
+  `id` through `System.event_id` when it logs work caused by the same event.
+- Keep action names stable and searchable: `module.start`, `module.done`,
+  `git.push_failed`, `plasma.sync_applied`, `archive.rule_invalid`. Prefer a
+  short `reason=...` key over inventing many near-duplicate action names.
+- Include the identifiers needed to debug without re-running: `id`, `event`,
+  `module`, `path`, `src`, `dest`, `repo`, `reason`, `status`, `attempt`,
+  `changed_paths`, `changed_events`, and short `error` text when relevant.
+- Use `debug` for expected skips, cooldowns, quiet repo/index locks, busy states,
+  ignored paths, and other high-frequency internal control flow.
+- Use `info` for event/module start and completion, real successful actions,
+  sync applied, packets sent, commits made, and deliberate fallback behavior.
+- Use `warning` for failed attempts that are still recoverable by retry/backoff,
+  offline/wait states that block this cycle, stale lock cleanup, and unusual
+  states worth checking.
+- Use `error` for invalid user config/rules, security guard blocks, final
+  failures where Lucy could not complete the requested work, failed
+  writes/rollbacks, unresolved conflicts, or states that can require manual
+  action.
+- Do not log noisy "will retry later" conditions as errors. If Lucy can recover
+  by itself, keep it debug/warning and make the log explain the next state.
+- Do not duplicate the same fact at several levels. Log the root cause once with
+  useful keys, then keep follow-up symptoms quiet unless they add new data.
+- Use `logger.exception(...)` only when the traceback is useful for an unexpected
+  exception. For expected subprocess/IO failures, log concise `error=...` text.
+
+
 # Notifications
 
 - For failures, call `safe_notify(..., use_rare_mode=True)` (default mode).
 - Use one stable root-cause key per incident scope (for example per repo/path), not separate keys per command step.
 - Do not send multiple notifications for cause + symptoms. Send one consolidated error notification with the root cause.
-- Key naming should be domain-level, for example `git-network:<repo_root>`,
-  instead of command-level keys like `pull-timeout:*` and `push-fail:*` for the same network outage.
+- Key naming should be domain-level, for example `git-sync:<repo_root>` or
+  `archive-rule:<flag>:<reason>:<scope>`, instead of command-level keys like
+  `pull-timeout:*` and `push-fail:*` for the same root cause.
+- Notify for invalid user config/rules, security guard blocks, failed
+  writes/rollbacks, unresolved conflicts, and final failures that require manual
+  action.
 - Do not notify on transient internal retry states such as `index.lock`, repo busy/lock contention,
-  temporary backoff, or "will retry later" conditions. Log them silently and keep retrying.
+  temporary backoff, or "will retry later" conditions. Log them without popup and keep retrying.
 - Notify only when the operation reached a final critical failure state or requires user action,
   not when Demon Lucy is still able to recover on its own.

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Protocol
 
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import git_dir_for_repo_root
 
 
@@ -33,7 +35,7 @@ def clear_stale_index_lock(
     except FileNotFoundError:
         return False
     except OSError:
-        logger.exception("failed to inspect git index.lock | repo=%s", repo_root)
+        logger.exception(log_record("git.index_lock_inspect_failed", repo=repo_root))
         return False
 
     lock_age_seconds = max(0.0, time.time() - lock_mtime_seconds)
@@ -46,17 +48,20 @@ def clear_stale_index_lock(
         return False
     except IsADirectoryError:
         logger.error(
-            "git index.lock path is a directory; cannot remove | repo=%s", repo_root
+            log_record("git.index_lock_remove_failed", reason="is_directory", repo=repo_root)
         )
         return False
     except OSError:
-        logger.exception("failed to remove git index.lock | repo=%s", repo_root)
+        logger.exception(log_record("git.index_lock_remove_failed", repo=repo_root))
         return False
 
     logger.warning(
-        "removed stale git index.lock before retrying command | repo=%s | age_seconds=%.1f",
-        repo_root,
-        lock_age_seconds,
+        log_record(
+            "git.index_lock_removed",
+            reason="stale",
+            repo=repo_root,
+            age_seconds=lock_age_seconds,
+        )
     )
     return True
 
@@ -74,9 +79,18 @@ def index_lock_age_seconds(
     except FileNotFoundError:
         return None
     except OSError:
-        logger.exception("failed to inspect git index.lock | repo=%s", repo_root)
+        logger.exception(log_record("git.index_lock_inspect_failed", repo=repo_root))
         return None
     return max(0.0, time.time() - lock_mtime_seconds)
+
+
+class GitCommandExecutor(Protocol):
+    def run(
+        self,
+        arguments: list[str],
+        timeout_seconds: float,
+    ) -> subprocess.CompletedProcess[str]:
+        ...
 
 
 def run_git(
@@ -85,15 +99,15 @@ def run_git(
     environment: dict[str, str],
     timeout_seconds: float,
     *,
-    executor_factory: Callable[[str, dict[str, str]], object],
-    output_getter: Callable[[object], str],
+    executor_factory: Callable[[str, dict[str, str]], GitCommandExecutor],
+    output_getter: Callable[[subprocess.CompletedProcess[str]], str],
     failure_is_index_lock_fn: Callable[[str], bool],
     clear_stale_index_lock_fn: Callable[[str], bool],
     index_lock_age_seconds_fn: Callable[[str], Optional[float]],
     recent_retry_max_attempts: int,
     recent_retry_sleep_seconds: float,
     logger,
-):
+) -> subprocess.CompletedProcess[str]:
     executor = executor_factory(repo_root, environment)
     recent_retry_attempt = 0
     while True:
@@ -105,10 +119,13 @@ def run_git(
             return result
 
         if clear_stale_index_lock_fn(repo_root):
-            logger.warning(
-                "retrying git command after index.lock cleanup | repo=%s | args=%s",
-                repo_root,
-                " ".join(arguments[:4]),
+            logger.debug(
+                log_record(
+                    "git.command_retry",
+                    reason="index_lock_cleanup",
+                    repo=repo_root,
+                    args=" ".join(arguments[:4]),
+                )
             )
             continue
 
@@ -120,12 +137,14 @@ def run_git(
             return result
 
         if recent_retry_attempt in (0, recent_retry_max_attempts - 1):
-            logger.warning(
-                "git index.lock is active; waiting before retry | repo=%s | age_seconds=%.1f | retry=%d/%d",
-                repo_root,
-                lock_age,
-                recent_retry_attempt + 1,
-                recent_retry_max_attempts,
+            logger.debug(
+                log_record(
+                    "git.command_retry",
+                    reason="index_lock_active",
+                    repo=repo_root,
+                    age_seconds=lock_age,
+                    retry=f"{recent_retry_attempt + 1}/{recent_retry_max_attempts}",
+                )
             )
         time.sleep(recent_retry_sleep_seconds)
         recent_retry_attempt += 1

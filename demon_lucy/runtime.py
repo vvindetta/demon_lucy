@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from typing import List
 
 from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.migrations import MIGRATIONS, Migration
 from demon_lucy.modules.abstract_module import AbstractModule
 from demon_lucy.modules.banner import Banner
@@ -144,8 +145,11 @@ def run_config_migrations(config_path: str) -> list[Migration]:
         except Exception:
             logger = logging.getLogger(__name__)
             logger.exception(
-                "Error while migrating %s",
-                migration.get_migration_name(),
+                log_record(
+                    "config.migration_error",
+                    migration=migration.get_migration_name(),
+                    config_path=path_value,
+                )
             )
     return migrated
 
@@ -180,19 +184,23 @@ def log_startup_message(
     unknown_args: list[str] | None = None,
     extra_items: list[tuple[str, object]] | None = None,
 ) -> None:
-    details: list[str] = [
-        f"watch_paths={len(config.get('sys_watch_paths') or [])}",
-        f"opened_events={'off' if config.get('sys_disable_opened_events') else 'on'}",
-        f"log_level={config.get('sys_log_level', '')}",
-        *([f"unknown_args={len(unknown_args)}"] if unknown_args else []),
-        *(f"{key}={value}" for key, value in (extra_items or [])),
-    ]
+    details: dict[str, object] = {
+        "watch_paths": len(config.get("sys_watch_paths") or []),
+        "opened_events": "off" if config.get("sys_disable_opened_events") else "on",
+        "log_level": config.get("sys_log_level", ""),
+    }
+    if unknown_args:
+        details["unknown_args"] = len(unknown_args)
+    for key, value in extra_items or []:
+        details[key] = value
 
     logging.warning(
-        "DEMON_LUCY START | mode=%s | modules=[%s] | %s",
-        run_mode,
-        ", ".join(module.name for module in modules) or "-",
-        " | ".join(details),
+        log_record(
+            "runtime.start",
+            mode=run_mode,
+            modules="[" + (", ".join(module.name for module in modules) or "-") + "]",
+            **details,
+        )
     )
 
 
