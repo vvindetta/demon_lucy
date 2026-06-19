@@ -152,13 +152,6 @@ class DropDir(AbstractModule):
             config=ctx.config,
             arg_lines=ctx.arg_lines,
         )
-        resolved = archive_module._resolve_paths(action_ctx)
-        if not resolved:
-            return move_back_changed
-        src_path, _dest_path = resolved
-
-        if canonical_path(src_path) != canonical_path(action_path):
-            return move_back_changed
 
         delay_seconds = self._delay_seconds_from_config(ctx)
         if delay_seconds > 0:

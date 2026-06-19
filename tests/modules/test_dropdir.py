@@ -6,8 +6,8 @@ from pathlib import Path
 from watchdog.events import FileMovedEvent
 
 import demon_lucy.modules.dropdir as dropdir_mod
-import demon_lucy.modules.archive as archive_mod
 from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.archive import clock as archive_clock
 from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.archive import Archive
 
@@ -18,7 +18,7 @@ def _freeze_archive_day(monkeypatch, year: int, month: int, day: int) -> None:
         def now(cls):
             return datetime(year, month, day, 12, 0, 0)
 
-    monkeypatch.setattr(archive_mod, "datetime", _FakeDatetime)
+    monkeypatch.setattr(archive_clock, "datetime", _FakeDatetime)
 
 
 def _ctx(path: Path, cleanup_selector: str, *, delay_ms: int = 0) -> Context:

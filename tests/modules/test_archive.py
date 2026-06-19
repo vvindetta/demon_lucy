@@ -9,9 +9,11 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
-import demon_lucy.modules.archive as archive_mod
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.archive import Archive
+from demon_lucy.modules.archive import clock as archive_clock
+from demon_lucy.modules.archive import notify as archive_notify
+from demon_lucy.modules.archive import storage as archive_storage
 
 
 def _ctx_for(
@@ -42,6 +44,12 @@ def _ctx_for(
         "archive_date_prefix": "-- ",
         "archive_date_suffix": "",
         "archive_force_filesystem_mtime": False,
+        "sys_notification_provider": "disable",
+        "sys_notification_min_interval_seconds": 0.0,
+        "sys_notification_error_backoff_base_seconds": 0.0,
+        "sys_notification_error_backoff_max_seconds": 0.0,
+        "sys_notification_error_burst_limit": 0,
+        "sys_notification_error_burst_window_seconds": 0.0,
     }
     if force_fs:
         config["archive_force_filesystem_mtime"] = True
@@ -145,6 +153,45 @@ def test_rejects_absolute_archive_pair_paths_outside_allowed_root(
     assert ignore is None
     assert outside_path.read_text(encoding="utf-8") == "outside must stay\n"
     assert not (notes_dir / "past.md").exists()
+
+
+def test_archive_security_block_notifies_for_outside_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+    notifications: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        archive_notify,
+        "safe_notify",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    outside_path = tmp_path / "outside.md"
+    outside_path.write_text("outside must stay\n", encoding="utf-8")
+    _make_stale(outside_path, 13.0)
+
+    trigger_path = notes_dir / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=[str(outside_path), "past.md", "2"],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert notifications
+    assert str(notifications[0][0][0]).startswith(
+        "archive-security:outside_allowed_root:"
+    )
+    assert notifications[0][1]["use_rare_mode"] is True
 
 
 def test_rejects_absolute_archive_pair_path_traversal_outside_allowed_root(
@@ -494,7 +541,7 @@ def _freeze_now(monkeypatch, year: int, month: int, day: int) -> None:
         def now(cls):
             return datetime(year, month, day, 9, 0, 0)
 
-    monkeypatch.setattr(archive_mod, "datetime", _FakeDatetime)
+    monkeypatch.setattr(archive_clock, "datetime", _FakeDatetime)
 
 
 @pytest.mark.parametrize(
@@ -611,6 +658,84 @@ def test_compact_archive_arg_without_idle_value_uses_default_idle_hours(
     assert ignore == {str(active_path.resolve()): 1, str(past_path.resolve()): 1}
     assert active_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "-- 01.05.2026\nuse default idle\n"
+
+
+def test_invalid_archive_rule_notifies_user(tmp_path: Path, monkeypatch) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+    notifications: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        archive_notify,
+        "safe_notify",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    active_path = tmp_path / "active.md"
+    active_path.write_text("invalid rule\n", encoding="utf-8")
+    _make_stale(active_path, 13.0)
+
+    trigger_path = tmp_path / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=["active.md", "history.md"],
+    )
+    ctx.config["archive_default_mode"] = "zip"
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert notifications
+    assert str(notifications[0][0][0]).startswith(
+        "archive-rule:--archive-default-mode:unsupported_mode:"
+    )
+    assert "Archive rule is invalid." in str(notifications[0][0][1])
+    assert notifications[0][1]["use_rare_mode"] is True
+
+
+def test_archive_operation_failure_notifies_user(tmp_path: Path, monkeypatch) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+    notifications: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        archive_notify,
+        "safe_notify",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        archive_storage,
+        "truncate_source_file",
+        lambda _src_path: False,
+    )
+
+    active_path = tmp_path / "active.md"
+    active_path.write_text("cannot truncate\n", encoding="utf-8")
+    _make_stale(active_path, 13.0)
+
+    trigger_path = tmp_path / "other.md"
+    trigger_path.write_text("x\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=["active.md", "history.md"],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert notifications
+    assert str(notifications[0][0][0]).startswith(
+        "archive-operation:truncate_source_failed:"
+    )
+    assert "Archive operation failed." in str(notifications[0][0][1])
+    assert notifications[0][1]["use_rare_mode"] is True
 
 
 def test_archive_global_uses_configured_global_dest_path(
@@ -1014,6 +1139,65 @@ def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -
     assert now_path.read_text(encoding="utf-8") == ""
 
 
+def test_appends_to_existing_archive_day_without_duplicate_header(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    past_path = tmp_path / "past.md"
+    past_path.write_text("-- 01.05.2026\nfirst entry\n", encoding="utf-8")
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("second entry\n", encoding="utf-8")
+    _make_stale(now_path, 14.0)
+
+    module = Archive()
+    ctx = _ctx_for(now_path)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert (
+        past_path.read_text(encoding="utf-8")
+        == "-- 01.05.2026\nfirst entry\n\nsecond entry\n"
+    )
+
+
+def test_inserts_into_existing_archive_day_before_next_day(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+
+    past_path = tmp_path / "past.md"
+    past_path.write_text(
+        "-- 01.05.2026\nfirst entry\n\n-- 02.05.2026\nlater entry\n",
+        encoding="utf-8",
+    )
+
+    now_path = tmp_path / "now.md"
+    now_path.write_text("second entry\n", encoding="utf-8")
+    _make_stale(now_path, 14.0)
+
+    module = Archive()
+    ctx = _ctx_for(now_path)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert (
+        past_path.read_text(encoding="utf-8")
+        == "-- 01.05.2026\nfirst entry\n\nsecond entry\n\n-- 02.05.2026\nlater entry\n"
+    )
+
+
 def test_skips_append_when_exact_archive_entry_already_exists(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1127,10 +1311,10 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
     _make_stale(now_path, 1.0)  # fresh by filesystem mtime
 
     now_ts = datetime(2026, 6, 2, 9, 0, 0).timestamp()
-    monkeypatch.setattr(archive_mod.time, "time", lambda: now_ts)
+    monkeypatch.setattr(archive_clock.time, "time", lambda: now_ts)
 
     module = Archive()
-    monkeypatch.setattr(archive_mod, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(archive_clock, "find_parent_with", lambda _p, _m: "/repo")
 
     git_commit_ts = now_ts - (13.0 * 3600.0)
 
@@ -1148,7 +1332,7 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
             )
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    monkeypatch.setattr(archive_mod.subprocess, "run", _fake_run)
+    monkeypatch.setattr(archive_clock.subprocess, "run", _fake_run)
 
     ctx = _ctx_for(now_path)
     system = System(
@@ -1171,7 +1355,7 @@ def test_archive_header_uses_git_commit_date_for_dirty_forced_file(
     now_path.write_text("--archive-global\nold note text\n", encoding="utf-8")
 
     module = Archive()
-    monkeypatch.setattr(archive_mod, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(archive_clock, "find_parent_with", lambda _p, _m: "/repo")
 
     git_commit_ts = datetime(2026, 5, 20, 9, 0, 0).timestamp()
 
@@ -1185,7 +1369,7 @@ def test_archive_header_uses_git_commit_date_for_dirty_forced_file(
             )
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    monkeypatch.setattr(archive_mod.subprocess, "run", _fake_run)
+    monkeypatch.setattr(archive_clock.subprocess, "run", _fake_run)
 
     ctx = _ctx_for(
         now_path,
@@ -1211,9 +1395,9 @@ def test_force_fs_flag_skips_git_even_in_repo(tmp_path: Path, monkeypatch) -> No
     _make_stale(now_path, 1.0)
 
     module = Archive()
-    monkeypatch.setattr(archive_mod, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(archive_clock, "find_parent_with", lambda _p, _m: "/repo")
     monkeypatch.setattr(
-        archive_mod.subprocess,
+        archive_clock.subprocess,
         "run",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError(
