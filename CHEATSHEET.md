@@ -19,7 +19,7 @@ these values from the resolved `config[...]`.
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--sys-config-path` | `str` | Path to the config file. Default: `config.txt`. |
-| `--sys-log-level` | `str` | Logging level: `debug`, `info`, `warning`, `error`, `critical`. |
+| `--sys-log-level` | `str` | Logging level: `debug`, `info`, `warning`, `error`, `critical`. `info` shows normal Lucy event decisions; `debug` is for low-level diagnostics and can include library noise. |
 | `--sys-log-format` | `str` | Python logging format string. |
 | `--sys-watch-paths` | `str[]` | Directories watched recursively by the daemon. |
 | `--sys-opened-event-cooldown-seconds` | `int` | Per-file cooldown for `opened` filesystem events. |

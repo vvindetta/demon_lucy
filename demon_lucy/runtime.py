@@ -32,7 +32,7 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         "--sys-log-level",
         str,
         "warning",
-        "Logging level: debug, info, warning, error, critical. Default: warning.",
+        "Logging level: debug, info, warning, error, critical. Info shows Lucy event decisions; debug can include low-level library logs. Default: warning.",
         False,
     ),
     (

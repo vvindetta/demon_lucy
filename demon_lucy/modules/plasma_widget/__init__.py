@@ -194,7 +194,7 @@ def _write_text_atomic(
             try:
                 os.remove(temp_path)
             except OSError:
-                logger.debug(
+                logger.info(
                     log_record("plasma.temp_cleanup_failed", path=temp_path)
                 )
 

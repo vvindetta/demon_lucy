@@ -194,10 +194,14 @@ When renaming a flag, update all related places at once:
 - Include the identifiers needed to debug without re-running: `id`, `event`,
   `module`, `path`, `src`, `dest`, `repo`, `reason`, `status`, `attempt`,
   `changed_paths`, `changed_events`, and short `error` text when relevant.
-- Use `debug` for expected skips, cooldowns, quiet repo/index locks, busy states,
-  ignored paths, and other high-frequency internal control flow.
-- Use `info` for event/module start and completion, real successful actions,
-  sync applied, packets sent, commits made, and deliberate fallback behavior.
+- Use `info` for Lucy's normal observability: event/module start and completion,
+  expected skips, cooldowns, ignored paths, quiet repo/index locks, busy states,
+  real successful actions, sync applied, packets sent, commits made, and
+  deliberate fallback behavior. A normal Lucy decision should not require
+  `--sys-log-level debug` to see.
+- Use `debug` only for deliberately low-level diagnostics that are too noisy for
+  normal event reading. `--sys-log-level debug` can also expose third-party
+  library logs, so do not depend on debug for routine Lucy messages.
 - Use `warning` for failed attempts that are still recoverable by retry/backoff,
   offline/wait states that block this cycle, stale lock cleanup, and unusual
   states worth checking.
@@ -206,7 +210,7 @@ When renaming a flag, update all related places at once:
   writes/rollbacks, unresolved conflicts, or states that can require manual
   action.
 - Do not log noisy "will retry later" conditions as errors. If Lucy can recover
-  by itself, keep it debug/warning and make the log explain the next state.
+  by itself, keep it info/warning and make the log explain the next state.
 - Do not duplicate the same fact at several levels. Log the root cause once with
   useful keys, then keep follow-up symptoms quiet unless they add new data.
 - Use `logger.exception(...)` only when the traceback is useful for an unexpected

@@ -214,10 +214,10 @@ def get_args_from_file(
         with open(path, "r", encoding="utf-8") as file:
             lines = file.readlines()
     except FileNotFoundError:
-        logger.debug(log_record("args.file_missing", path=path))
+        logger.info(log_record("args.file_missing", path=path))
         return {}, [], {}
     except (UnicodeDecodeError, OSError) as exc:
-        logger.debug(log_record("args.file_unreadable", path=path, error=exc))
+        logger.info(log_record("args.file_unreadable", path=path, error=exc))
         return {}, [], {}
 
     if not lines:
@@ -240,7 +240,7 @@ def get_args_from_file(
         try:
             tokens = shlex.split(stripped, comments=False, posix=True)
         except ValueError as e:
-            logger.debug(
+            logger.info(
                 log_record("args.file_line_invalid", path=path, line=lineno, error=e)
             )
             continue

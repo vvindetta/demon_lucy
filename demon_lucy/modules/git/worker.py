@@ -620,7 +620,7 @@ def _stage_and_collect_changes(
         add_error = (add_result.stderr or add_result.stdout or "git add failed").strip()
         if failure_is_index_lock(add_error):
             if _should_log_index_lock_error(repo_root):
-                logger.debug(
+                logger.info(
                     log_record(
                         "git.sync_skip",
                         reason="index_lock_active",

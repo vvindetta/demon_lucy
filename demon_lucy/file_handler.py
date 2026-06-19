@@ -115,7 +115,7 @@ class FileHandler(FileSystemEventHandler):
     def _mark_to_ignore(self, ignore_paths: Dict[str, int], event_id: str) -> None:
         for path, count in ignore_paths.items():
             new_count = self._bump_ignore(path, count)
-            logger.debug(
+            logger.info(
                 log_record(
                     "event.ignore_mark",
                     id=event_id,
@@ -130,7 +130,7 @@ class FileHandler(FileSystemEventHandler):
             return False
 
         remaining = self._bump_ignore(input_path, -1)
-        logger.debug(
+        logger.info(
             log_record(
                 "event.skip",
                 reason="ignore_map",
@@ -204,7 +204,7 @@ class FileHandler(FileSystemEventHandler):
         if path_has_component(canonical_path(src_path), ".git"):
             return
         if not self._should_process_open(file_path=src_path):
-            logger.debug(
+            logger.info(
                 log_record(
                     "event.skip",
                     reason="opened_cooldown",

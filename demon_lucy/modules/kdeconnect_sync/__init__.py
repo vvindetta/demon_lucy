@@ -238,7 +238,7 @@ class KdeconnectSync(AbstractModule):
         if commit_result.status == "noop":
             return
         if commit_result.status == "busy":
-            logger.debug(
+            logger.info(
                 log_record(
                     "kdeconnect.sync_skip",
                     reason="repo_busy",
@@ -270,7 +270,7 @@ class KdeconnectSync(AbstractModule):
             config_snapshot=config_snapshot,
         )
         if packet_result.status == "busy":
-            logger.debug(
+            logger.info(
                 log_record(
                     "kdeconnect.sync_skip",
                     reason="repo_busy",

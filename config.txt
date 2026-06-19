@@ -26,7 +26,8 @@
 # If opened events stay enabled, keep a cooldown so repeated reads are collapsed.
 # --sys-opened-event-cooldown-seconds 60
 
-# Keep daemon logs quiet by default. Use debug only while investigating.
+# Keep daemon logs quiet by default. Use info to see Lucy event decisions.
+# Debug is for low-level investigation and may include noisy library logs.
 # --sys-log-level warning
 
 # Disable notifications completely.

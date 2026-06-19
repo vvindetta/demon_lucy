@@ -119,7 +119,7 @@ def run_git(
             return result
 
         if clear_stale_index_lock_fn(repo_root):
-            logger.debug(
+            logger.info(
                 log_record(
                     "git.command_retry",
                     reason="index_lock_cleanup",
@@ -137,7 +137,7 @@ def run_git(
             return result
 
         if recent_retry_attempt in (0, recent_retry_max_attempts - 1):
-            logger.debug(
+            logger.info(
                 log_record(
                     "git.command_retry",
                     reason="index_lock_active",

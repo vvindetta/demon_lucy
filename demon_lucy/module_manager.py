@@ -134,7 +134,7 @@ class ModuleManager:
         event_type = str(event.event_type)
 
         if self._is_blacklisted_path(path, self.config["sys_ignore_paths"]):
-            logger.debug(
+            logger.info(
                 log_record(
                     "event.skip",
                     id=event_id,

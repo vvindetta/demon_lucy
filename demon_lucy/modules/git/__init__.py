@@ -58,7 +58,7 @@ class Git(AbstractModule):
             return None
 
         if repo_process_lock_is_active(repo_root):
-            logger.debug(
+            logger.info(
                 log_record(
                     "git.sync_skip",
                     id=system.event_id,
