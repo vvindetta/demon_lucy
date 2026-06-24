@@ -111,7 +111,8 @@ Examples:
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--rename` | `str` | Rename the current file to the given name. |
-| `--rename-auto` | `bool` | On create, rename `t`/`txt` to `DD-MM.txt` and `m`/`md` to `DD-MM.md`. |
+| `--rename-auto` | `bool` | On create, rename any one-letter scratch filename to a dated filename. |
+| `--rename-auto-format` | `str` | Auto rename output extension. Default: `md`. 
 
 ## Linker
 

@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Iterator, Optional
 
 from demon_lucy.lib.args.parser import Template
 from demon_lucy.modules.abstract_module import (
@@ -21,10 +21,58 @@ class Renamer(AbstractModule):
             "--rename-auto",
             bool,
             False,  # IMPORTANT: for your argparse bool handling, default is a bool, not [False]
-            "On create: t|txt -> DD-MM.txt, m|md -> DD-MM.md. If exists -> HHMM-DD-MM.ext",
+            "On create, rename any one-letter scratch filename using --rename-auto-format.",
+            False,
+        ),
+        (
+            "--rename-auto-format",
+            str,
+            "md",
+            "Auto rename extension. Default: md. Examples: txt, md, org.",
             False,
         ),
     ]
+
+    def _is_auto_source_name(self, path: str) -> bool:
+        base = os.path.basename(path)
+        stem, _ext = os.path.splitext(base)
+        name = (stem or base).strip()
+        return len(name) == 1 and name.isalpha()
+
+    def _render_auto_name(self, *, config: dict, now: datetime) -> Optional[str]:
+        raw_extension = str(config["rename_auto_format"]).strip().lstrip(".")
+        if not raw_extension:
+            return None
+        if "%" in raw_extension:
+            return None
+        if os.path.basename(raw_extension) != raw_extension:
+            return None
+        if "\\" in raw_extension:
+            return None
+        if raw_extension in (".", ".."):
+            return None
+
+        return f"{now.strftime('%d-%m')}.{raw_extension}"
+
+    def _with_collision_suffix(self, *, name: str, suffix: str) -> str:
+        stem, ext = os.path.splitext(name)
+        return f"{stem}-{suffix}{ext}"
+
+    def _auto_name_candidates(self, *, base_name: str, now: datetime) -> Iterator[str]:
+        yield base_name
+        yield self._with_collision_suffix(name=base_name, suffix=now.strftime("%H%M"))
+        yield self._with_collision_suffix(name=base_name, suffix=now.strftime("%H%M%S"))
+        yield self._with_collision_suffix(
+            name=base_name,
+            suffix=now.strftime("%H%M%S-%f"),
+        )
+
+        second_prefix = now.strftime("%H%M%S")
+        for counter in range(1, 10000):
+            yield self._with_collision_suffix(
+                name=base_name,
+                suffix=f"{second_prefix}-{counter:03d}",
+            )
 
     def _apply_manual(self, *, path: str, config: dict) -> Optional[IgnoreMap]:
         if not config["rename"] or not config["rename"].strip():
@@ -56,40 +104,30 @@ class Renamer(AbstractModule):
         if os.path.isdir(old_path):
             return None
 
-        base = os.path.basename(old_path)
-        stem, _ext = os.path.splitext(base)
-        name = (stem or base).strip().lower()
-
-        if name in ("t", "txt"):
-            out_ext = ".txt"
-        elif name in ("m", "md"):
-            out_ext = ".md"
-        else:
+        if not self._is_auto_source_name(old_path):
             return None
 
         now = datetime.now()
-        day_month = now.strftime("%d-%m")
-        hour_min = now.strftime("%H%M")
+        new_name = self._render_auto_name(config=config, now=now)
+        if not new_name:
+            return None
 
         dir_path = os.path.dirname(old_path)
-
-        new_name = f"{day_month}{out_ext}"
-        new_path = os.path.abspath(os.path.join(dir_path, new_name))
-
-        if os.path.exists(new_path):
-            new_name = f"{hour_min}-{day_month}{out_ext}"
-            new_path = os.path.abspath(os.path.join(dir_path, new_name))
-            if os.path.exists(new_path):
+        for candidate in self._auto_name_candidates(base_name=new_name, now=now):
+            new_path = os.path.abspath(os.path.join(dir_path, candidate))
+            if old_path == new_path:
                 return None
+            if os.path.exists(new_path):
+                continue
 
-        if old_path == new_path:
-            return None
-
-        try:
-            os.rename(old_path, new_path)
-            return {old_path: 1, new_path: 1}
-        except (FileNotFoundError, OSError):
-            return None
+            try:
+                os.rename(old_path, new_path)
+                return {old_path: 1, new_path: 1}
+            except FileNotFoundError:
+                return None
+            except OSError:
+                continue
+        return None
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         # manual rename has priority

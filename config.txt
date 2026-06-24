@@ -50,10 +50,10 @@
 
 # --- renamer ---
 
-# On create, rename simple scratch files:
-#   t/txt -> DD-MM.txt
-#   m/md  -> DD-MM.md
+# On create, rename any one-letter scratch file to a dated filename. Useful when you need a quick note but do not know how to name it yet.
 # --rename-auto
+# Set the output extension. Default: Markdown (`md`).
+# --rename-auto-format md
 
 
 # --- archive ---

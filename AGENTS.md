@@ -56,7 +56,8 @@ watchdog file events.
 - `modules/sys.py`: in-note debug/manual commands such as `--mods`, `--config`,
   `--man`, `--event`, `--ping`, `--help`.
 - `modules/banner.py`: inserts pyfiglet banners or date banners at flag lines.
-- `modules/renamer.py`: manual `--rename` and create-time `--rename-auto`.
+- `modules/renamer.py`: manual `--rename` and create-time `--rename-auto` for
+  one-letter scratch files with configurable output format.
 - `modules/formatter.py`: TODO checkbox formatting and top/bottom blank padding.
 - `modules/archive/`: archives stale or forced source note content through
   pair/local/global routes. `module.py` owns orchestration and event handlers,

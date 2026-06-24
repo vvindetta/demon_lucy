@@ -79,14 +79,13 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 **Basic:**
 - `sys`: writes runtime debug information, event details, and manual help text. Loaded by default.
 - `banner`: inserts ASCII banner text or date banners into notes.
-- `renamer`: renames notes manually or by simple date-based create rules.
+- `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.
 - `linker`: creates symlinks for active notes, and updates file path markdown links on move/rename.
 - `archive`: automatically moves idle stale notes from the active note to a past/archive note, keeping one daily scratch note current and older text in history.
 - `formatter`: formats note text, including todo list conversion and blank-space padding.
 
 **Integrations:**
-- `git`: syncs notes with a remote Git repository and writes commit messages from
-  the staged diff summary.
+- `git`: syncs notes with a remote Git repository.
 - `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
 **Experimental:**
