@@ -50,10 +50,12 @@ def _ctx_for(
     status_animation_speed_milliseconds: int = 500,
     status_git_sync_prefix_cycle_pause_seconds: float = 1.0,
     status_opened_events: bool = False,
+    sys_watch_paths: list[str] | None = None,
 ) -> Context:
     return Context(
         path=str(path),
         config={
+            "sys_watch_paths": list(sys_watch_paths or [str(path.parent)]),
             "status": list(status_values or []),
             "status_banner": status_banner_text,
             "status_banner_speed_milliseconds": status_banner_speed_milliseconds,
@@ -1188,15 +1190,17 @@ def test_status_bootstrap_scans_dot_status_dir_after_restart_like_event(
     assert not status_file.exists()
 
 
-def test_status_bootstrap_scans_dot_space_status_dir_after_restart_like_event(
+def test_status_bootstrap_ignores_nested_dot_status_dir(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(status_mod, "datetime", _FakeDateTime)
 
     notes_root = tmp_path / "notes"
-    status_dir = notes_root / ". status"
-    status_dir.mkdir(parents=True, exist_ok=True)
+    notes_root.mkdir(parents=True, exist_ok=True)
 
+    nested_dir = notes_root / "project"
+    status_dir = nested_dir / ".status"
+    status_dir.mkdir(parents=True, exist_ok=True)
     status_file = status_dir / "dead.md"
     status_file.write_text("--status time\n", encoding="utf-8")
 
@@ -1210,12 +1214,13 @@ def test_status_bootstrap_scans_dot_space_status_dir_after_restart_like_event(
         modules=[module],
     )
 
-    changed = module.modified(_ctx_for(trigger_file), system)
+    changed = module.modified(
+        _ctx_for(trigger_file, sys_watch_paths=[str(notes_root)]),
+        system,
+    )
 
-    revived_path = status_dir / "08:09"
-    assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
-    assert revived_path.exists()
-    assert not status_file.exists()
+    assert changed is None
+    assert status_file.exists()
 
 
 def test_status_bootstrap_applies_ascii_animation_from_status_file(

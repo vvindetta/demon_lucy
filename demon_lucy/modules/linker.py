@@ -5,7 +5,7 @@ import re
 from typing import Optional
 
 from demon_lucy.lib.args.parser import Template, get_args_from_file
-from demon_lucy.lib.path import canonical_path, find_parent_with
+from demon_lucy.lib.path import canonical_path, find_parent_with, path_is_inside
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -202,12 +202,6 @@ class Linker(AbstractModule):
         return merged or None
 
     @staticmethod
-    def _is_within_root(path_value: str, root_value: str) -> bool:
-        path_abs = canonical_path(path_value)
-        root_abs = canonical_path(root_value)
-        return path_abs == root_abs or path_abs.startswith(root_abs + os.sep)
-
-    @staticmethod
     def _is_supported_reference_file(path_value: str) -> bool:
         _, ext = os.path.splitext(path_value.lower())
         return ext in REFERENCE_LINK_FILE_EXTENSIONS
@@ -382,9 +376,9 @@ class Linker(AbstractModule):
         if not repo_root:
             return None
 
-        if not self._is_within_root(moved_from_abs, repo_root):
+        if not path_is_inside(moved_from_abs, repo_root):
             return None
-        if not self._is_within_root(moved_to_abs, repo_root):
+        if not path_is_inside(moved_to_abs, repo_root):
             return None
 
         ignore_selectors = list(ctx.config["linker_ignore"])

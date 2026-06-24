@@ -114,6 +114,13 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         False,
     ),
     (
+        "--sys-ignore-move-paths",
+        str,
+        [".status"],
+        "Ignore internal move events under these paths. Relative paths are resolved under every watched root. Default: .status.",
+        False,
+    ),
+    (
         "--sys-modules",
         str,
         ["banner", "renamer", "linker", "formatter", "archive", "sys"],

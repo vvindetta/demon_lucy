@@ -16,10 +16,19 @@ from demon_lucy.module_manager import ModuleManager
 
 
 class _FakeModules:
-    def __init__(self, ignore_maps: list[dict[str, int] | None] | None = None) -> None:
+    def __init__(
+        self,
+        ignore_maps: list[dict[str, int] | None] | None = None,
+        config: dict | None = None,
+    ) -> None:
         self.calls = 0
         self.paths: list[str] = []
         self._ignore_maps = list(ignore_maps or [])
+        self.config = {
+            "sys_watch_paths": [],
+            "sys_ignore_move_paths": [".status"],
+        }
+        self.config.update(config or {})
 
     def run(
         self,
@@ -194,6 +203,89 @@ def test_moved_event_uses_destination_path(tmp_path: Path) -> None:
     src.write_text("x\n", encoding="utf-8")
 
     modules = _FakeModules()
+    handler = _mk_handler(modules)
+
+    handler.on_moved(_moved_event(str(src), str(dst)))
+
+    assert modules.calls == 1
+    assert modules.paths[0] == str(dst.resolve())
+
+
+def test_move_ignore_dirs_are_derived_from_module_config(tmp_path: Path) -> None:
+    extra_move_ignore_dir = tmp_path / "panel-status"
+    modules = _FakeModules(
+        config={
+            "sys_watch_paths": [str(tmp_path)],
+            "sys_ignore_move_paths": [".status", str(extra_move_ignore_dir)],
+        },
+    )
+    handler = _mk_handler(modules)
+
+    assert handler._move_ignore_dirs == [
+        str((tmp_path / ".status").resolve()),
+        str(extra_move_ignore_dir.resolve()),
+    ]
+
+
+def test_moved_event_inside_move_ignore_dir_is_skipped(tmp_path: Path) -> None:
+    status_dir = tmp_path / ".status"
+    status_dir.mkdir()
+    src = status_dir / "08:09"
+    dst = status_dir / "08:10"
+    src.write_text("x\n", encoding="utf-8")
+
+    modules = _FakeModules(config={"sys_watch_paths": [str(tmp_path)]})
+    handler = _mk_handler(modules)
+
+    handler.on_moved(_moved_event(str(src), str(dst)))
+
+    assert modules.calls == 0
+
+
+def test_move_ignore_dir_consumes_pending_ignore_map(tmp_path: Path) -> None:
+    status_dir = tmp_path / ".status"
+    status_dir.mkdir()
+    src = status_dir / "08:09"
+    dst = status_dir / "08:10"
+    src.write_text("x\n", encoding="utf-8")
+
+    modules = _FakeModules(
+        ignore_maps=[{str(src): 1, str(dst): 1}, None],
+        config={"sys_watch_paths": [str(tmp_path)]},
+    )
+    handler = _mk_handler(modules)
+
+    handler.on_modified(_modified_event(str(src)))
+    handler.on_moved(_moved_event(str(src), str(dst)))
+    handler.on_modified(_modified_event(str(dst)))
+
+    assert modules.calls == 2
+    assert modules.paths == [str(src.resolve()), str(dst.resolve())]
+
+
+def test_modified_event_inside_status_dir_is_processed(tmp_path: Path) -> None:
+    status_dir = tmp_path / ".status"
+    status_dir.mkdir()
+    path = status_dir / "08:09"
+    path.write_text("x\n", encoding="utf-8")
+
+    modules = _FakeModules(config={"sys_watch_paths": [str(tmp_path)]})
+    handler = _mk_handler(modules)
+
+    handler.on_modified(_modified_event(str(path)))
+
+    assert modules.calls == 1
+    assert modules.paths[0] == str(path.resolve())
+
+
+def test_moved_event_into_status_dir_from_outside_is_processed(tmp_path: Path) -> None:
+    status_dir = tmp_path / ".status"
+    status_dir.mkdir()
+    src = tmp_path / "note.md"
+    dst = status_dir / "note.md"
+    src.write_text("x\n", encoding="utf-8")
+
+    modules = _FakeModules(config={"sys_watch_paths": [str(tmp_path)]})
     handler = _mk_handler(modules)
 
     handler.on_moved(_moved_event(str(src), str(dst)))

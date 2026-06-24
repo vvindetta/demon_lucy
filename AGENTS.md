@@ -13,7 +13,9 @@ watchdog file events.
 - `demon_lucy/runtime.py`: startup template, config migration hook, logging,
   module selection, module include/exclude validation, startup log line.
 - `demon_lucy/file_handler.py`: watchdog event filtering, `.git`/dotfile skips,
-  opened-event cooldown, ignore-count loop prevention after module writes.
+  opened-event cooldown, generic internal move skips via
+  `--sys-ignore-move-paths`, and ignore-count loop prevention after module
+  writes.
 - `demon_lucy/module_manager.py`: builds the global args template from all loaded
   modules, merges defaults/system config/file flags, sorts by priority, and runs
   event handlers.
@@ -26,8 +28,9 @@ watchdog file events.
   config-file parsing, per-note flag parsing, and config/CLI merge helpers.
 - `demon_lucy/lib/args/line_edit.py`: reusable arg-segment helpers and flag
   deletion from note lines.
-- `demon_lucy/lib/path.py`: path normalization, parent marker lookup, Git repo
-  discovery, and `.git` file/directory support.
+- `demon_lucy/lib/path.py`: path normalization, safe `path_is_inside`
+  containment checks, parent marker lookup, Git repo discovery, and `.git`
+  file/directory support.
 - `demon_lucy/lib/logfmt.py`: structured one-line log records, event ids, event
   path rendering, and ignore-count summaries.
 - `demon_lucy/lib/notifications.py`: notifications (`safe_notify`, `notify`)
@@ -70,8 +73,11 @@ watchdog file events.
   move/rename.
 - `modules/dropdir.py`: moved-file drop-directory workflow that can trigger
   archive cleanup through the `Archive` module.
-- `modules/status/`: filename status tokens, banners, animations, ticker thread,
-  and Git sync age/status rendering.
+- `modules/status/`: standalone filename status tokens, banners, animations,
+  ticker thread, and Git sync age/status rendering. Status bootstrap scans only
+  root `.status` directories directly under configured `--sys-watch-paths`.
+  Daemon `FileHandler` uses generic `--sys-ignore-move-paths` to skip internal
+  `moved` events inside generated/internal dirs; default is `.status`.
 - `modules/cmd.py`: optional local command execution from notes. Not in the
   default module list for security reasons.
 - `modules/git/`: Git sync module. `config.py` owns `--git-*` flags; `worker.py`

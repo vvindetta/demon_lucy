@@ -12,7 +12,7 @@ from demon_lucy.lib.logfmt import (
     log_record,
     next_event_id,
 )
-from demon_lucy.lib.path import canonical_path, path_has_component
+from demon_lucy.lib.path import canonical_path, path_has_component, path_is_inside
 from demon_lucy.module_manager import ModuleManager
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,9 @@ class FileHandler(FileSystemEventHandler):
     ):
         self._ignore_paths: Dict[str, int] = {}
         self.modules = modules
+        self._move_ignore_dirs = self._move_ignore_dirs_from_config(
+            self.modules.config
+        )
         self._process_opened_events = process_opened_events
 
         # on_opened throttle (per file)
@@ -34,6 +37,30 @@ class FileHandler(FileSystemEventHandler):
         self._last_open_ts: OrderedDict[str, float] = OrderedDict()
         self._last_open_dir_ts: OrderedDict[str, float] = OrderedDict()
         self._open_cache_max_entries = 4096
+
+    @classmethod
+    def _move_ignore_dirs_from_config(cls, config: dict) -> list[str]:
+        raw_dirs: list[str] = []
+        for watch_path in config["sys_watch_paths"]:
+            watch_root = canonical_path(watch_path)
+            for ignore_path in config["sys_ignore_move_paths"]:
+                raw_path = str(ignore_path).strip()
+                if not raw_path:
+                    continue
+                if os.path.isabs(raw_path):
+                    raw_dirs.append(raw_path)
+                else:
+                    raw_dirs.append(os.path.join(watch_root, raw_path))
+
+        result: list[str] = []
+        seen: set[str] = set()
+        for path in raw_dirs:
+            ignore_dir = canonical_path(path)
+            if ignore_dir in seen:
+                continue
+            seen.add(ignore_dir)
+            result.append(ignore_dir)
+        return result
 
     def _process_file(self, event):
         src_path = os.fsdecode(event.src_path)
@@ -46,6 +73,24 @@ class FileHandler(FileSystemEventHandler):
         file_path = canonical_path(file_path)
 
         if path_has_component(file_path, ".git"):
+            return
+
+        if event.event_type == "moved" and self._is_ignored_internal_move(
+            src_path=src_path,
+            dest_path=dest_path,
+        ):
+            self._check_and_delete_ignore(canonical_path(src_path), emit_log=False)
+            if dest_path:
+                self._check_and_delete_ignore(canonical_path(dest_path), emit_log=False)
+            logger.debug(
+                log_record(
+                    "event.skip",
+                    reason="move_ignore_path",
+                    event="moved",
+                    src=canonical_path(src_path),
+                    dest=canonical_path(dest_path),
+                )
+            )
             return
 
         if event.event_type == "moved":
@@ -124,20 +169,21 @@ class FileHandler(FileSystemEventHandler):
                 )
             )
 
-    def _check_and_delete_ignore(self, input_path: str) -> bool:
+    def _check_and_delete_ignore(self, input_path: str, emit_log: bool = True) -> bool:
         cur = self._ignore_paths.get(canonical_path(input_path), 0)
         if cur <= 0:
             return False
 
         remaining = self._bump_ignore(input_path, -1)
-        logger.info(
-            log_record(
-                "event.skip",
-                reason="ignore_map",
-                path=canonical_path(input_path),
-                remaining=remaining,
+        if emit_log:
+            logger.info(
+                log_record(
+                    "event.skip",
+                    reason="ignore_map",
+                    path=canonical_path(input_path),
+                    remaining=remaining,
+                )
             )
-        )
         return True
 
     def _bump_ignore(self, path: str, delta: int) -> int:
@@ -152,6 +198,17 @@ class FileHandler(FileSystemEventHandler):
 
         self._ignore_paths[abs_path] = new
         return new
+
+    def _is_ignored_internal_move(self, *, src_path: str, dest_path: str) -> bool:
+        if not dest_path:
+            return False
+        for ignore_dir in self._move_ignore_dirs:
+            if path_is_inside(src_path, ignore_dir) and path_is_inside(
+                dest_path,
+                ignore_dir,
+            ):
+                return True
+        return False
 
     def _touch_open_cache(
         self, cache: OrderedDict[str, float], key: str, now: float

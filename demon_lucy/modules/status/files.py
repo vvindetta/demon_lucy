@@ -4,6 +4,7 @@ import os
 import shlex
 from typing import Any, Optional, Protocol
 
+from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import IgnoreMap
 
 
@@ -48,23 +49,21 @@ class StatusFileMixin:
         return merged or None
 
     @staticmethod
-    def _discover_status_dirs_from_path(path: str) -> list[str]:
+    def _discover_root_status_directories(watch_paths: list[str]) -> list[str]:
         result: list[str] = []
-        current = os.path.abspath(path)
-        if not os.path.isdir(current):
-            current = os.path.dirname(current)
+        for watch_path in watch_paths:
+            candidate = os.path.join(canonical_path(watch_path), ".status")
+            if os.path.isdir(candidate):
+                result.append(canonical_path(candidate))
 
-        while True:
-            for status_dir_name in (".status", ". status"):
-                candidate = os.path.join(current, status_dir_name)
-                if os.path.isdir(candidate):
-                    result.append(os.path.abspath(candidate))
-            parent = os.path.dirname(current)
-            if parent == current:
-                break
-            current = parent
-
-        return result
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for status_dir in result:
+            if status_dir in seen:
+                continue
+            seen.add(status_dir)
+            deduped.append(status_dir)
+        return deduped
 
     def _status_from_file(
         self: _StatusFileHost,

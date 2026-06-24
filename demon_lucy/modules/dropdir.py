@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from demon_lucy.lib.args.parser import Template
-from demon_lucy.lib.path import canonical_path
+from demon_lucy.lib.path import canonical_path, path_is_inside
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -38,12 +38,6 @@ class DropDir(AbstractModule):
         ),
     ]
 
-    @staticmethod
-    def _is_under(path_value: str, root_value: str) -> bool:
-        path_abs = canonical_path(path_value)
-        root_abs = canonical_path(root_value)
-        return path_abs == root_abs or path_abs.startswith(root_abs + os.sep)
-
     def _matches_selector(self, file_path: str, raw_selector: str) -> bool:
         selector = str(raw_selector).strip()
         if not selector:
@@ -53,11 +47,11 @@ class DropDir(AbstractModule):
         expanded = os.path.expanduser(selector)
 
         if os.path.isabs(expanded):
-            return self._is_under(file_dir, expanded)
+            return path_is_inside(file_dir, expanded)
 
         if os.sep in selector:
             candidate = os.path.join(os.path.dirname(file_path), expanded)
-            return self._is_under(file_dir, candidate)
+            return path_is_inside(file_dir, candidate)
 
         # Directory name selector: match any parent component.
         dir_components = [part for part in file_dir.split(os.sep) if part]

@@ -17,6 +17,15 @@ def path_has_component(path_value: str, component: str) -> bool:
     return component in path_components
 
 
+def path_is_inside(path_value: str, root_value: str) -> bool:
+    path = canonical_path(path_value)
+    root = canonical_path(root_value)
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+
 def find_parent_with(path_value: str, marker_name: str) -> Optional[str]:
     """
     Walk up from a file or directory path and return the first parent directory

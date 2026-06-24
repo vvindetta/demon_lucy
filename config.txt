@@ -16,8 +16,8 @@
 # Override module order. Lower number runs earlier.
 # --modules-priority sys=0 banner=10 renamer=20 linker=22 archive=25 formatter=40 git=50
 
-# Ignore generated/internal trees so module writes do not re-trigger workflows.
-# --sys-ignore-paths "/home/user/Notes/.status" "/home/user/Notes/.archive"
+# Ignore generated/internal trees when modules should not run there.
+# --sys-ignore-paths "/home/user/Notes/.archive"
 
 # Disable opened events if editors, Git, indexers, or file managers create too
 # much noise. Oneshot synthetic opened events still work independently.

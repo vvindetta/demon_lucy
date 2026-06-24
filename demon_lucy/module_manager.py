@@ -15,7 +15,7 @@ from demon_lucy.lib.args.parser import (
     parse_template_item,
     parse_args,
 )
-from demon_lucy.lib.path import canonical_path
+from demon_lucy.lib.path import canonical_path, path_is_inside
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -69,15 +69,11 @@ class ModuleManager:
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))
 
     def _is_blacklisted_path(self, path: str, values: list[str]) -> bool:
-        normalized_path = canonical_path(path)
         for value in values or []:
             raw_value = str(value).strip()
             if not raw_value:
                 continue
-            blacklisted_path = canonical_path(raw_value)
-            if normalized_path == blacklisted_path:
-                return True
-            if normalized_path.startswith(blacklisted_path + os.sep):
+            if path_is_inside(path, raw_value):
                 return True
         return False
 

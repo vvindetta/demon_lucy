@@ -31,6 +31,7 @@ these values from the resolved `config[...]`.
 | `--sys-notification-error-burst-limit` | `int` | Maximum number of error notifications inside one burst window. |
 | `--sys-notification-error-burst-window-seconds` | `float` | Burst window length used for global error notification limiting. |
 | `--sys-ignore-paths` | `str[]` | Paths where modules should not run. |
+| `--sys-ignore-move-paths` | `str[]` | Directories where internal `moved` events are skipped before module execution. Relative paths are resolved under each watched root. Default: `.status`. |
 | `--sys-modules` | `str[]` | Include only these modules by name for both daemon and one-shot runs. |
 | `--sys-modules-exclude` | `str[]` | Exclude modules from the included/default module list. |
 
@@ -40,6 +41,7 @@ Example:
 python3 main_daemon.py --sys-watch-paths ~/Notes --sys-disable-opened-events
 --sys-notification-provider desktop
 --sys-ignore-paths ~/.cache ~/Notes/private
+--sys-ignore-move-paths .status
 ```
 
 ## One-shot Args

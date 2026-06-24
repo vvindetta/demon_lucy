@@ -11,6 +11,7 @@ from demon_lucy.lib.path import (
     find_parent_git_repo,
     git_dir_for_repo_root,
     path_has_component,
+    path_is_inside,
 )
 
 
@@ -38,6 +39,26 @@ def test_path_has_component_detects_git_dir(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("x\n", encoding="utf-8")
     assert path_has_component(str(path), ".git") is expected
+
+
+def test_path_is_inside_matches_root_and_children(tmp_path: Path) -> None:
+    root = tmp_path / "Notes"
+    child = root / "daily" / "todo.md"
+    child.parent.mkdir(parents=True)
+    child.write_text("x\n", encoding="utf-8")
+
+    assert path_is_inside(str(root), str(root)) is True
+    assert path_is_inside(str(child), str(root)) is True
+
+
+def test_path_is_inside_rejects_sibling_with_same_prefix(tmp_path: Path) -> None:
+    root = tmp_path / "Notes"
+    sibling = tmp_path / "Notes-old" / "todo.md"
+    root.mkdir()
+    sibling.parent.mkdir()
+    sibling.write_text("x\n", encoding="utf-8")
+
+    assert path_is_inside(str(sibling), str(root)) is False
 
 
 def test_find_parent_with_git_marker(tmp_path: Path) -> None:

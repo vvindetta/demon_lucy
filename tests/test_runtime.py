@@ -48,3 +48,8 @@ def test_select_demon_lucy_modules_rejects_unknown_exclude():
 def test_sys_modules_default_is_defined_in_startup_template():
     known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
     assert known_args["sys_modules"]
+
+
+def test_sys_ignore_move_paths_default_is_defined_in_startup_template():
+    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+    assert known_args["sys_ignore_move_paths"] == [".status"]

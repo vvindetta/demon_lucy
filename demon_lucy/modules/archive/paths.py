@@ -2,20 +2,11 @@ from __future__ import annotations
 
 import os
 
-from demon_lucy.lib.path import canonical_path, find_parent_git_repo
+from demon_lucy.lib.path import canonical_path, find_parent_git_repo, path_is_inside
 from demon_lucy.modules.abstract_module import Context
 
 from demon_lucy.modules.archive import notify
 from demon_lucy.modules.archive.types import ArchiveRequest
-
-
-def is_within_root(path_value: str, root_value: str) -> bool:
-    path_abs = canonical_path(path_value)
-    root_abs = canonical_path(root_value)
-    try:
-        return os.path.commonpath([path_abs, root_abs]) == root_abs
-    except ValueError:
-        return False
 
 
 def selector_has_parent_reference(selector: str) -> bool:
@@ -41,7 +32,7 @@ def event_path_is_inside_configured_watch_roots(ctx: Context) -> bool:
         watch_path = str(value).strip()
         if not watch_path:
             continue
-        if is_within_root(event_path, canonical_path(watch_path)):
+        if path_is_inside(event_path, watch_path):
             return True
     return False
 
@@ -172,7 +163,7 @@ def resolve_safe_selector(
         return None
 
     resolved_path = canonical_path(candidate_path)
-    if not is_within_root(resolved_path, allowed_root):
+    if not path_is_inside(resolved_path, allowed_root):
         notify.security_block(
             ctx,
             reason="outside_allowed_root",
@@ -358,7 +349,7 @@ def resolve_dest_dir(
         )
         return None
     resolved_dir = canonical_path(dest_dir)
-    if not is_within_root(resolved_dir, allowed_root):
+    if not path_is_inside(resolved_dir, allowed_root):
         notify.security_block(
             ctx,
             reason="outside_allowed_root",

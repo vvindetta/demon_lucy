@@ -5,6 +5,7 @@ import os
 import subprocess
 import threading
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
@@ -23,6 +24,22 @@ from demon_lucy.modules.status.parsing import StatusParsingMixin
 from demon_lucy.modules.status.rendering import StatusRenderingMixin
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _StatusTarget:
+    parts: list[str] = field(default_factory=list)
+    banner: tuple[str, int, int] | None = None
+    status_prefix: str = ""
+    banner_offset: int = 0
+    banner_last_slot: int | None = None
+    animation: tuple[list[str], int] | None = None
+    animation_frame_index: int = 0
+    animation_last_switch_seconds: float = 0.0
+    animation_cycle_finished: bool = False
+    git_sync_prefix_frame_index: int = 0
+    git_sync_prefix_last_switch_seconds: float = 0.0
+    git_sync_prefix_pause_until_seconds: float = 0.0
 
 
 class Status(
@@ -142,18 +159,7 @@ class Status(
         self._git_sync_prefix_cycle_pause_seconds = float(
             defaults["status_git_sync_prefix_cycle_pause_seconds"]
         )
-        self._tracked_paths: dict[str, list[str]] = {}
-        self._tracked_banners: dict[str, tuple[str, int, int]] = {}
-        self._tracked_prefixes: dict[str, str] = {}
-        self._banner_offsets: dict[str, int] = {}
-        self._banner_last_slots: dict[str, int] = {}
-        self._tracked_animations: dict[str, tuple[list[str], int]] = {}
-        self._animation_frame_indices: dict[str, int] = {}
-        self._animation_last_switch_seconds: dict[str, float] = {}
-        self._animation_cycle_finished: dict[str, bool] = {}
-        self._git_sync_prefix_frame_indices: dict[str, int] = {}
-        self._git_sync_prefix_last_switch_seconds: dict[str, float] = {}
-        self._git_sync_prefix_pause_until_seconds: dict[str, float] = {}
+        self._targets: dict[str, _StatusTarget] = {}
         self._track_lock = threading.Lock()
         self._rename_lock = threading.Lock()
         self._bootstrap_lock = threading.Lock()
@@ -291,9 +297,11 @@ class Status(
 
         if not fast_mode:
             with self._track_lock:
-                self._git_sync_prefix_frame_indices[path] = 0
-                self._git_sync_prefix_last_switch_seconds.pop(path, None)
-                self._git_sync_prefix_pause_until_seconds.pop(path, None)
+                target = self._targets.get(path)
+                if target is not None:
+                    target.git_sync_prefix_frame_index = 0
+                    target.git_sync_prefix_last_switch_seconds = 0.0
+                    target.git_sync_prefix_pause_until_seconds = 0.0
             return base_prefix
 
         letter_positions = [idx for idx, ch in enumerate(base_prefix) if ch.isalpha()]
@@ -302,41 +310,40 @@ class Status(
 
         render_pause_lowercase = False
         with self._track_lock:
-            current_index = self._git_sync_prefix_frame_indices.get(path, 0)
+            target = self._targets.setdefault(path, _StatusTarget())
+            current_index = target.git_sync_prefix_frame_index
             if current_index < 0:
                 current_index = 0
             if current_index >= len(letter_positions):
                 current_index = 0
 
             now_seconds = time.time()
-            pause_until_seconds = self._git_sync_prefix_pause_until_seconds.get(path, 0.0)
+            pause_until_seconds = target.git_sync_prefix_pause_until_seconds
             if pause_until_seconds > 0.0:
                 if now_seconds < pause_until_seconds:
                     return _letters_to_lower(base_prefix)
-                self._git_sync_prefix_pause_until_seconds.pop(path, None)
+                target.git_sync_prefix_pause_until_seconds = 0.0
                 current_index = 0
-                self._git_sync_prefix_frame_indices[path] = current_index
-                self._git_sync_prefix_last_switch_seconds[path] = now_seconds
+                target.git_sync_prefix_frame_index = current_index
+                target.git_sync_prefix_last_switch_seconds = now_seconds
 
-            last_switch_seconds = self._git_sync_prefix_last_switch_seconds.get(
-                path, 0.0
-            )
+            last_switch_seconds = target.git_sync_prefix_last_switch_seconds
             if last_switch_seconds <= 0.0:
-                self._git_sync_prefix_last_switch_seconds[path] = now_seconds
+                target.git_sync_prefix_last_switch_seconds = now_seconds
             else:
                 speed_seconds = max(0.1, float(self._git_fast_tick_interval_seconds))
                 if now_seconds - last_switch_seconds >= speed_seconds:
                     next_index = current_index + 1
                     if next_index >= len(letter_positions):
-                        self._git_sync_prefix_pause_until_seconds[path] = (
+                        target.git_sync_prefix_pause_until_seconds = (
                             now_seconds + self._git_sync_prefix_cycle_pause_seconds
                         )
-                        self._git_sync_prefix_last_switch_seconds[path] = now_seconds
+                        target.git_sync_prefix_last_switch_seconds = now_seconds
                         render_pause_lowercase = True
                     else:
                         current_index = next_index
-                        self._git_sync_prefix_frame_indices[path] = current_index
-                        self._git_sync_prefix_last_switch_seconds[path] = now_seconds
+                        target.git_sync_prefix_frame_index = current_index
+                        target.git_sync_prefix_last_switch_seconds = now_seconds
 
         if render_pause_lowercase:
             return _letters_to_lower(base_prefix)
@@ -375,29 +382,30 @@ class Status(
             return None
 
         with self._track_lock:
-            current_index = self._animation_frame_indices.get(path, 0)
+            target = self._targets.setdefault(path, _StatusTarget())
+            current_index = target.animation_frame_index
             if current_index < 0:
                 current_index = 0
             if current_index >= len(ascii_frames):
                 current_index = len(ascii_frames) - 1
             now_seconds = time.time()
             if advance_frame:
-                if self._animation_cycle_finished.get(path, False):
+                if target.animation_cycle_finished:
                     return ascii_frames[current_index]
-                last_switch_seconds = self._animation_last_switch_seconds.get(path, 0.0)
+                last_switch_seconds = target.animation_last_switch_seconds
                 if last_switch_seconds <= 0.0:
-                    self._animation_last_switch_seconds[path] = now_seconds
+                    target.animation_last_switch_seconds = now_seconds
                 else:
                     speed_seconds = max(1, int(ascii_speed_ms)) / 1000.0
                     if now_seconds - last_switch_seconds >= speed_seconds:
                         if current_index < len(ascii_frames) - 1:
                             current_index += 1
-                            self._animation_frame_indices[path] = current_index
+                            target.animation_frame_index = current_index
                         else:
                             current_index = 0
-                            self._animation_frame_indices[path] = current_index
-                            self._animation_cycle_finished[path] = True
-                        self._animation_last_switch_seconds[path] = now_seconds
+                            target.animation_frame_index = current_index
+                            target.animation_cycle_finished = True
+                        target.animation_last_switch_seconds = now_seconds
             return ascii_frames[current_index]
 
     def _set_tracked_parts(
@@ -422,43 +430,45 @@ class Status(
         animation_speed_ms = max(1, int(ascii_animation_speed_ms))
         needs_background_updates = self._needs_background_updates(parts, banner_text)
         with self._track_lock:
+            if not needs_background_updates and not animation_frames:
+                self._targets.pop(abs_path, None)
+                return
+
+            target = self._targets.setdefault(abs_path, _StatusTarget())
+            target.status_prefix = str(status_prefix or "")
+
             if animation_frames:
-                previous_animation = self._tracked_animations.get(abs_path)
+                previous_animation = target.animation
                 next_animation = (list(animation_frames), animation_speed_ms)
                 if previous_animation != next_animation:
-                    self._animation_frame_indices[abs_path] = 0
-                    self._animation_last_switch_seconds[abs_path] = 0.0
-                    self._animation_cycle_finished[abs_path] = False
-                self._tracked_animations[abs_path] = next_animation
+                    target.animation_frame_index = 0
+                    target.animation_last_switch_seconds = 0.0
+                    target.animation_cycle_finished = False
+                target.animation = next_animation
             else:
-                self._tracked_animations.pop(abs_path, None)
-                self._animation_frame_indices.pop(abs_path, None)
-                self._animation_last_switch_seconds.pop(abs_path, None)
-                self._animation_cycle_finished.pop(abs_path, None)
-                self._git_sync_prefix_frame_indices.pop(abs_path, None)
-                self._git_sync_prefix_last_switch_seconds.pop(abs_path, None)
-                self._git_sync_prefix_pause_until_seconds.pop(abs_path, None)
-
-            if needs_background_updates or animation_frames:
-                self._tracked_prefixes[abs_path] = str(status_prefix or "")
-            else:
-                self._tracked_prefixes.pop(abs_path, None)
+                target.animation = None
+                target.animation_frame_index = 0
+                target.animation_last_switch_seconds = 0.0
+                target.animation_cycle_finished = False
+                target.git_sync_prefix_frame_index = 0
+                target.git_sync_prefix_last_switch_seconds = 0.0
+                target.git_sync_prefix_pause_until_seconds = 0.0
 
             if needs_background_updates:
-                self._tracked_paths[abs_path] = list(parts)
+                target.parts = list(parts)
                 if banner_text:
                     safe_speed_ms = max(1, int(banner_speed_ms))
                     safe_max_chars = max(0, int(banner_max_chars))
-                    previous_banner = self._tracked_banners.get(abs_path)
+                    previous_banner = target.banner
                     next_banner = (banner_text, safe_speed_ms, safe_max_chars)
                     if previous_banner != next_banner:
-                        self._banner_offsets[abs_path] = 0
-                        self._banner_last_slots.pop(abs_path, None)
-                    self._tracked_banners[abs_path] = next_banner
+                        target.banner_offset = 0
+                        target.banner_last_slot = None
+                    target.banner = next_banner
                 else:
-                    self._tracked_banners.pop(abs_path, None)
-                    self._banner_offsets.pop(abs_path, None)
-                    self._banner_last_slots.pop(abs_path, None)
+                    target.banner = None
+                    target.banner_offset = 0
+                    target.banner_last_slot = None
                 if "git_update" in parts:
                     self._git_fast_tick_until = max(
                         self._git_fast_tick_until,
@@ -469,16 +479,11 @@ class Status(
 
             if animation_frames:
                 self._ensure_ticker_started()
-                self._tracked_paths.pop(abs_path, None)
-                self._tracked_banners.pop(abs_path, None)
-                self._banner_offsets.pop(abs_path, None)
-                self._banner_last_slots.pop(abs_path, None)
+                target.parts = []
+                target.banner = None
+                target.banner_offset = 0
+                target.banner_last_slot = None
                 return
-
-            self._tracked_paths.pop(abs_path, None)
-            self._tracked_banners.pop(abs_path, None)
-            self._banner_offsets.pop(abs_path, None)
-            self._banner_last_slots.pop(abs_path, None)
 
     def _ensure_ticker_started(self) -> None:
         if self._ticker_thread is not None:
@@ -499,101 +504,35 @@ class Status(
         old_abs = os.path.abspath(old_path)
         new_abs = os.path.abspath(new_path)
         with self._track_lock:
-            parts = self._tracked_paths.pop(old_abs, None)
-            if parts is not None:
-                self._tracked_paths[new_abs] = list(parts)
-            banner = self._tracked_banners.pop(old_abs, None)
-            if banner:
-                self._tracked_banners[new_abs] = banner
-            prefix_text = self._tracked_prefixes.pop(old_abs, None)
-            if prefix_text is not None:
-                self._tracked_prefixes[new_abs] = prefix_text
-            offset = self._banner_offsets.pop(old_abs, None)
-            if offset is not None:
-                self._banner_offsets[new_abs] = offset
-            last_slot = self._banner_last_slots.pop(old_abs, None)
-            if last_slot is not None:
-                self._banner_last_slots[new_abs] = last_slot
-            animation_state = self._tracked_animations.pop(old_abs, None)
-            if animation_state is not None:
-                self._tracked_animations[new_abs] = (
-                    list(animation_state[0]),
-                    int(animation_state[1]),
-                )
-            frame_index = self._animation_frame_indices.pop(old_abs, None)
-            if frame_index is not None:
-                self._animation_frame_indices[new_abs] = int(frame_index)
-            last_switch_seconds = self._animation_last_switch_seconds.pop(old_abs, None)
-            if last_switch_seconds is not None:
-                self._animation_last_switch_seconds[new_abs] = float(
-                    last_switch_seconds
-                )
-            cycle_finished = self._animation_cycle_finished.pop(old_abs, None)
-            if cycle_finished is not None:
-                self._animation_cycle_finished[new_abs] = bool(cycle_finished)
-            git_prefix_frame_index = self._git_sync_prefix_frame_indices.pop(
-                old_abs, None
-            )
-            if git_prefix_frame_index is not None:
-                self._git_sync_prefix_frame_indices[new_abs] = int(
-                    git_prefix_frame_index
-                )
-            git_prefix_last_switch = self._git_sync_prefix_last_switch_seconds.pop(
-                old_abs, None
-            )
-            if git_prefix_last_switch is not None:
-                self._git_sync_prefix_last_switch_seconds[new_abs] = float(
-                    git_prefix_last_switch
-                )
-            git_prefix_pause_until = self._git_sync_prefix_pause_until_seconds.pop(
-                old_abs, None
-            )
-            if git_prefix_pause_until is not None:
-                self._git_sync_prefix_pause_until_seconds[new_abs] = float(
-                    git_prefix_pause_until
-                )
+            target = self._targets.pop(old_abs, None)
+            if target is not None:
+                self._targets[new_abs] = target
 
     def _restart_tracked_animation_cycles(self, trigger_path: str) -> None:
         trigger_abs = os.path.abspath(trigger_path)
         now_seconds = time.time()
         with self._track_lock:
-            for path in list(self._tracked_animations.keys()):
+            for path, target in self._targets.items():
+                if target.animation is None:
+                    continue
                 if path == trigger_abs:
                     continue
-                self._animation_frame_indices[path] = 0
-                self._animation_last_switch_seconds[path] = now_seconds
-                self._animation_cycle_finished[path] = False
+                target.animation_frame_index = 0
+                target.animation_last_switch_seconds = now_seconds
+                target.animation_cycle_finished = False
 
     def _tick_once(self) -> None:
         now_ts = time.time()
         with self._track_lock:
             tracked_items = [
-                (
-                    path,
-                    list(self._tracked_paths.get(path, [])),
-                    self._tracked_animations.get(path),
-                )
-                for path in (
-                    set(self._tracked_paths.keys())
-                    | set(self._tracked_animations.keys())
-                )
+                (path, list(target.parts), target.animation)
+                for path, target in self._targets.items()
             ]
 
         for path, parts, ascii_animation_state in tracked_items:
             if not os.path.exists(path):
                 with self._track_lock:
-                    self._tracked_paths.pop(path, None)
-                    self._tracked_banners.pop(path, None)
-                    self._tracked_prefixes.pop(path, None)
-                    self._banner_offsets.pop(path, None)
-                    self._banner_last_slots.pop(path, None)
-                    self._tracked_animations.pop(path, None)
-                    self._animation_frame_indices.pop(path, None)
-                    self._animation_last_switch_seconds.pop(path, None)
-                    self._animation_cycle_finished.pop(path, None)
-                    self._git_sync_prefix_frame_indices.pop(path, None)
-                    self._git_sync_prefix_last_switch_seconds.pop(path, None)
-                    self._git_sync_prefix_pause_until_seconds.pop(path, None)
+                    self._targets.pop(path, None)
                 continue
 
             banner_text: str | None = None
@@ -603,23 +542,25 @@ class Status(
             ascii_frames: list[str] = []
             ascii_speed_ms = self._default_animation_speed_ms
             with self._track_lock:
-                banner_state = self._tracked_banners.get(path)
+                target = self._targets.get(path)
+                banner_state = target.banner if target is not None else None
                 if banner_state:
                     banner_text, banner_speed_ms, banner_max_chars = banner_state
                     speed_seconds = max(1, banner_speed_ms) / 1000.0
                     current_slot = int(now_ts // speed_seconds)
-                    last_slot = self._banner_last_slots.get(path)
+                    last_slot = target.banner_last_slot
                     if last_slot is None:
-                        self._banner_last_slots[path] = current_slot
+                        target.banner_last_slot = current_slot
                     elif current_slot != last_slot:
                         step_count = max(1, current_slot - last_slot)
-                        self._banner_last_slots[path] = current_slot
-                        next_offset = self._banner_offsets.get(path, 0) + step_count
-                        self._banner_offsets[path] = next_offset
-                    banner_offset = self._banner_offsets.get(path, 0)
-                status_prefix = self._tracked_prefixes.get(path, "")
+                        target.banner_last_slot = current_slot
+                        target.banner_offset += step_count
+                    banner_offset = target.banner_offset
+                status_prefix = target.status_prefix if target is not None else ""
                 if ascii_animation_state is None:
-                    ascii_animation_state = self._tracked_animations.get(path)
+                    ascii_animation_state = (
+                        target.animation if target is not None else None
+                    )
                 if ascii_animation_state is not None:
                     ascii_frames = list(ascii_animation_state[0])
                     ascii_speed_ms = int(ascii_animation_state[1])
@@ -639,9 +580,14 @@ class Status(
     def _ticker_interval_seconds(self) -> float:
         now_ts = time.time()
         with self._track_lock:
-            tracked_parts = list(self._tracked_paths.values())
-            tracked_banners = list(self._tracked_banners.values())
-            tracked_ascii_animations = list(self._tracked_animations.values())
+            targets = list(self._targets.values())
+            tracked_parts = [list(target.parts) for target in targets]
+            tracked_banners = [
+                target.banner for target in targets if target.banner is not None
+            ]
+            tracked_ascii_animations = [
+                target.animation for target in targets if target.animation is not None
+            ]
             has_seconds = any("time_with_seconds" in parts for parts in tracked_parts)
             has_git_update = any("git_update" in parts for parts in tracked_parts)
             fast_until = self._git_fast_tick_until
@@ -685,13 +631,16 @@ class Status(
                 self._last_tick_key = None
                 self._ticker_stop.wait(1.0)
 
-    def _bootstrap_from_status_dirs(self, event_path: str) -> Optional[IgnoreMap]:
-        status_dirs = self._discover_status_dirs_from_path(event_path)
-        if not status_dirs:
+    def _bootstrap_from_root_status_directories(
+        self,
+        watch_paths: list[str],
+    ) -> Optional[IgnoreMap]:
+        root_status_directories = self._discover_root_status_directories(watch_paths)
+        if not root_status_directories:
             return None
 
         merged: Optional[IgnoreMap] = None
-        for status_dir in status_dirs:
+        for status_dir in root_status_directories:
             for root, _dirs, files in os.walk(status_dir):
                 for file_name in files:
                     file_path = os.path.abspath(os.path.join(root, file_name))
@@ -725,7 +674,10 @@ class Status(
                         ascii_animation_speed_ms=ascii_animation_speed_ms,
                     )
                     with self._track_lock:
-                        banner_offset = self._banner_offsets.get(file_path, 0)
+                        target = self._targets.get(file_path)
+                        banner_offset = (
+                            target.banner_offset if target is not None else 0
+                        )
                     changed = self._apply(
                         path=file_path,
                         parts=parts,
@@ -740,13 +692,20 @@ class Status(
                     merged = self._merge_ignore_maps(merged, changed)
         return merged
 
-    def _bootstrap_once(self, event_path: str) -> Optional[IgnoreMap]:
+    def _bootstrap_once(
+        self,
+        watch_paths: list[str],
+    ) -> Optional[IgnoreMap]:
         if self._bootstrap_done:
             return None
         with self._bootstrap_lock:
             if self._bootstrap_done:
                 return None
-            changed = self._bootstrap_from_status_dirs(event_path)
+            # Status state is in-memory; after daemon restart, existing root
+            # .status files need one lazy scan to revive ticker/animations.
+            changed = self._bootstrap_from_root_status_directories(
+                watch_paths,
+            )
             self._bootstrap_done = True
             return changed
 
@@ -779,17 +738,22 @@ class Status(
             )
             if banner_text is None:
                 with self._track_lock:
-                    banner_state = self._tracked_banners.get(old_path)
+                    target = self._targets.get(old_path)
+                    banner_state = target.banner if target is not None else None
                     if banner_state:
                         banner_text = banner_state[0]
                         banner_max_chars = banner_state[2]
-                        banner_offset = self._banner_offsets.get(old_path, 0)
+                        banner_offset = target.banner_offset
             if status_prefix is None:
                 with self._track_lock:
-                    status_prefix = self._tracked_prefixes.get(old_path, "")
+                    target = self._targets.get(old_path)
+                    status_prefix = target.status_prefix if target is not None else ""
             if ascii_animation_frames is None:
                 with self._track_lock:
-                    tracked_ascii_animation = self._tracked_animations.get(old_path)
+                    target = self._targets.get(old_path)
+                    tracked_ascii_animation = (
+                        target.animation if target is not None else None
+                    )
                 if tracked_ascii_animation:
                     ascii_animation_frames = list(tracked_ascii_animation[0])
                     ascii_animation_speed_ms = int(tracked_ascii_animation[1])
@@ -865,7 +829,9 @@ class Status(
         self._git_sync_prefix_cycle_pause_seconds = max(
             0.0, float(ctx.config["status_git_sync_prefix_cycle_pause_seconds"])
         )
-        bootstrap_changed = self._bootstrap_once(ctx.path)
+        bootstrap_changed = self._bootstrap_once(
+            list(ctx.config["sys_watch_paths"]),
+        )
         self._restart_tracked_animation_cycles(ctx.path)
         parts = self._parse_status_parts(list(ctx.config["status"]))
         banner_text, banner_speed_ms, banner_max_chars = (
@@ -895,7 +861,8 @@ class Status(
             ascii_animation_speed_ms=ascii_animation_speed_ms,
         )
         with self._track_lock:
-            banner_offset = self._banner_offsets.get(os.path.abspath(ctx.path), 0)
+            target = self._targets.get(os.path.abspath(ctx.path))
+            banner_offset = target.banner_offset if target is not None else 0
         current_changed = self._apply(
             path=ctx.path,
             parts=parts,

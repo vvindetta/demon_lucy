@@ -90,7 +90,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
 **Experimental:**
 - `dropdir`: handles moved files in configured drop directories. Useful for temporary inbox/drop folders where moving a file should immediately trigger a follow-up action.
-- `status`: updates note filenames with dynamic status tokens (time/date/git state, animations, prefixes).
+- `status`: updates standalone status filenames with dynamic tokens (time/date/git state, animations, prefixes).
 - `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.
 - `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
 

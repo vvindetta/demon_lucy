@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from demon_lucy.lib.path import path_is_inside
 from demon_lucy.modules.git.helpers import format_path_for_commit_message
 from demon_lucy.modules.git.types import _RepoBatch
 
@@ -69,13 +70,12 @@ def _normalize_path(path_text: str, repo_root: str) -> str:
     if not path_text:
         return ""
 
-    if repo_root and os.path.isabs(path_text):
+    if repo_root and os.path.isabs(path_text) and path_is_inside(path_text, repo_root):
         try:
             rel_path = os.path.relpath(path_text, repo_root)
         except ValueError:
             rel_path = path_text
-        if not rel_path.startswith(".."):
-            path_text = rel_path
+        path_text = rel_path
 
     return path_text.replace(os.sep, "/")
 

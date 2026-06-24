@@ -305,6 +305,28 @@ def test_changes_from_staged_diff_handles_actions_rename_and_binary():
     ]
 
 
+def test_changes_from_staged_diff_does_not_relativize_repo_prefix_sibling(
+    tmp_path: Path,
+):
+    repo = tmp_path / "repo"
+    sibling = tmp_path / "repo-old"
+    repo.mkdir()
+    sibling.mkdir()
+    inside_path = repo / "todo.md"
+    sibling_path = sibling / "todo.md"
+
+    changes = git_commit_message.changes_from_staged_diff(
+        name_status_z=f"M\x00{inside_path}\x00M\x00{sibling_path}\x00",
+        numstat_z="",
+        repo_root=str(repo),
+    )
+
+    assert [change.path for change in changes] == [
+        "todo.md",
+        str(sibling_path),
+    ]
+
+
 def test_detailed_commit_message_summarizes_multiple_actions():
     batch = _mk_batch(
         event_type="opened",

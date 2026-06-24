@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from demon_lucy.lib.path import git_dir_for_repo_root
+from demon_lucy.lib.path import git_dir_for_repo_root, path_is_inside
 
 
 def queue_root_for_repo(repo_root: str, queue_dir_name: str) -> str:
@@ -19,8 +19,7 @@ def is_queue_internal_path(
     path_value: str, repo_root: str, queue_dir_name: str
 ) -> bool:
     queue_root = queue_root_for_repo(repo_root, queue_dir_name)
-    path_norm = os.path.normpath(path_value)
-    return path_norm == queue_root or path_norm.startswith(queue_root + os.sep)
+    return path_is_inside(path_value, queue_root)
 
 
 def ensure_queue_excluded_in_repo(repo_root: str, queue_dir_name: str) -> None:
