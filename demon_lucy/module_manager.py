@@ -22,6 +22,7 @@ from demon_lucy.modules.abstract_module import (
     RunMode,
     System,
 )
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class ModuleManager:
                 False,
             ),
         ]
+        self.template.extend(DEMON_LUCY_STARTUP_TEMPLATE)
 
         for module in self.modules:
             self.template.extend(module.template)

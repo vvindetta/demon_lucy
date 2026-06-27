@@ -7,6 +7,7 @@ from watchdog.events import FileModifiedEvent
 
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.sys import Sys
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
 
 class _StatusLikeModule:
@@ -91,6 +92,39 @@ def test_man_lines_sys_keyword_expands_to_system_flags():
     assert any("--sys-modules-priority:" in line for line in lines)
     assert all("--oneshot-event:" not in line for line in lines)
     assert all("--mods:" not in line for line in lines)
+
+
+def test_man_lines_sys_uses_startup_template_defaults():
+    module = Sys()
+    config = _base_config()
+    config.update(
+        {
+            "sys_notification_provider": "auto",
+            "sys_notification_min_interval_seconds": 10.0,
+            "sys_opened_event_cooldown_seconds": 60,
+        }
+    )
+    system = System(
+        event=FileModifiedEvent("/tmp/x"),
+        global_template=DEMON_LUCY_STARTUP_TEMPLATE + Sys.template,
+        modules=[module],
+    )
+
+    lines = module._man_lines(system, ["sys"], config)
+
+    assert any(
+        "--sys-notification-provider:" in line and "default=auto" in line
+        for line in lines
+    )
+    assert any(
+        "--sys-notification-min-interval-seconds:" in line and "default=10.0" in line
+        for line in lines
+    )
+    assert any(
+        "--sys-opened-event-cooldown-seconds:" in line and "default=60" in line
+        for line in lines
+    )
+    assert all("System arg from runtime config." not in line for line in lines)
 
 
 @pytest.mark.parametrize(

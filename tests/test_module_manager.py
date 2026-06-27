@@ -113,6 +113,20 @@ def test_module_manager_priority_flag_uses_sys_prefix():
     assert "modules_priority" not in manager.config
 
 
+def test_module_manager_includes_startup_template_flags():
+    manager = ModuleManager(
+        modules=[_ModA()],
+        args=[],
+        system_config=_SYSTEM_CONFIG,
+    )
+    flags = [item[0] for item in manager.template]
+
+    assert "--sys-notification-provider" in flags
+    assert "--sys-opened-event-cooldown-seconds" in flags
+    assert manager.config["sys_notification_provider"] == "termuxapi"
+    assert manager.config["sys_opened_event_cooldown_seconds"] == 60
+
+
 def test_init_sorts_modules_by_priority_override():
     a, c = _ModA(), _ModC()
     manager = ModuleManager(
