@@ -184,16 +184,10 @@ class _PlasmaDocParser(HTMLParser):
 
         doc = self._doc[:]
         if trim_empty_edges:
-            while (
-                doc
-                and doc[0].kind == "p"
-                and _segs_plain(doc[0].segs).strip() == ""
-            ):
+            while doc and doc[0].kind == "p" and _segs_plain(doc[0].segs).strip() == "":
                 doc.pop(0)
             while (
-                doc
-                and doc[-1].kind == "p"
-                and _segs_plain(doc[-1].segs).strip() == ""
+                doc and doc[-1].kind == "p" and _segs_plain(doc[-1].segs).strip() == ""
             ):
                 doc.pop()
         return doc

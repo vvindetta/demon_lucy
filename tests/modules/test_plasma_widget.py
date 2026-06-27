@@ -19,12 +19,6 @@ _NOTIFY_CFG = {
 
 @pytest.fixture(autouse=True)
 def _reset_plasma_globals(monkeypatch):
-    monkeypatch.setattr(plasma_mod, "_INIT_DONE", False)
-    monkeypatch.setattr(
-        plasma_mod,
-        "_STATE",
-        plasma_mod.SyncState(doc_hash=None, bold_items_hash=None, css_style=None),
-    )
     monkeypatch.setattr(plasma_mod, "_STATE_BY_KEY", {})
     monkeypatch.setattr(plasma_mod, "_INIT_DONE_BY_KEY", {})
 
@@ -141,9 +135,7 @@ def test_bold_mirror_blank_only_edit_does_not_update_markdown_spacing():
             css_style=False,
         ),
         mirror_exists=True,
-        widget_html_current=plasma_mod._doc_to_plasma_html(
-            main_doc, css_style=False
-        ),
+        widget_html_current=plasma_mod._doc_to_plasma_html(main_doc, css_style=False),
         markdown_text_current="**a**\n**b**",
         css_style=False,
     )
@@ -211,10 +203,7 @@ def test_apply_mirror_reorders_existing_bold_lines_without_append():
         ["work", "read book", "- reply", "- reset account"],
     )
     assert plasma_mod._doc_to_md(updated) == (
-        "**work**\n"
-        "**read book**\n"
-        "**- reply**\n"
-        "**- reset account**"
+        "**work**\n" "**read book**\n" "**- reply**\n" "**- reset account**"
     )
 
     updated = plasma_mod._apply_mirror_lines_to_doc(
@@ -222,10 +211,7 @@ def test_apply_mirror_reorders_existing_bold_lines_without_append():
         ["- reset account", "read book", "work", "- reply"],
     )
     assert plasma_mod._doc_to_md(updated) == (
-        "**- reset account**\n"
-        "**read book**\n"
-        "**work**\n"
-        "**- reply**"
+        "**- reset account**\n" "**read book**\n" "**work**\n" "**- reply**"
     )
 
 
@@ -299,9 +285,12 @@ def test_handle_markdown_bootstrap_writes_missing_main_widget(tmp_path: Path):
     assert ignore is not None
     assert str(widget.resolve()) in ignore
     assert str(mirror.resolve()) in ignore
-    assert plasma_mod._doc_to_md(
-        plasma_mod._html_to_doc(widget.read_text(encoding="utf-8"))
-    ) == "Line\n**Bold**"
+    assert (
+        plasma_mod._doc_to_md(
+            plasma_mod._html_to_doc(widget.read_text(encoding="utf-8"))
+        )
+        == "Line\n**Bold**"
+    )
     assert plasma_mod._mirror_html_to_items(mirror.read_text(encoding="utf-8")) == [
         "Bold"
     ]

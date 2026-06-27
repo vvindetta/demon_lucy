@@ -103,9 +103,8 @@ def _source_doc_is_probable_truncated_snapshot(
     if source_lines >= current_lines:
         return False
 
-    return (
-        source_lines <= max(1, current_lines // 2)
-        and source_chars <= int(current_chars * 0.70)
+    return source_lines <= max(1, current_lines // 2) and source_chars <= int(
+        current_chars * 0.70
     )
 
 
@@ -209,7 +208,10 @@ def _plan_mirror_sync(
         items,
     )
     mirror_html_new = _bold_lines_to_plasma_html(mirror_lines)
-    if previous_bold_items_hash == items_hash and mirror_html_new == mirror_html_current:
+    if (
+        previous_bold_items_hash == items_hash
+        and mirror_html_new == mirror_html_current
+    ):
         return None, previous_bold_items_hash
 
     if mirror_html_new == mirror_html_current:
@@ -284,9 +286,8 @@ def plan_from_main_plasma(
     doc = _html_to_doc(widget_html_current)
     doc_hash = _doc_hash(doc)
 
-    if (
-        not _doc_has_semantic_content(doc)
-        and _markdown_has_semantic_content(markdown_text_current)
+    if not _doc_has_semantic_content(doc) and _markdown_has_semantic_content(
+        markdown_text_current
     ):
         return _plan_restore_from_markdown(
             state=state,
@@ -372,9 +373,8 @@ def plan_from_bold_mirror(
     new_doc = _apply_mirror_lines_to_doc(markdown_doc, mirror_lines)
     new_doc_hash = _doc_hash(new_doc)
 
-    if (
-        not _doc_has_semantic_content(new_doc)
-        and _markdown_has_semantic_content(markdown_text_current)
+    if not _doc_has_semantic_content(new_doc) and _markdown_has_semantic_content(
+        markdown_text_current
     ):
         return _plan_restore_from_markdown(
             state=state,

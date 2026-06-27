@@ -42,12 +42,6 @@ def _make_repo(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _reset_plasma_state(monkeypatch):
-    monkeypatch.setattr(plasma_mod, "_INIT_DONE", False)
-    monkeypatch.setattr(
-        plasma_mod,
-        "_STATE",
-        plasma_mod.SyncState(doc_hash=None, bold_items_hash=None, css_style=None),
-    )
     monkeypatch.setattr(plasma_mod, "_STATE_BY_KEY", {})
     monkeypatch.setattr(plasma_mod, "_INIT_DONE_BY_KEY", {})
 
@@ -64,7 +58,7 @@ def test_renamer_formatter_linker_pipeline_on_created_note(tmp_path: Path):
     note.parent.mkdir(parents=True)
     note.write_text(
         "--rename daily.md\n"
-        "--fmt-todo\n"
+        "--formatter-todo\n"
         "--linker-root\n"
         "- first task\n"
         "- [x] done\n",
@@ -73,7 +67,7 @@ def test_renamer_formatter_linker_pipeline_on_created_note(tmp_path: Path):
 
     manager = ModuleManager(
         modules=[Linker(), Formatter(), Renamer()],
-        args=["--modules-priority", "renamer=10", "formatter=20", "linker=30"],
+        args=["--sys-modules-priority", "renamer=10", "formatter=20", "linker=30"],
         system_config=_system_config(repo),
     )
 
@@ -88,11 +82,7 @@ def test_renamer_formatter_linker_pipeline_on_created_note(tmp_path: Path):
     }
     assert not note.exists()
     assert renamed.read_text(encoding="utf-8") == (
-        "--rename daily.md\n"
-        "--fmt-todo\n"
-        "--linker-root\n"
-        "- [ ] first task\n"
-        "- [x] done\n"
+        "--rename daily.md\n" "--linker-root\n" "- [ ] first task\n" "- [x] done\n"
     )
     assert link_path.is_symlink()
     assert os.path.realpath(link_path) == str(renamed.resolve())
@@ -108,7 +98,7 @@ def test_banner_formatter_archive_pipeline_archives_complex_note(
     note = repo / "daily.md"
     archive = repo / "past.md"
     note.write_text(
-        "--archive-pair --banner Sprint --fmt-todo\n"
+        "--archive-pair --banner Sprint --formatter-todo\n"
         "\n"
         "--- BACKLOG\n"
         "- call customer\n"
@@ -120,7 +110,7 @@ def test_banner_formatter_archive_pipeline_archives_complex_note(
 
     manager = ModuleManager(
         modules=[Archive(), Formatter(), Banner()],
-        args=["--modules-priority", "banner=10", "formatter=20", "archive=30"],
+        args=["--sys-modules-priority", "banner=10", "formatter=20", "archive=30"],
         system_config={
             **_system_config(repo),
             "archive_auto_pair": [str(note), str(archive), "12"],
@@ -133,11 +123,38 @@ def test_banner_formatter_archive_pipeline_archives_complex_note(
     assert note.read_text(encoding="utf-8") == ""
 
     archived = archive.read_text(encoding="utf-8")
-    assert "--fmt-todo" in archived
+    assert "--formatter-todo" not in archived
     assert "---\nSPRINT\n" in archived
     assert "- [ ] call customer\n" in archived
     assert "- [x] shipped\n" in archived
     assert "**Important** line\n" in archived
+
+
+def test_formatter_blank_command_is_not_archived(tmp_path: Path):
+    repo = _make_repo(tmp_path)
+    note = repo / "daily.md"
+    archive = repo / "past.md"
+    note.write_text(
+        "--archive-pair --formatter-blank up 3 --formatter-todo\n" "- inbox task\n",
+        encoding="utf-8",
+    )
+
+    manager = ModuleManager(
+        modules=[Archive(), Formatter()],
+        args=["--sys-modules-priority", "formatter=10", "archive=20"],
+        system_config={
+            **_system_config(repo),
+            "archive_auto_pair": [str(note), str(archive), "12"],
+        },
+    )
+
+    ignore = manager.run(str(note), FileModifiedEvent(str(note)))
+
+    assert ignore == {str(note.resolve()): 2, str(archive.resolve()): 1}
+    assert note.read_text(encoding="utf-8") == ""
+    archived_lines = archive.read_text(encoding="utf-8").splitlines()
+    assert archived_lines[1:] == ["- [ ] inbox task"]
+    assert all("--formatter-" not in line for line in archived_lines)
 
 
 def test_formatter_dropdir_archive_pipeline_formats_before_clean_archive(
@@ -148,19 +165,19 @@ def test_formatter_dropdir_archive_pipeline_formats_before_clean_archive(
     archive = repo / "past.md"
     drop_dir = repo / "drop"
     drop_dir.mkdir()
-    source.write_text("--fmt-todo\n- inbox task\n**Hot**\n", encoding="utf-8")
+    source.write_text("--formatter-todo\n- inbox task\n**Hot**\n", encoding="utf-8")
 
     dropped = drop_dir / source.name
     source.rename(dropped)
 
     manager = ModuleManager(
         modules=[Archive(), DropDir(), Formatter()],
-        args=["--modules-priority", "formatter=10", "dropdir=20", "archive=30"],
+        args=["--sys-modules-priority", "formatter=10", "dropdir=20", "archive=30"],
         system_config={
             **_system_config(repo),
             "archive_auto_pair": [str(source), str(archive), "12"],
-            "dropdir_archive_clean_paths": ["drop"],
-            "dropdir_archive_clean_delay_milliseconds": 0,
+            "dropdir_action": ["drop=--archive-pair"],
+            "dropdir_action_delay_milliseconds": 0,
         },
     )
 
@@ -174,7 +191,7 @@ def test_formatter_dropdir_archive_pipeline_formats_before_clean_archive(
     assert not dropped.exists()
     assert source.read_text(encoding="utf-8") == ""
     archived = archive.read_text(encoding="utf-8")
-    assert "--fmt-todo\n" in archived
+    assert "--formatter-todo\n" not in archived
     assert "- [ ] inbox task\n" in archived
     assert "**Hot**\n" in archived
 
@@ -191,7 +208,7 @@ def test_banner_formatter_linker_plasma_complex_note_stays_consistent(
     widget = repo / "widget.html"
     mirror = repo / "mirror.html"
     note.write_text(
-        "--banner Plan --fmt-todo --linker-root\n"
+        "--banner Plan --formatter-todo --linker-root\n"
         "- raw task\n"
         "- [x] closed\n"
         "**Important** note\n",
@@ -201,7 +218,7 @@ def test_banner_formatter_linker_plasma_complex_note_stays_consistent(
     manager = ModuleManager(
         modules=[PlasmaWidget(), Linker(), Formatter(), Banner()],
         args=[
-            "--modules-priority",
+            "--sys-modules-priority",
             "banner=10",
             "formatter=20",
             "linker=30",
@@ -232,7 +249,7 @@ def test_linker_and_formatter_keep_the_original_event_path_between_modules(
     repo = _make_repo(tmp_path)
     note = repo / "notes" / "daily.md"
     note.parent.mkdir(parents=True)
-    note.write_text("--linker-root\n--fmt-todo\n- task\n", encoding="utf-8")
+    note.write_text("--linker-root\n--formatter-todo\n- task\n", encoding="utf-8")
 
     manager = ModuleManager(
         modules=[Formatter(), Linker()],
@@ -246,7 +263,7 @@ def test_linker_and_formatter_keep_the_original_event_path_between_modules(
     assert ignore == {str(link_path.absolute()): 1, str(note.resolve()): 1}
     assert link_path.is_symlink()
     assert os.path.realpath(link_path) == str(note.resolve())
-    assert note.read_text(encoding="utf-8") == "--linker-root\n--fmt-todo\n- [ ] task\n"
+    assert note.read_text(encoding="utf-8") == "--linker-root\n- [ ] task\n"
 
 
 def test_formatter_then_linker_priority_override_combines_side_effects(
@@ -255,11 +272,11 @@ def test_formatter_then_linker_priority_override_combines_side_effects(
     repo = _make_repo(tmp_path)
     note = repo / "notes" / "daily.md"
     note.parent.mkdir(parents=True)
-    note.write_text("--linker-root\n--fmt-todo\n- task\n", encoding="utf-8")
+    note.write_text("--linker-root\n--formatter-todo\n- task\n", encoding="utf-8")
 
     manager = ModuleManager(
         modules=[Formatter(), Linker()],
-        args=["--modules-priority", "formatter=10", "linker=20"],
+        args=["--sys-modules-priority", "formatter=10", "linker=20"],
         system_config=_system_config(repo),
     )
 
@@ -269,7 +286,7 @@ def test_formatter_then_linker_priority_override_combines_side_effects(
     assert ignore == {str(note.resolve()): 1, str(link_path.absolute()): 1}
     assert link_path.is_symlink()
     assert os.path.realpath(link_path) == str(note.resolve())
-    assert note.read_text(encoding="utf-8") == "--linker-root\n--fmt-todo\n- [ ] task\n"
+    assert note.read_text(encoding="utf-8") == "--linker-root\n- [ ] task\n"
 
 
 def test_sys_ignore_paths_blocks_real_modules_and_side_effects(tmp_path: Path):
@@ -277,7 +294,7 @@ def test_sys_ignore_paths_blocks_real_modules_and_side_effects(tmp_path: Path):
     ignored_dir = repo / "ignored"
     note = ignored_dir / "daily.md"
     note.parent.mkdir(parents=True)
-    note.write_text("--linker-root\n--fmt-todo\n- task\n", encoding="utf-8")
+    note.write_text("--linker-root\n--formatter-todo\n- task\n", encoding="utf-8")
 
     manager = ModuleManager(
         modules=[Formatter(), Linker()],
@@ -291,7 +308,9 @@ def test_sys_ignore_paths_blocks_real_modules_and_side_effects(tmp_path: Path):
     ignore = manager.run(str(note), FileModifiedEvent(str(note)))
 
     assert ignore is None
-    assert note.read_text(encoding="utf-8") == "--linker-root\n--fmt-todo\n- task\n"
+    assert (
+        note.read_text(encoding="utf-8") == "--linker-root\n--formatter-todo\n- task\n"
+    )
     assert not (repo / "daily.md").exists()
 
 
@@ -312,8 +331,8 @@ def test_dropdir_moves_file_back_and_archives_with_absolute_pair(tmp_path: Path)
         system_config={
             **_system_config(repo),
             "archive_auto_pair": [str(source), str(archive), "12"],
-            "dropdir_archive_clean_paths": ["drop"],
-            "dropdir_archive_clean_delay_milliseconds": 0,
+            "dropdir_action": ["drop=--archive-pair"],
+            "dropdir_action_delay_milliseconds": 0,
         },
     )
 
@@ -329,48 +348,12 @@ def test_dropdir_moves_file_back_and_archives_with_absolute_pair(tmp_path: Path)
     assert "drop archive body\n" in archive.read_text(encoding="utf-8")
 
 
-def test_formatter_priority_override_keeps_plasma_widget_in_sync(tmp_path: Path):
-    repo = _make_repo(tmp_path)
-    note = repo / "todo.md"
-    widget = repo / "widget.html"
-    mirror = repo / "mirror.html"
-    note.write_text("--fmt-todo\n- task\n**Bold**\n", encoding="utf-8")
-
-    manager = ModuleManager(
-        modules=[PlasmaWidget(), Formatter()],
-        args=["--modules-priority", "formatter=20", "plasma_widget=50"],
-        system_config={
-            **_system_config(repo),
-            "plasma_markdown_note_path": str(note),
-            "plasma_widget_path": str(widget),
-            "plasma_bold_widget_path": str(mirror),
-            "plasma_css_style": False,
-        },
-    )
-
-    ignore = manager.run(str(note), FileModifiedEvent(str(note)))
-
-    assert ignore is not None
-    assert note.read_text(encoding="utf-8") == "--fmt-todo\n- [ ] task\n**Bold**\n"
-    assert "- [ ] task" in _widget_markdown(widget)
-    assert plasma_mod._mirror_html_to_items(mirror.read_text(encoding="utf-8")) == [
-        "Bold"
-    ]
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Default priorities run plasma_widget before formatter, so formatter can "
-        "change Markdown after Plasma already rendered the old text."
-    ),
-)
 def test_default_formatter_plasma_order_keeps_widget_in_sync(tmp_path: Path):
     repo = _make_repo(tmp_path)
     note = repo / "todo.md"
     widget = repo / "widget.html"
     mirror = repo / "mirror.html"
-    note.write_text("--fmt-todo\n- task\n**Bold**\n", encoding="utf-8")
+    note.write_text("--formatter-todo\n- task\n**Bold**\n", encoding="utf-8")
 
     manager = ModuleManager(
         modules=[PlasmaWidget(), Formatter()],
@@ -384,7 +367,11 @@ def test_default_formatter_plasma_order_keeps_widget_in_sync(tmp_path: Path):
         },
     )
 
-    manager.run(str(note), FileModifiedEvent(str(note)))
+    ignore = manager.run(str(note), FileModifiedEvent(str(note)))
 
-    assert note.read_text(encoding="utf-8") == "--fmt-todo\n- [ ] task\n**Bold**\n"
+    assert ignore is not None
+    assert note.read_text(encoding="utf-8") == "- [ ] task\n**Bold**\n"
     assert "- [ ] task" in _widget_markdown(widget)
+    assert plasma_mod._mirror_html_to_items(mirror.read_text(encoding="utf-8")) == [
+        "Bold"
+    ]

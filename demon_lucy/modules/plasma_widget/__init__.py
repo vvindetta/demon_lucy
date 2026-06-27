@@ -75,16 +75,6 @@ SyncKey = tuple[str, str, Optional[str]]
 _IGNORE_BURST = 1
 
 
-# ---------------- State ---------------- #
-
-_INIT_DONE: bool = False
-
-_STATE: SyncState = SyncState(
-    doc_hash=None,
-    bold_items_hash=None,
-    css_style=None,
-)
-
 _STATE_GUARD = threading.Lock()
 _STATE_BY_KEY: dict[SyncKey, SyncState] = {}
 _INIT_DONE_BY_KEY: dict[SyncKey, bool] = {}
@@ -95,7 +85,11 @@ def _sync_key(
     markdown_path: str,
     bold_widget_path: Optional[str],
 ) -> SyncKey:
-    return (canonical_path(widget_path), canonical_path(markdown_path), bold_widget_path)
+    return (
+        canonical_path(widget_path),
+        canonical_path(markdown_path),
+        bold_widget_path,
+    )
 
 
 def _state_for_key(sync_key: SyncKey) -> SyncState:
@@ -111,13 +105,9 @@ def _state_for_key(sync_key: SyncKey) -> SyncState:
 
 
 def _set_state_for_key(sync_key: SyncKey, state: SyncState) -> None:
-    global _STATE, _INIT_DONE
     with _STATE_GUARD:
         _STATE_BY_KEY[sync_key] = state
         _INIT_DONE_BY_KEY[sync_key] = True
-    # Keep legacy globals for compatibility/introspection.
-    _STATE = state
-    _INIT_DONE = True
 
 
 # ---------------- IO ---------------- #
@@ -194,9 +184,7 @@ def _write_text_atomic(
             try:
                 os.remove(temp_path)
             except OSError:
-                logger.info(
-                    log_record("plasma.temp_cleanup_failed", path=temp_path)
-                )
+                logger.info(log_record("plasma.temp_cleanup_failed", path=temp_path))
 
 
 def _collect_pending_writes(
@@ -367,7 +355,6 @@ def _init_from_disk_once(
     markdown_path: str,
     bold_widget_path: Optional[str],
 ) -> None:
-    global _INIT_DONE, _STATE
     with _STATE_GUARD:
         if _INIT_DONE_BY_KEY.get(sync_key, False):
             return
@@ -384,9 +371,6 @@ def _init_from_disk_once(
             return
         _STATE_BY_KEY[sync_key] = state
         _INIT_DONE_BY_KEY[sync_key] = True
-    # Keep legacy globals for compatibility/introspection.
-    _STATE = state
-    _INIT_DONE = True
 
 
 def _apply_sync_plan(
@@ -557,7 +541,9 @@ class PlasmaWidget(AbstractModule):
                     direction="markdown_to_widget",
                     source=canonical_path(markdown_path),
                     widget=canonical_path(widget_path),
-                    mirror=canonical_path(bold_widget_path) if bold_widget_path else None,
+                    mirror=(
+                        canonical_path(bold_widget_path) if bold_widget_path else None
+                    ),
                 )
             )
         return ignore
@@ -628,7 +614,9 @@ class PlasmaWidget(AbstractModule):
                     direction="widget_to_markdown",
                     source=canonical_path(html_path),
                     markdown=canonical_path(markdown_path),
-                    mirror=canonical_path(bold_widget_path) if bold_widget_path else None,
+                    mirror=(
+                        canonical_path(bold_widget_path) if bold_widget_path else None
+                    ),
                 )
             )
         return ignore
