@@ -244,8 +244,7 @@ def truncate_source_file(src_path: str) -> bool:
 def safe_archive_stem(src_path: str) -> str:
     stem = os.path.splitext(os.path.basename(src_path))[0].strip()
     cleaned = "".join(
-        char if char.isalnum() or char in ("-", "_", ".") else "-"
-        for char in stem
+        char if char.isalnum() or char in ("-", "_", ".") else "-" for char in stem
     ).strip(".-")
     return cleaned or "archive"
 
@@ -259,7 +258,7 @@ def unique_file_archive_path(
     stem = safe_archive_stem(src_path)
     for index in range(1, 1000):
         suffix = "" if index == 1 else f"-{index}"
-        candidate = os.path.join(dest_dir, f"{date_label}--{stem}{suffix}.md")
+        candidate = os.path.join(dest_dir, f"{date_label}---{stem}{suffix}.md")
         if not os.path.lexists(candidate):
             return candidate
     return None

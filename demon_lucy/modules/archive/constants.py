@@ -8,6 +8,13 @@ OUTPUT_MODES = {TEXT_MODE, FILE_MODE}
 
 ARCHIVE_TEMPLATE: Template = [
     (
+        "--archive",
+        bool,
+        False,
+        "Force archive using the first available route: configured pair, local .archive, then global destination.",
+        False,
+    ),
+    (
         "--archive-pair",
         str,
         [],
@@ -80,10 +87,10 @@ ARCHIVE_TEMPLATE: Template = [
     (
         "--archive-date-prefix",
         str,
-        "-- ",
+        "--- ",
         "Text inserted before archive date in text-mode history header. The date "
         "uses the source file's latest Git commit when available, otherwise "
-        "today's date. Default: '-- '.",
+        "today's date. Default: '--- '.",
         False,
     ),
     (

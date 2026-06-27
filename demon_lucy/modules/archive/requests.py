@@ -28,6 +28,22 @@ def flag_present(ctx: Context, key: str, flag: str) -> bool:
     return key in ctx.arg_lines or bool(config_values(ctx, key, flag))
 
 
+def bool_flag_present(ctx: Context, key: str) -> bool:
+    return key in ctx.arg_lines or bool(ctx.config.get(key))
+
+
+def auto_pair_configured(ctx: Context) -> bool:
+    value = ctx.config.get("archive_auto_pair")
+    if isinstance(value, list):
+        return any(str(item).strip() for item in value)
+    return bool(value)
+
+
+def local_archive_exists(ctx: Context) -> bool:
+    archive_dir = os.path.join(os.path.dirname(ctx.path), ".archive")
+    return os.path.isdir(archive_dir) and not os.path.islink(archive_dir)
+
+
 def default_output_mode(ctx: Context) -> str | None:
     raw_mode = str(ctx.config["archive_default_mode"]).strip().lower()
     if raw_mode in OUTPUT_MODES:
@@ -200,17 +216,48 @@ def auto_requests(ctx: Context) -> list[ArchiveRequest]:
     return requests
 
 
-def manual_requests(ctx: Context) -> list[ArchiveRequest]:
+def present_manual_routes(ctx: Context) -> list[tuple[str, str, str]]:
     route_specs = [
         ("pair", "archive_pair", "--archive-pair"),
         ("local", "archive_local", "--archive-local"),
         ("global", "archive_global", "--archive-global"),
     ]
-    present_routes = [
+    return [
         (route, key, flag)
         for route, key, flag in route_specs
         if flag_present(ctx, key, flag)
     ]
+
+
+def manual_flag_present(ctx: Context) -> bool:
+    if bool_flag_present(ctx, "archive"):
+        return True
+    for key in ("archive_pair", "archive_local", "archive_global"):
+        if key in ctx.arg_lines:
+            return True
+        value = ctx.config.get(key)
+        if isinstance(value, list):
+            if any(str(item).strip() for item in value):
+                return True
+            continue
+        if value:
+            return True
+    return False
+
+
+def manual_requests(ctx: Context) -> list[ArchiveRequest]:
+    archive_present = bool_flag_present(ctx, "archive")
+    present_routes = present_manual_routes(ctx)
+    if archive_present and present_routes:
+        flags = ["--archive", *[flag for _route, _key, flag in present_routes]]
+        notify.invalid_rule(
+            ctx,
+            flag=",".join(flags),
+            reason="multiple_manual_routes",
+        )
+        return []
+    if archive_present:
+        return archive_command_requests(ctx)
     if not present_routes:
         return []
     if len(present_routes) > 1:
@@ -257,8 +304,33 @@ def manual_requests(ctx: Context) -> list[ArchiveRequest]:
     ]
 
 
+def archive_command_requests(ctx: Context) -> list[ArchiveRequest]:
+    if auto_pair_configured(ctx):
+        pair_request = auto_pair_request(ctx)
+        if pair_request is None:
+            return []
+        return [replace(pair_request, force=True)]
+
+    mode = default_output_mode(ctx)
+    idle_hours = default_idle_hours(ctx)
+    if mode is None or idle_hours is None:
+        return []
+
+    route = "local" if local_archive_exists(ctx) else "global"
+    return [
+        ArchiveRequest(
+            route=route,
+            output_mode=mode,
+            src_selector=os.path.basename(ctx.path),
+            dest_selector=None,
+            idle_hours=idle_hours,
+            force=True,
+        )
+    ]
+
+
 def requests_for_context(ctx: Context) -> list[ArchiveRequest]:
     manual = manual_requests(ctx)
-    if manual:
+    if manual or manual_flag_present(ctx):
         return manual
     return auto_requests(ctx)
