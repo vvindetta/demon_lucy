@@ -47,8 +47,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
     changed = module._apply(
         path=str(note),
         config={
-            "fmt_todo": enabled,
-            "fmt_blank": [],
+            "formatter_todo": enabled,
+            "formatter_blank": [],
         },
         arg_lines={},
     )
@@ -62,8 +62,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
     [
         (
             {
-                "fmt_todo": False,
-                "fmt_blank": ["down"],
+                "formatter_todo": False,
+                "formatter_blank": ["down"],
             },
             "title\nbody\n\n",
             0,
@@ -71,8 +71,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "fmt_todo": False,
-                "fmt_blank": ["up"],
+                "formatter_todo": False,
+                "formatter_blank": ["up"],
             },
             "\n  \ntitle\nbody\n",
             30,
@@ -80,8 +80,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "fmt_todo": False,
-                "fmt_blank": ["up", "down"],
+                "formatter_todo": False,
+                "formatter_blank": ["up", "down"],
             },
             "\n\ntitle\nbody\n\n",
             30,
@@ -89,8 +89,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "fmt_todo": False,
-                "fmt_blank": ["up", "20"],
+                "formatter_todo": False,
+                "formatter_blank": ["up", "20"],
             },
             "\n\ntitle\nbody\n\n",
             20,
@@ -98,8 +98,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "fmt_todo": False,
-                "fmt_blank": ["down", "7"],
+                "formatter_todo": False,
+                "formatter_blank": ["down", "7"],
             },
             "title\nbody\n\n",
             0,
@@ -107,8 +107,8 @@ def test_apply_todo_flag_controls_checkbox_formatting(
         ),
         (
             {
-                "fmt_todo": False,
-                "fmt_blank": ["both", "12"],
+                "formatter_todo": False,
+                "formatter_blank": ["both", "12"],
             },
             "\n\ntitle\nbody\n\n",
             12,
@@ -142,8 +142,8 @@ def test_apply_is_idempotent_on_second_run(tmp_path: Path):
 
     module = Formatter()
     config = {
-        "fmt_todo": False,
-        "fmt_blank": ["up", "down"],
+        "formatter_todo": False,
+        "formatter_blank": ["up", "down"],
     }
 
     first = module._apply(path=str(note), config=config, arg_lines={})
@@ -161,8 +161,8 @@ def test_apply_returns_none_for_blank_only_file(tmp_path: Path):
     changed = module._apply(
         path=str(note),
         config={
-            "fmt_todo": False,
-            "fmt_blank": ["up", "down"],
+            "formatter_todo": False,
+            "formatter_blank": ["up", "down"],
         },
         arg_lines={},
     )
@@ -173,25 +173,69 @@ def test_apply_returns_none_for_blank_only_file(tmp_path: Path):
 
 def test_blank_up_keeps_first_line_with_flags_in_place(tmp_path: Path):
     note = tmp_path / "note.md"
-    note.write_text("--fmt-todo\nalpha\n", encoding="utf-8")
+    note.write_text("--archive-pair\nalpha\n", encoding="utf-8")
 
     module = Formatter()
     changed = module._apply(
         path=str(note),
         config={
-            "fmt_todo": False,
-            "fmt_blank": ["up"],
+            "formatter_todo": False,
+            "formatter_blank": ["up"],
         },
         arg_lines={},
-        global_template=module.template,
+        global_template=module.template + [("--archive-pair", str, [], "", False)],
     )
 
     assert changed == {str(note.resolve()): 1}
 
     lines = note.read_text(encoding="utf-8").splitlines()
-    assert lines[0] == "--fmt-todo"
+    assert lines[0] == "--archive-pair"
     assert lines[1:31] == [""] * 30
     assert lines[31] == "alpha"
+
+
+def test_apply_removes_formatter_flags_and_preserves_other_flags(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text(
+        "--archive-pair --formatter-blank up 2 --formatter-todo\n- task\n",
+        encoding="utf-8",
+    )
+
+    module = Formatter()
+    changed = module._apply(
+        path=str(note),
+        config={
+            "formatter_todo": True,
+            "formatter_blank": ["up", "2"],
+        },
+        arg_lines={
+            "formatter_blank": [1, 1],
+            "formatter_todo": [1],
+        },
+        global_template=module.template + [("--archive-pair", str, [], "", False)],
+    )
+
+    assert changed == {str(note.resolve()): 1}
+    assert note.read_text(encoding="utf-8") == "--archive-pair\n\n\n- [ ] task\n"
+
+
+def test_apply_removes_formatter_only_command_line(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("--formatter-todo\n- task\n", encoding="utf-8")
+
+    module = Formatter()
+    changed = module._apply(
+        path=str(note),
+        config={
+            "formatter_todo": True,
+            "formatter_blank": [],
+        },
+        arg_lines={"formatter_todo": [1]},
+        global_template=module.template,
+    )
+
+    assert changed == {str(note.resolve()): 1}
+    assert note.read_text(encoding="utf-8") == "- [ ] task\n"
 
 
 @pytest.mark.parametrize(
@@ -222,8 +266,8 @@ def test_event_methods_delegate_to_apply(
     ctx = Context(
         path=str(note),
         config={
-            "fmt_todo": False,
-            "fmt_blank": ["down"],
+            "formatter_todo": False,
+            "formatter_blank": ["down"],
         },
         arg_lines={},
     )

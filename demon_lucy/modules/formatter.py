@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 from typing import Optional
 
-from demon_lucy.lib.args.parser import Template, get_args_from_file
+from demon_lucy.lib.args.line_edit import delete_args_from_string
+from demon_lucy.lib.args.parser import Template, is_valid_flag_token, parse_args
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -15,23 +17,23 @@ from demon_lucy.modules.abstract_module import (
 
 class Formatter(AbstractModule):
     name: str = "formatter"
-    priority: int = 40
+    priority: int = 23
     blank_lines_count: int = 30
     _todo_pattern = re.compile(r"^(\s*)-\s+(?!\[[ xX]\])(.+)$")
 
     template: Template = [
         (
-            "--fmt-todo",
+            "--formatter-todo",
             bool,
             False,
             "Enable TODO formatting: converts list items like '- task' into unchecked checkboxes '- [ ] task' in the current file.",
             False,
         ),
         (
-            "--fmt-blank",
+            "--formatter-blank",
             str,
             [],
-            "Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --fmt-blank both 20",
+            "Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
             False,
         ),
     ]
@@ -59,17 +61,96 @@ class Formatter(AbstractModule):
                     continue
         return False
 
-    def _first_line_has_demon_lucy_flags_in_file(
-        self, *, path: str, global_template: Template | None, fallback_arg_lines: dict
+    @staticmethod
+    def _line_has_demon_lucy_flag(
+        line: str,
+        global_template: Template | None,
+    ) -> bool:
+        if not global_template:
+            return False
+
+        stripped = line.strip()
+        if not stripped:
+            return False
+
+        start = stripped.split()[0]
+        if not is_valid_flag_token(start):
+            return False
+
+        try:
+            tokens = shlex.split(stripped, comments=False, posix=True)
+        except ValueError:
+            return False
+
+        known_args, _unknown = parse_args(
+            args=tokens,
+            template=global_template,
+            include_defaults=False,
+        )
+        return bool(known_args)
+
+    def _first_line_has_demon_lucy_flags(
+        self,
+        *,
+        lines: list[str],
+        global_template: Template | None,
+        fallback_arg_lines: dict,
     ) -> bool:
         if global_template:
-            _known, _unknown, parsed_arg_lines = get_args_from_file(
-                path=path,
-                template=global_template,
+            return bool(lines) and self._line_has_demon_lucy_flag(
+                lines[0],
+                global_template,
             )
-            return self._arg_lines_has_first_line_flag(parsed_arg_lines)
 
         return self._arg_lines_has_first_line_flag(fallback_arg_lines)
+
+    @staticmethod
+    def _formatter_flags_by_line(arg_lines: dict) -> dict[int, set[str]]:
+        flags_by_line: dict[int, set[str]] = {}
+        for key, flag in (
+            ("formatter_todo", "--formatter-todo"),
+            ("formatter_blank", "--formatter-blank"),
+        ):
+            for raw_line in arg_lines.get(key) or []:
+                try:
+                    line_number = int(raw_line)
+                except (TypeError, ValueError):
+                    continue
+                flags_by_line.setdefault(line_number, set()).add(flag)
+        return flags_by_line
+
+    def _remove_formatter_flags(
+        self,
+        lines: list[str],
+        arg_lines: dict,
+    ) -> tuple[list[str], bool]:
+        flags_by_line = self._formatter_flags_by_line(arg_lines)
+        if not flags_by_line:
+            return lines, False
+
+        changed = False
+        result: list[str] = []
+        for line_number, line in enumerate(lines, start=1):
+            flags = flags_by_line.get(line_number)
+            if not flags:
+                result.append(line)
+                continue
+
+            try:
+                cleaned = delete_args_from_string(line, sorted(flags))
+            except ValueError:
+                result.append(line)
+                continue
+
+            if cleaned == line:
+                result.append(line)
+                continue
+
+            changed = True
+            if cleaned.strip():
+                result.append(cleaned)
+
+        return result, changed
 
     @staticmethod
     def _normalize_blank_modes_and_count(
@@ -103,7 +184,7 @@ class Formatter(AbstractModule):
     def _collect_blank_tokens(config: dict) -> list[str]:
         tokens: list[str] = []
 
-        blank_values = config.get("fmt_blank")
+        blank_values = config.get("formatter_blank")
         if isinstance(blank_values, list):
             tokens.extend(str(item) for item in blank_values)
 
@@ -154,11 +235,11 @@ class Formatter(AbstractModule):
         arg_lines: dict,
         global_template: Template | None = None,
     ) -> Optional[IgnoreMap]:
-        use_fmt_todo = bool(config.get("fmt_todo"))
+        use_formatter_todo = bool(config.get("formatter_todo"))
         blank_modes, blank_lines_count = self._blank_config(config)
         use_down = "down" in blank_modes
         use_up = "up" in blank_modes
-        if not use_fmt_todo and not use_down and not use_up:
+        if not use_formatter_todo and not use_down and not use_up:
             return None
 
         if not os.path.isfile(path):
@@ -177,7 +258,10 @@ class Formatter(AbstractModule):
         new_lines = lines[:]
         changed = False
 
-        if use_fmt_todo:
+        new_lines, flags_removed = self._remove_formatter_flags(new_lines, arg_lines)
+        changed = changed or flags_removed
+
+        if use_formatter_todo:
             new_lines, todo_changed = self._format_todo_lines(new_lines)
             changed = changed or todo_changed
 
@@ -197,8 +281,8 @@ class Formatter(AbstractModule):
 
         if use_up:
             newline = self._detect_newline(original_text)
-            if self._first_line_has_demon_lucy_flags_in_file(
-                path=path,
+            if self._first_line_has_demon_lucy_flags(
+                lines=new_lines,
                 global_template=global_template,
                 fallback_arg_lines=arg_lines,
             ):
