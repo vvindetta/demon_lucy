@@ -33,6 +33,18 @@ def flag_to_dest(flag: str) -> str:
     return flag.lstrip("-").replace("-", "_")
 
 
+def is_valid_flag_token(token: str) -> bool:
+    if not token.startswith("--"):
+        return False
+    head = token.split("=", 1)[0]  # allow --flag=value
+    if len(head) < 3 or not head[2].isalpha():  # must start with letter
+        return False
+    for ch in head[3:]:
+        if not (ch.isalnum() or ch in ("_", "-")):
+            return False
+    return True
+
+
 def parse_args(
     args: list[str],
     template: Template,
@@ -198,17 +210,6 @@ def get_args_from_file(
       ---
       text --flag
     """
-
-    def is_valid_flag_token(token: str) -> bool:
-        if not token.startswith("--"):
-            return False
-        head = token.split("=", 1)[0]  # allow --flag=value
-        if len(head) < 3 or not head[2].isalpha():  # must start with letter
-            return False
-        for ch in head[3:]:
-            if not (ch.isalnum() or ch in ("_", "-")):
-                return False
-        return True
 
     try:
         with open(path, "r", encoding="utf-8") as file:

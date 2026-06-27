@@ -9,6 +9,7 @@ from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.parser import (
     get_args_from_file,
     get_config_args,
+    is_valid_flag_token,
     merge_known_args,
     parse_args,
     setup_config_and_cli_args,
@@ -17,16 +18,16 @@ from demon_lucy.lib.args.parser import (
 
 def test_parse_args_handles_bool_and_nargs():
     template = [
-        ("--fmt-todo", bool, False, "", False),
-        ("--fmt-blank", str, [], "", False),
+        ("--formatter-todo", bool, False, "", False),
+        ("--formatter-blank", str, [], "", False),
         ("--name", str, None, "", False),
         ("--tags", str, [], "", False),
     ]
 
     known, unknown = parse_args(
         args=[
-            "--fmt-todo",
-            "--fmt-blank",
+            "--formatter-todo",
+            "--formatter-blank",
             "up",
             "down",
             "--name",
@@ -39,8 +40,8 @@ def test_parse_args_handles_bool_and_nargs():
         template=template,
     )
 
-    assert known["fmt_todo"] is True
-    assert known["fmt_blank"] == ["up", "down"]
+    assert known["formatter_todo"] is True
+    assert known["formatter_blank"] == ["up", "down"]
     assert known["name"] == "alice"
     assert known["tags"] == ["x", "y"]
     assert unknown == ["--unknown"]
@@ -62,6 +63,25 @@ def test_parse_args_allows_empty_list_flag_value():
     assert unknown == []
 
 
+def test_parse_args_repeated_list_flag_uses_last_value():
+    template = [
+        ("--alias-rule", str, [], "", False),
+    ]
+
+    known, unknown = parse_args(
+        args=[
+            "--alias-rule",
+            "b=--banner {args}",
+            "--alias-rule",
+            "todo=--formatter-todo",
+        ],
+        template=template,
+    )
+
+    assert known["alias_rule"] == ["todo=--formatter-todo"]
+    assert unknown == []
+
+
 def test_parse_args_supports_required_field_in_template_item():
     template = [
         ("--required-path", str, None, "", True),
@@ -74,6 +94,23 @@ def test_parse_args_supports_required_field_in_template_item():
 
     assert known["required_path"] == "/tmp/a.md"
     assert unknown == []
+
+
+@pytest.mark.parametrize(
+    ("token", "expected"),
+    [
+        ("--banner", True),
+        ("--voice-recorder-path=arecord", True),
+        ("--formatter_todo", True),
+        ("--", False),
+        ("---", False),
+        ("--1abc", False),
+        ("--bad.value", False),
+        ("text", False),
+    ],
+)
+def test_is_valid_flag_token(token: str, expected: bool):
+    assert is_valid_flag_token(token) is expected
 
 
 def test_get_config_args_reads_lines_and_ignores_comments(tmp_path: Path):
@@ -122,10 +159,10 @@ def test_merge_known_args_overwrites_only_when_value_is_meaningful():
 @pytest.mark.parametrize(
     ("line", "args", "expected"),
     [
-        # ('--banner "Hello world" body --fmt-todo --x=1 tail\n', ["--banner", "--fmt-todo", "--x"], "body tail\n"),
+        # ('--banner "Hello world" body --formatter-todo --x=1 tail\n', ["--banner", "--formatter-todo", "--x"], "body tail\n"),
         (
-            "prefix --fmt-todo one --fmt-todo two\n",
-            ["--fmt-todo"],
+            "prefix --formatter-todo one --formatter-todo two\n",
+            ["--formatter-todo"],
             "prefix\n",
         ),
         (
