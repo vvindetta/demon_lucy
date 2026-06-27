@@ -34,16 +34,16 @@ def test_man_lines_specific_name_and_flag():
         event=FileModifiedEvent("/tmp/x"),
         global_template=[
             ("--mods", bool, False, "mods help", False),
-            ("--fmt-todo", bool, False, "formatter todo help", False),
+            ("--formatter-todo", bool, False, "formatter todo help", False),
         ],
         modules=[],
     )
 
     flag_lines = module._man_lines(system, ["--mods"])
-    one_lines = module._man_lines(system, ["fmt_todo"])
+    one_lines = module._man_lines(system, ["formatter_todo"])
 
     assert any("--mods:" in line for line in flag_lines)
-    assert any("--fmt-todo:" in line for line in one_lines)
+    assert any("--formatter-todo:" in line for line in one_lines)
 
 
 def test_man_lines_module_name_expands_to_module_flags():
@@ -62,6 +62,34 @@ def test_man_lines_module_name_expands_to_module_flags():
 
     assert any("--status:" in line for line in lines)
     assert any("--status-banner:" in line for line in lines)
+    assert all("--mods:" not in line for line in lines)
+
+
+def test_man_lines_sys_keyword_expands_to_system_flags():
+    module = Sys()
+    system = System(
+        event=FileModifiedEvent("/tmp/x"),
+        global_template=[
+            ("--mods", bool, False, "mods help", False),
+            ("--sys-modules-priority", str, [], "module priority help", False),
+        ],
+        modules=[module],
+    )
+
+    lines = module._man_lines(
+        system,
+        ["sys"],
+        {
+            "sys_watch_paths": ["/tmp/notes"],
+            "sys_log_level": "info",
+            "oneshot_event": "modified",
+        },
+    )
+
+    assert any("--sys-watch-paths:" in line for line in lines)
+    assert any("--sys-log-level:" in line for line in lines)
+    assert any("--sys-modules-priority:" in line for line in lines)
+    assert all("--oneshot-event:" not in line for line in lines)
     assert all("--mods:" not in line for line in lines)
 
 

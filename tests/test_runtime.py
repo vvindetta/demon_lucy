@@ -48,6 +48,24 @@ def test_select_demon_lucy_modules_rejects_unknown_exclude():
 def test_sys_modules_default_is_defined_in_startup_template():
     known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
     assert known_args["sys_modules"]
+    assert "alias" in known_args["sys_modules"]
+    assert "workspace" in known_args["sys_modules"]
+
+
+def test_startup_template_system_flags_use_sys_prefix():
+    flags = [item[0] for item in DEMON_LUCY_STARTUP_TEMPLATE]
+
+    assert flags
+    assert all(flag.startswith("--sys-") for flag in flags)
+
+
+def test_voice_module_is_available_only_when_requested():
+    requested = select_demon_lucy_modules(include_names=["voice"])
+    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+    default_modules = select_demon_lucy_modules(include_names=known_args["sys_modules"])
+
+    assert _module_names(requested) == ["voice"]
+    assert "voice" not in _module_names(default_modules)
 
 
 def test_sys_ignore_move_paths_default_is_defined_in_startup_template():

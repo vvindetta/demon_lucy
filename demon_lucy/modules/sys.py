@@ -18,7 +18,7 @@ from demon_lucy.modules.abstract_module import (
 
 class Sys(AbstractModule):
     name: str = "sys"
-    priority: int = 0
+    priority: int = 2
 
     template = [
         ("--mods", bool, False, "Print loaded modules and their priorities.", False),
@@ -86,6 +86,18 @@ class Sys(AbstractModule):
             return ""
         return text.lstrip("-").strip().lower()
 
+    @staticmethod
+    def _flag_from_config_key(key: str) -> str:
+        return "--" + key.replace("_", "-")
+
+    @staticmethod
+    def _type_from_config_value(value: Any) -> type:
+        if isinstance(value, list):
+            return str
+        if value is None:
+            return str
+        return type(value)
+
     def _expand_man_requests(self, requested_names: List[str]) -> List[str]:
         expanded: List[str] = []
         for raw in requested_names or []:
@@ -95,7 +107,11 @@ class Sys(AbstractModule):
                     expanded.append(normalized)
         return expanded
 
-    def _module_flags_by_request_name(self, system: System) -> dict[str, set[str]]:
+    def _module_flags_by_request_name(
+        self,
+        system: System,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, set[str]]:
         mapping: dict[str, set[str]] = {}
 
         for module in system.modules:
@@ -116,21 +132,82 @@ class Sys(AbstractModule):
             for key in module_keys:
                 mapping.setdefault(key, set()).update(module_flags)
 
+        system_flags = self._system_flag_names(system, config)
+        if system_flags:
+            mapping["sys"] = set(system_flags)
+
         return mapping
 
-    def _man_one_lines(self, system: System, requested_names: List[str]) -> List[str]:
+    def _system_flag_names(
+        self,
+        system: System,
+        config: dict[str, Any] | None = None,
+    ) -> set[str]:
+        flags: set[str] = set()
+        for template_item in system.global_template:
+            flag, _typ, _default, _desc, _required = parse_template_item(template_item)
+            normalized_flag = self._normalize_arg_name(flag.lstrip("-"))
+            if not normalized_flag.startswith("sys-"):
+                continue
+            flags.add(normalized_flag)
+            flags.add(self._normalize_arg_name(flag_to_dest(flag)))
+        for key in sorted((config or {}).keys()):
+            if not key.startswith("sys_"):
+                continue
+            flags.add(self._normalize_arg_name(key))
+            flags.add(self._normalize_arg_name(self._flag_from_config_key(key)))
+        return flags
+
+    def _manual_template_items(
+        self,
+        system: System,
+        config: dict[str, Any] | None = None,
+    ) -> list[tuple[str, type, Any, str, bool]]:
+        items: list[tuple[str, type, Any, str, bool]] = []
+        seen_destinations: set[str] = set()
+        for template_item in system.global_template:
+            flag, typ, default, desc, required = parse_template_item(template_item)
+            destination = flag_to_dest(flag)
+            if destination in seen_destinations:
+                continue
+            seen_destinations.add(destination)
+            items.append((flag, typ, default, desc, required))
+        for key, value in sorted((config or {}).items()):
+            if not key.startswith("sys_"):
+                continue
+            if key in seen_destinations:
+                continue
+            seen_destinations.add(key)
+            items.append(
+                (
+                    self._flag_from_config_key(key),
+                    self._type_from_config_value(value),
+                    None,
+                    "System arg from runtime config.",
+                    False,
+                )
+            )
+        return items
+
+    def _man_one_lines(
+        self,
+        system: System,
+        requested_names: List[str],
+        config: dict[str, Any] | None = None,
+    ) -> List[str]:
         requested = self._expand_man_requests(requested_names)
         if not requested:
             return ["* (missing name: use --man <name> or --man --flag)\n"]
 
         requested_set = set(requested)
-        module_flags_map = self._module_flags_by_request_name(system)
+        module_flags_map = self._module_flags_by_request_name(system, config)
         for request_name in list(requested_set):
             requested_set.update(module_flags_map.get(request_name, set()))
         matched: List[str] = []
 
-        for item in system.global_template:
-            flag, typ, default, desc, _required = parse_template_item(item)
+        for flag, typ, default, desc, _required in self._manual_template_items(
+            system, config
+        ):
             flag_name = flag.lstrip("-").lower()
             dest_name = flag_to_dest(flag).lower()
             if flag_name in requested_set or dest_name in requested_set:
@@ -145,8 +222,13 @@ class Sys(AbstractModule):
 
         return [f"* (unknown arg: {', '.join(requested)})\n"]
 
-    def _man_lines(self, system: System, requests: List[str]) -> List[str]:
-        return self._man_one_lines(system, requests)
+    def _man_lines(
+        self,
+        system: System,
+        requests: List[str],
+        config: dict[str, Any] | None = None,
+    ) -> List[str]:
+        return self._man_one_lines(system, requests, config)
 
     def _build_block(
         self,
@@ -182,7 +264,7 @@ class Sys(AbstractModule):
             lines.append("\n")
 
         if "man" in selected_opts:
-            lines.extend(self._man_lines(system, man_requests))
+            lines.extend(self._man_lines(system, man_requests, ctx.config))
             lines.append("\n")
 
         if "config" in selected_opts:

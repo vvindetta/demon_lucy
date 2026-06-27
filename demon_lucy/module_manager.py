@@ -38,11 +38,11 @@ class ModuleManager:
         self.run_mode: RunMode = run_mode
         self.template: Template = [
             (
-                "--modules-priority",
+                "--sys-modules-priority",
                 str,
                 [],
                 "Override module execution order (lower runs first). "
-                "Format: name=int. Example: --modules-priority banner=5 renamer=20 todo=30",
+                "Format: name=int. Example: --sys-modules-priority banner=5 renamer=20 todo=30",
                 False,
             ),
         ]
@@ -65,7 +65,7 @@ class ModuleManager:
             args=self.config,
             overwrite_args=explicit_args,
         )
-        priority_dict = self._parse_priority_list(self.config["modules_priority"])
+        priority_dict = self._parse_priority_list(self.config["sys_modules_priority"])
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))
 
     def _is_blacklisted_path(self, path: str, values: list[str]) -> bool:
@@ -242,9 +242,9 @@ class ModuleManager:
                 for changed_path, times in event_ignore.items():
                     if not times:
                         continue
-                    ignore_paths[changed_path] = (
-                        ignore_paths.get(changed_path, 0) + int(times)
-                    )
+                    ignore_paths[changed_path] = ignore_paths.get(
+                        changed_path, 0
+                    ) + int(times)
 
                 current_path = self._next_context_path(current_path, event_ignore)
                 config, arg_lines = _update_config(current_path)
@@ -265,7 +265,7 @@ class ModuleManager:
         for item in values:
             if "=" not in item:
                 raise ValueError(
-                    "Invalid --modules-priority arg. Example: --modules-priority banner=5 renamer=20 todo=30"
+                    "Invalid --sys-modules-priority arg. Example: --sys-modules-priority banner=5 renamer=20 todo=30"
                 )
 
             name, raw = item.split("=", 1)
@@ -273,13 +273,15 @@ class ModuleManager:
             raw = raw.strip()
 
             if not name:
-                raise ValueError(f"Invalid --priority item '{item}': empty module name")
+                raise ValueError(
+                    f"Invalid --sys-modules-priority item '{item}': empty module name"
+                )
 
             try:
                 pr = int(raw)
             except ValueError:
                 raise ValueError(
-                    f"Invalid --priority item '{item}': priority must be an integer"
+                    f"Invalid --sys-modules-priority item '{item}': priority must be an integer"
                 )
 
             priorities[name] = pr

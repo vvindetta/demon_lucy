@@ -62,8 +62,8 @@ class AbstractModule(ABC):
         Filesystem paths WAS changed N times by this module.
         The daemon will ignore the next events for these paths to prevent loops.
 
-    Prioriry
-    - 'priority': lower runs earlier.
+    Priority
+    - 'priority': integer; lower runs earlier.
 
     Template:
     - 'template': flags this module adds to the global argument template.

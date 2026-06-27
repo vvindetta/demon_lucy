@@ -8,6 +8,7 @@ from demon_lucy.lib.args.parser import Template
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.migrations import MIGRATIONS, Migration
 from demon_lucy.modules.abstract_module import AbstractModule
+from demon_lucy.modules.alias import Alias
 from demon_lucy.modules.banner import Banner
 from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.formatter import Formatter
@@ -19,6 +20,8 @@ from demon_lucy.modules.renamer import Renamer
 from demon_lucy.modules.status import Status
 from demon_lucy.modules.sys import Sys
 from demon_lucy.modules.archive import Archive
+from demon_lucy.modules.voice import Voice
+from demon_lucy.modules.workspace import Workspace
 
 DEMON_LUCY_STARTUP_TEMPLATE: Template = [
     (
@@ -123,7 +126,16 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
     (
         "--sys-modules",
         str,
-        ["banner", "renamer", "linker", "formatter", "archive", "sys"],
+        [
+            "alias",
+            "workspace",
+            "banner",
+            "renamer",
+            "linker",
+            "formatter",
+            "archive",
+            "sys",
+        ],
         "Run only selected modules by name. Example: --sys-modules git status",
         False,
     ),
@@ -229,6 +241,8 @@ def select_demon_lucy_modules(
     exclude_names: Iterable[str] | None = None,
 ) -> List[AbstractModule]:
     module_classes = [
+        Alias,
+        Workspace,
         Banner,
         Renamer,
         Status,
@@ -240,6 +254,7 @@ def select_demon_lucy_modules(
         KdeconnectSync,
         Git,
         PlasmaWidget,
+        Voice,
     ]
     include_set = set(normalize_name_list(include_names or []))
     exclude_set = set(normalize_name_list(exclude_names or []))

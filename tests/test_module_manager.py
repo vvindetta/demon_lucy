@@ -62,6 +62,19 @@ class _RequiredMod(AbstractModule):
         return {ctx.path: 1}
 
 
+class _ListMod(AbstractModule):
+    name = "list_mod"
+    priority = 60
+    template = [("--items", str, [], "items", False)]
+
+    def __init__(self):
+        self.seen_config = None
+
+    def modified(self, ctx: Context, system: System):
+        self.seen_config = dict(ctx.config)
+        return None
+
+
 @pytest.mark.parametrize(
     "value",
     ["broken-item", "a=not-int", "=5"],
@@ -76,14 +89,57 @@ def test_parse_priority_list_rejects_bad_items(value: str):
         manager._parse_priority_list([value])
 
 
+def test_parse_priority_list_accepts_negative_priority():
+    manager = ModuleManager(
+        modules=[_ModA()],
+        args=[],
+        system_config=_SYSTEM_CONFIG,
+    )
+
+    assert manager._parse_priority_list(["a=-1"]) == {"a": -1}
+
+
+def test_module_manager_priority_flag_uses_sys_prefix():
+    manager = ModuleManager(
+        modules=[_ModA()],
+        args=[],
+        system_config=_SYSTEM_CONFIG,
+    )
+    flags = [item[0] for item in manager.template]
+
+    assert "--sys-modules-priority" in flags
+    assert "--modules-priority" not in flags
+    assert "sys_modules_priority" in manager.config
+    assert "modules_priority" not in manager.config
+
+
 def test_init_sorts_modules_by_priority_override():
     a, c = _ModA(), _ModC()
     manager = ModuleManager(
         modules=[c, a],
-        args=["--modules-priority", "c=1", "a=9"],
+        args=["--sys-modules-priority", "c=1", "a=9"],
         system_config=_SYSTEM_CONFIG,
     )
     assert [m.name for m in manager.modules] == ["c", "a"]
+
+
+def test_file_list_args_override_config_list_args(tmp_path: Path):
+    note = tmp_path / "n.md"
+    note.write_text("--items note-a note-b\n", encoding="utf-8")
+    module = _ListMod()
+    manager = ModuleManager(
+        modules=[module],
+        args=[],
+        system_config={
+            **_SYSTEM_CONFIG,
+            "items": ["config-a", "config-b"],
+        },
+    )
+
+    manager.run(str(note), FileModifiedEvent(str(note)), event_id="evt-test")
+
+    assert module.seen_config is not None
+    assert module.seen_config["items"] == ["note-a", "note-b"]
 
 
 def test_run_respects_event_implementation(tmp_path: Path):

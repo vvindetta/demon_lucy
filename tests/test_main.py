@@ -77,7 +77,9 @@ def _run_main_with_flag(
             {
                 "sys_log_level": "info",
                 "sys_log_format": "%(message)s",
-                "sys_watch_paths": watch_paths if watch_paths is not None else [str(tmp_path)],
+                "sys_watch_paths": (
+                    watch_paths if watch_paths is not None else [str(tmp_path)]
+                ),
                 "sys_opened_event_cooldown_seconds": 20,
                 "sys_disable_opened_events": True,
                 "sys_notification_provider": "auto",
@@ -112,6 +114,8 @@ def test_main_schedules_observer_and_modules(
     assert handler.process_opened_events is False
     assert handler.modules.run_mode == "daemon"
     assert [m.name for m in handler.modules.modules] == [
+        "alias",
+        "workspace",
         "banner",
         "renamer",
         "status",
@@ -123,6 +127,7 @@ def test_main_schedules_observer_and_modules(
         "kdeconnect_sync",
         "git",
         "plasma_widget",
+        "voice",
     ]
 
 

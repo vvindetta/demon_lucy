@@ -13,6 +13,9 @@ from demon_lucy.migrations import (
     Migration,
 )
 from demon_lucy.migrations.archive_modes_20260618 import ArchiveModes20260618
+from demon_lucy.migrations.sys_modules_priority_20260626 import (
+    SysModulesPriority20260626,
+)
 
 
 def test_migration_toolkit_splits_arg_segments_with_quoted_values() -> None:
@@ -94,8 +97,16 @@ def test_migration_toolkit_migrates_config_file_with_numbered_backup(
 
 
 def test_migration_registry_contains_migration_classes() -> None:
-    assert MIGRATIONS == (ArchiveModes20260618,)
+    assert MIGRATIONS == (
+        ArchiveModes20260618,
+        SysModulesPriority20260626,
+    )
     migration = MIGRATIONS[0]("config.txt")
     assert isinstance(migration, Migration)
     assert migration.get_migration_name() == "archive_modes_20260618"
     assert migration.get_migration_description()
+
+    second_migration = MIGRATIONS[1]("config.txt")
+    assert isinstance(second_migration, Migration)
+    assert second_migration.get_migration_name() == "sys_modules_priority_20260626"
+    assert second_migration.get_migration_description()
