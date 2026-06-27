@@ -269,9 +269,7 @@ def test_build_commit_message_sanitizes_git_escaped_file_names(git_module):
 def test_changes_from_staged_diff_handles_actions_rename_and_binary():
     changes = git_commit_message.changes_from_staged_diff(
         name_status_z=(
-            "M\x00todo.md\x00"
-            "A\x00media/photo.jpg\x00"
-            "R100\x00old.md\x00new.md\x00"
+            "M\x00todo.md\x00" "A\x00media/photo.jpg\x00" "R100\x00old.md\x00new.md\x00"
         ),
         numstat_z=(
             "8\t3\ttodo.md\x00"
@@ -620,9 +618,7 @@ def test_safe_pull_merge_skips_remote_branch_lookup_without_notification_when_of
     assert notifications == []
 
 
-def test_safe_pull_merge_timeout_while_offline_does_not_notify(
-    git_module, monkeypatch
-):
+def test_safe_pull_merge_timeout_while_offline_does_not_notify(git_module, monkeypatch):
     notifications: list[dict] = []
     reachability_calls = {"count": 0}
 

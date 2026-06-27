@@ -13,23 +13,20 @@ class _StatusFileHost(Protocol):
     _default_banner_max_chars: int
     _default_animation_speed_ms: int
 
-    def _parse_status_parts(self, values: list[str]) -> list[str]:
-        ...
+    def _parse_status_parts(self, values: list[str]) -> list[str]: ...
 
     def _normalize_banner_settings(
         self,
         text_value: Any,
         speed_ms_value: Any,
         max_chars_value: Any,
-    ) -> tuple[str | None, int, int]:
-        ...
+    ) -> tuple[str | None, int, int]: ...
 
     def _normalize_animation_settings(
         self,
         frames_value: Any,
         speed_ms_value: Any,
-    ) -> tuple[list[str], int]:
-        ...
+    ) -> tuple[list[str], int]: ...
 
 
 class StatusFileMixin:

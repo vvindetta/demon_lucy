@@ -26,10 +26,14 @@ def abort_merge_safely(
             timeout_seconds=timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error(log_record("git.merge_abort_failed", reason="timeout", repo=repo_root))
+        logger.error(
+            log_record("git.merge_abort_failed", reason="timeout", repo=repo_root)
+        )
         return False
     except Exception:
-        logger.exception(log_record("git.merge_abort_failed", reason="crashed", repo=repo_root))
+        logger.exception(
+            log_record("git.merge_abort_failed", reason="crashed", repo=repo_root)
+        )
         return False
 
     if abort_result.returncode == 0:

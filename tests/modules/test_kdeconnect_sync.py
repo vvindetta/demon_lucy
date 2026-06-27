@@ -178,7 +178,9 @@ def test_run_repo_sync_transfer_failure_does_not_notify_for_transient_phone_erro
     module = KdeconnectSync()
     notifications: list[dict] = []
 
-    monkeypatch.setattr(kde_mod, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        kde_mod, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(
         kde_mod, "ensure_queue_excluded_in_repo", lambda **_kwargs: None
     )
@@ -223,7 +225,9 @@ def test_run_repo_sync_transfer_misconfig_notifies_once(monkeypatch):
     module = KdeconnectSync()
     notifications: list[dict] = []
 
-    monkeypatch.setattr(kde_mod, "safe_notify", lambda **kwargs: notifications.append(kwargs))
+    monkeypatch.setattr(
+        kde_mod, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
     monkeypatch.setattr(
         kde_mod, "ensure_queue_excluded_in_repo", lambda **_kwargs: None
     )

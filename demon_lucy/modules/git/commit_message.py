@@ -286,7 +286,8 @@ def _triggered_paths(batch: _RepoBatch) -> list[str]:
     return [
         path
         for path in [
-            _normalize_path(path_item, batch.repo_root) for path_item in batch.hinted_paths
+            _normalize_path(path_item, batch.repo_root)
+            for path_item in batch.hinted_paths
         ]
         if path
     ]

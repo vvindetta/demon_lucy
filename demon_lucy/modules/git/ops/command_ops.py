@@ -48,7 +48,9 @@ def clear_stale_index_lock(
         return False
     except IsADirectoryError:
         logger.error(
-            log_record("git.index_lock_remove_failed", reason="is_directory", repo=repo_root)
+            log_record(
+                "git.index_lock_remove_failed", reason="is_directory", repo=repo_root
+            )
         )
         return False
     except OSError:
@@ -89,8 +91,7 @@ class GitCommandExecutor(Protocol):
         self,
         arguments: list[str],
         timeout_seconds: float,
-    ) -> subprocess.CompletedProcess[str]:
-        ...
+    ) -> subprocess.CompletedProcess[str]: ...
 
 
 def run_git(

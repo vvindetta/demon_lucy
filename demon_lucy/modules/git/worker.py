@@ -331,9 +331,7 @@ def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
     try:
         os.makedirs(lock_dir, exist_ok=True)
     except OSError:
-        logger.exception(
-            log_record("git.repo_lock_prepare_failed", repo=repo_root)
-        )
+        logger.exception(log_record("git.repo_lock_prepare_failed", repo=repo_root))
         return run_fn()
 
     deadline = time.monotonic() + _REPO_PROCESS_LOCK_WAIT_TIMEOUT_SECONDS
@@ -341,9 +339,7 @@ def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
         try:
             acquired = _try_create_repo_process_lock(lock_path)
         except OSError:
-            logger.exception(
-                log_record("git.repo_lock_create_failed", repo=repo_root)
-            )
+            logger.exception(log_record("git.repo_lock_create_failed", repo=repo_root))
             return run_fn()
 
         if acquired:
@@ -384,9 +380,7 @@ def _with_repo_process_lock_status(
     try:
         os.makedirs(lock_dir, exist_ok=True)
     except OSError:
-        logger.exception(
-            log_record("git.repo_lock_prepare_failed", repo=repo_root)
-        )
+        logger.exception(log_record("git.repo_lock_prepare_failed", repo=repo_root))
         return run_fn()
 
     deadline = time.monotonic() + _REPO_PROCESS_LOCK_WAIT_TIMEOUT_SECONDS
@@ -394,9 +388,7 @@ def _with_repo_process_lock_status(
         try:
             acquired = _try_create_repo_process_lock(lock_path)
         except OSError:
-            logger.exception(
-                log_record("git.repo_lock_create_failed", repo=repo_root)
-            )
+            logger.exception(log_record("git.repo_lock_create_failed", repo=repo_root))
             return run_fn()
 
         if acquired:
@@ -569,7 +561,9 @@ def _ensure_merge_state_clean(
             )
             if abort_ok:
                 logger.warning(
-                    log_record("git.merge_abort_done", after="index_recovery", repo=repo_root)
+                    log_record(
+                        "git.merge_abort_done", after="index_recovery", repo=repo_root
+                    )
                 )
     abort_note = "" if abort_ok else " Merge abort failed or timed out."
     logger.error(
@@ -606,7 +600,9 @@ def _stage_and_collect_changes(
                 timeout_seconds=git_timeout_seconds,
             )
         except subprocess.TimeoutExpired:
-            logger.error(log_record("git.stage_failed", reason="timeout", repo=repo_root))
+            logger.error(
+                log_record("git.stage_failed", reason="timeout", repo=repo_root)
+            )
             _notify_git_sync_issue(
                 repo_root=repo_root,
                 summary_text="git add timed out.",
