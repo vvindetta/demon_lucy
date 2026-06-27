@@ -33,7 +33,7 @@ these values from the resolved `config[...]`.
 | `--sys-ignore-paths` | `str[]` | Paths where modules should not run. |
 | `--sys-ignore-move-paths` | `str[]` | Directories where internal `moved` events are skipped before module execution. Relative paths are resolved under each watched root. Default: `.status`. |
 | `--sys-modules` | `str[]` | Include only these modules by name for both daemon and one-shot runs. |
-| `--sys-modules-exclude` | `str[]` | Exclude modules from the included/default module list. |
+| `--sys-modules-exclude` | `str[]` | Exclude modules from the selected module list. |
 
 Example:
 
@@ -71,14 +71,39 @@ the startup config.
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--modules-priority` | `str[]` | Override module order. Format: `name=int`. Lower number runs earlier. |
+| `--sys-modules-priority` | `str[]` | Override module order. Format: `name=int`. Lower number runs earlier. |
 
 Example:
 
 ```text
 --sys-modules git status archive
 --sys-modules-exclude status
---modules-priority banner=5 renamer=20 git=50
+--sys-modules-priority banner=5 renamer=20 git=50
+```
+
+
+## Alias Module
+
+Defines aliases for module args.
+System args (`--sys-*`) and `--cmd` are not aliased.
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--alias-rule` | `str[]` | Alias rule in `name=expansion` format. Use `{args}` to pass values after the alias into the expansion. |
+| `--alias-dry-run` | `bool` | Log alias rewrites without changing files. |
+
+Examples:
+
+```text
+--alias-rule "b=--banner {args}" "todo=--formatter-todo" "rn=--rename {args}"
+```
+
+Then a note can use:
+
+```text
+--b "Daily notes"
+--todo
+--rn daily.md
 ```
 
 
@@ -97,7 +122,24 @@ Examples:
 
 ```text
 --man git
+--man sys
 --man --git-sync-on-opened-disable
+```
+
+
+## Workspace
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--workspace-init` | `str` | Initialize a Lucy workspace at the given directory path. |
+
+Creates `.lucy`, `now.md`, `.archive/past.md`, and two `.status` files.
+Initializes `.lucy` as the workspace config.
+
+Example:
+
+```text
+--workspace-init ~/Notes
 ```
 
 
@@ -105,7 +147,7 @@ Examples:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--banner` | `str` | Insert ASCII banner text. Value `date` inserts archive's date. |
+| `--banner` | `str[]` | Insert ASCII banner text. Value `date` inserts today's date. |
 | `--banner-separator` | `str` | Separator line used before a banner inserted at file start. |
 
 ## Renamer
@@ -129,8 +171,9 @@ Examples:
 
 | Arg | Type | Meaning |
 |---|---:|---|
+| `--archive` | `bool` | Force archive using the first available route: configured pair, local `.archive/`, then global destination. |
 | `--archive-pair` | `str[]` | Force archive through the configured `--archive-auto-pair` rule. Optional value: `text` or `file`. |
-| `--archive-local` | `str[]` | Force archive the current file beside itself. Optional value: `text` or `file`. Text mode appends to `.archive/archive.md` when `.archive/` exists, otherwise to `archive.md`; file mode creates `.archive/YYYY-MM-DD--name.md`. |
+| `--archive-local` | `str[]` | Force archive the current file beside itself. Optional value: `text` or `file`. Text mode appends to `.archive/archive.md` when `.archive/` exists, otherwise to `archive.md`; file mode creates `.archive/YYYY-MM-DD---name.md`. |
 | `--archive-global` | `str[]` | Force archive the current file into the global destination. Optional value: `text` or `file`. |
 | `--archive-auto-pair` | `str[]` | Automatic pair rule: `<src> <dest> [idle_hours] [text\|file]`. In text mode `dest` is an archive file; in file mode `dest` is an archive directory. |
 | `--archive-auto-local` | `str[]` | Automatic local rule: `<src> [idle_hours] [text\|file]`. Archives one configured source beside itself. |
@@ -138,7 +181,7 @@ Examples:
 | `--archive-default-mode` | `str` | Default archive output mode for rules without explicit mode: `text` or `file`. Default: `text`. |
 | `--archive-global-dest-path` | `str` | Global archive destination. In text mode this is a file path; in file mode this is a directory path. If empty, text mode uses `archive.md` at the Git repo root and file mode uses `.archive/` at the Git repo root. |
 | `--archive-idle-hours` | `float` | Archive source when its age is at least this many hours. |
-| `--archive-date-prefix` | `str` | Text before archive date in history header. Header date uses the latest Git commit date for the source file when available, otherwise today's date. Default: `-- `. |
+| `--archive-date-prefix` | `str` | Text before archive date in history header. Header date uses the latest Git commit date for the source file when available, otherwise today's date. Default: `--- `. |
 | `--archive-date-suffix` | `str` | Text after archive date in history header. Default: empty string. |
 | `--archive-force-filesystem-mtime` | `bool` | Use filesystem mtime even inside Git repositories. |
 
@@ -153,16 +196,16 @@ an archive destination.
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--fmt-todo` | `bool` | Convert `- task` list items into `- [ ] task`. |
-| `--fmt-blank` | `str[]` | Add blank lines at top/bottom. Values: `up`, `down`, `both`, optional count. |
+| `--formatter-todo` | `bool` | Convert `- task` list items into `- [ ] task`. |
+| `--formatter-blank` | `str[]` | Add blank lines at top/bottom. Values: `up`, `down`, `both`, optional count. |
 
 Examples:
 
 ```text
---fmt-todo
---fmt-blank up
---fmt-blank down 20
---fmt-blank both 12
+--formatter-todo
+--formatter-blank up
+--formatter-blank down 20
+--formatter-blank both 12
 ```
 
 ## Git
@@ -208,8 +251,37 @@ Common examples:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--dropdir-archive-clean-paths` | `str[]` | Directories where moved archive source files are immediately archived. |
-| `--dropdir-archive-clean-delay-milliseconds` | `int` | Delay before triggering archive cleanup after move-back. |
+| `--dropdir-action` | `str[]` | Run temporary Lucy flags when a file is moved into a matching drop directory. Format: `selector=flags`. |
+| `--dropdir-action-delay-milliseconds` | `int` | Delay before running a dropdir action after move-back. |
+
+Examples:
+
+```text
+--dropdir-action "cleanup=--archive-pair"
+--dropdir-action "todo-drop=--formatter-todo"
+--dropdir-action-delay-milliseconds 1200
+```
+
+The action is parsed as normal Lucy flags and run against the moved-back source
+path. Target modules must be selected in `--sys-modules`. System flags
+(`--sys-*`) are rejected inside dropdir actions.
+
+## Voice
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--voice` | `bool` | Replace this line with local Vosk transcription. |
+| `--voice-offline-vosk-model-path` | `str` | Local Vosk model directory. |
+| `--voice-timeout-seconds` | `int` | Safety limit for one listen. Normal stop is after silence. |
+| `--voice-recorder-path` | `str` | Recorder executable that writes raw mono PCM16 audio to stdout. Default: `arecord`. |
+| `--voice-sample-rate` | `int` | Recorder and Vosk sample rate. Default: `16000`. |
+
+Example:
+
+```text
+--voice
+--voice-offline-vosk-model-path ~/.local/share/vosk-model-ru
+```
 
 ## Status
 
@@ -242,7 +314,9 @@ Examples:
 
 ## Cmd Module
 
-The `cmd` module exists but is not enabled in the default module list.
+The `cmd` module runs local commands. If notes are synced through Git or any
+remote source, a changed note can become remote command execution. Enable it
+only for fully trusted notes.
 
 | Arg | Type | Meaning |
 |---|---:|---|
@@ -257,19 +331,3 @@ Example:
 --cmd echo hello
 --cmd-stream stdout
 ```
-
-## KDE Connect Sync
-
-| Arg | Type | Meaning |
-|---|---:|---|
-| `--kdeconnect-sync` | `bool` | Enable KDE Connect patch sync for edit events (`created`, `modified`, `moved`, `deleted`). |
-| `--kdeconnect-device-id` | `str` | KDE Connect device id used for mount/sync operations. |
-| `--kdeconnect-remote-root` | `str` | Phone repository root path (for example `/storage/emulated/0/Notes`). |
-| `--kdeconnect-patch-queue-dir` | `str` | Project-local patch queue directory. |
-| `--kdeconnect-patch-coalesce-milliseconds` | `int` | Coalesce window for rapid edit events before building one patch packet. |
-| `--kdeconnect-patch-retry-seconds` | `float` | Retry delay for failed phone transfer attempts. |
-| `--kdeconnect-patch-max-retries` | `int` | Maximum transfer retries per packet before giving up. |
-| `--kdeconnect-binary-fallback-enabled` | `bool` | Reserved flag for future binary fallback mode. |
-| `--kdeconnect-command-timeout-seconds` | `float` | Timeout for `kdeconnect-cli` commands. |
-| `--kdeconnect-mount-retry-seconds` | `float` | Delay between mount retries when device is temporarily unavailable. |
-| `--kdeconnect-dry-run` | `bool` | Build patch packets without transferring to phone. |

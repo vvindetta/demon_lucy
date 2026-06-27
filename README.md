@@ -77,22 +77,25 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 ### Modules
 
 **Basic:**
-- `sys`: writes runtime debug information, event details, and manual help text. Loaded by default.
-- `banner`: inserts ASCII banner text or date banners into notes.
-- `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.
+- `sys`: writes runtime debug information, event details, and manual help text.
 - `linker`: creates symlinks for active notes, and updates file path markdown links on move/rename.
 - `archive`: automatically moves idle stale notes from the active note to a past/archive note, keeping one daily scratch note current and older text in history.
+- `alias`: creates aliases for module args.
+- `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.
+- `banner`: inserts ASCII banner text or date banners into notes.
 - `formatter`: formats note text, including todo list conversion and blank-space padding.
+- `workspace`: initializes a note workspace with `.lucy`, `.archive`, `.status`, `now.md`, and an archive pair. Does nothing until `--workspace-init` is set.
 
 **Integrations:**
 - `git`: syncs notes with a remote Git repository.
 - `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
 **Experimental:**
-- `dropdir`: handles moved files in configured drop directories. Useful for temporary inbox/drop folders where moving a file should immediately trigger a follow-up action.
+- `dropdir`: handles moved files in configured drop directories. Useful for inbox/drop folders where a move should trigger temporary Lucy flags. Target modules must be selected in `--sys-modules`.
 - `status`: updates standalone status filenames with dynamic tokens (time/date/git state, animations, prefixes).
 - `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.
 - `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
+- `voice`: replaces inline `--voice` with local Vosk transcription, stopping after speech ends.
 
 See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
@@ -114,7 +117,7 @@ pip install -r requirements.txt
    - `config.txt` is a commented template. Uncomment and edit the lines you need.
    - At minimum, set `--sys-watch-paths "/home/user/Notes"`.
    - Or pass it directly at run time: `python3 main_daemon.py --sys-watch-paths "/home/user/Notes"`
-   - `--sys-modules` is optional. If you do not set it, only basic modules are loaded by default.
+   - Use `--sys-modules` to choose modules. Basic set: `alias workspace banner renamer linker formatter archive sys`.
 
 #### **Turn on file auto-update in your text editor!**
 

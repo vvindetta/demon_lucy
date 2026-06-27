@@ -106,6 +106,16 @@ watchdog file events.
 - `agent/`: planning notes, currently Git refactor and KDE Connect sync design.
 - `media/`: README/demo assets only.
 
+## Documentation Style
+
+- Module descriptions in `README.md` must be external-facing and short. Keep
+  them at the level of the other module list items: what the module does for a
+  user, without implementation details, internal ordering, config mechanics, or
+  manual-like explanations.
+- `CHEATSHEET.md` is a quick command reference, not full documentation. Keep it
+  to current flags, compact meanings, and short examples. Do not turn it into a
+  module manual or design document.
+
 ## Fast Search Targets
 
 - Args/templates: `rg "template:|TEMPLATE|DEMON_LUCY_STARTUP_TEMPLATE"`
@@ -142,8 +152,8 @@ Use one consistent format:
 Frequently used note flags should be short and readable:
 
 - `--rename`
-- `--fmt-todo`
-- `--fmt-blank`
+- `--formatter-todo`
+- `--formatter-blank`
 - `--cmd`
 - `--banner`
 - `--status`

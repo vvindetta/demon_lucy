@@ -11,10 +11,10 @@
 # --- runtime/system ---
 
 # Common desktop modules. The cmd module is intentionally excluded.
-# --sys-modules "banner" "renamer" "linker" "formatter" "archive" "sys" "git"
+# --sys-modules "alias" "workspace" "banner" "renamer" "linker" "formatter" "archive" "sys" "git"
 
 # Override module order. Lower number runs earlier.
-# --modules-priority sys=0 banner=10 renamer=20 linker=22 archive=25 formatter=40 git=50
+# --sys-modules-priority alias=0 workspace=1 sys=2 banner=10 renamer=20 linker=22 formatter=23 archive=25 git=50
 
 # Ignore generated/internal trees when modules should not run there.
 # --sys-ignore-paths "/home/user/Notes/.archive"
@@ -33,6 +33,12 @@
 # Disable notifications completely.
 # Failed notification delivery attempts are logged as notification.failed.
 # --sys-notification-provider disable
+
+
+# --- alias ---
+
+# Alias creates shortcuts for module args.
+# --alias-rule "b=--banner {args}" "todo=--formatter-todo" "rn=--rename {args}"
 
 
 # --- linker ---
