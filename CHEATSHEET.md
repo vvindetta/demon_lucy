@@ -89,13 +89,13 @@ System args (`--sys-*`) and `--cmd` are not aliased.
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--alias-rule` | `str[]` | Alias rule in `name=expansion` format. Use `{args}` to pass values after the alias into the expansion. |
+| `--alias` | `str[]` | Alias in `name=expansion` format. Use `{args}` to pass values after the alias into the expansion. |
 | `--alias-dry-run` | `bool` | Log alias rewrites without changing files. |
 
 Examples:
 
 ```text
---alias-rule "b=--banner {args}" "todo=--formatter-todo" "rn=--rename {args}"
+--alias "b=--banner {args}" "todo=--formatter-todo" "rn=--rename {args}"
 ```
 
 Then a note can use:
@@ -133,8 +133,7 @@ Examples:
 |---|---:|---|
 | `--workspace-init` | `str` | Initialize a Lucy workspace at the given directory path. |
 
-Creates `.lucy`, `now.md`, `.archive/past.md`, and two `.status` files.
-Initializes `.lucy` as the workspace config.
+Initializes a default notes workspace.
 
 Example:
 

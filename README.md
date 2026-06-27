@@ -84,7 +84,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 - `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.
 - `banner`: inserts ASCII banner text or date banners into notes.
 - `formatter`: formats note text, including todo list conversion and blank-space padding.
-- `workspace`: initializes a note workspace with `.lucy`, `.archive`, `.status`, `now.md`, and an archive pair. Does nothing until `--workspace-init` is set.
+- `workspace`: initializes a default notes workspace.
 
 **Integrations:**
 - `git`: syncs notes with a remote Git repository.
