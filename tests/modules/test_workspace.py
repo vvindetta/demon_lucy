@@ -23,6 +23,17 @@ def _startup_config(tmp_path: Path) -> dict[str, object]:
     return config
 
 
+def test_workspace_default_template_contains_created_files() -> None:
+    template_root = Path(Workspace._template_dir)
+
+    assert (template_root / ".lucy" / "config.txt").exists()
+    assert (template_root / ".status" / "-- ---- --").exists()
+    assert (template_root / ".status" / "Sync:").exists()
+    assert (template_root / ".archive" / "past.md").exists()
+    assert (template_root / "now.md").exists()
+    assert (template_root / "welcome.md").exists()
+
+
 def test_workspace_init_creates_workspace_files_from_note_flag(
     tmp_path: Path,
     caplog,
@@ -46,19 +57,23 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
     assert (workspace_root / "now.md").read_text(encoding="utf-8") == ""
     welcome_text = (workspace_root / "welcome.md").read_text(encoding="utf-8")
     assert "Demon Lucy initialized this workspace." in welcome_text
+    assert "daily notes and tasks" in welcome_text
+    assert "after 10 hours without changes" in welcome_text
+    assert "(you can change this rule in config)" in welcome_text
+    assert "Archive pair:" not in welcome_text
     assert f"- `{workspace_root}`" in welcome_text
     assert f"- `--sys-watch-paths {workspace_root}`" in welcome_text
     assert "- `--archive-auto-pair now.md .archive/past.md 10 text`" in welcome_text
     assert "--sys-config-path" not in welcome_text
     assert (workspace_root / ".archive" / "past.md").read_text(encoding="utf-8") == ""
-    assert (workspace_root / ".status" / "workspace-animation.md").read_text(
+    assert (workspace_root / ".status" / "-- ---- --").read_text(
         encoding="utf-8"
     ) == '--status-animation "-- ---- --" "-<( ✷ )>-" "-< --- >-"\n'
-    assert (workspace_root / ".status" / "workspace-sync.md").read_text(
+    assert (workspace_root / ".status" / "Sync:").read_text(
         encoding="utf-8"
     ) == '--status git update --status-prefix "Sync: "\n'
 
-    config_path = workspace_root / ".lucy" / "config"
+    config_path = workspace_root / ".lucy" / "config.txt"
     config_text = config_path.read_text(encoding="utf-8")
     assert f"--sys-watch-paths {workspace_root}" in config_text
     assert "--sys-config-path" not in config_text
@@ -78,8 +93,8 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
         str(trigger.resolve()): 1,
         str(config_path.resolve()): 1,
         str((workspace_root / "welcome.md").resolve()): 1,
-        str((workspace_root / ".status" / "workspace-animation.md").resolve()): 1,
-        str((workspace_root / ".status" / "workspace-sync.md").resolve()): 1,
+        str((workspace_root / ".status" / "-- ---- --").resolve()): 1,
+        str((workspace_root / ".status" / "Sync:").resolve()): 1,
         str((workspace_root / "now.md").resolve()): 1,
         str((workspace_root / ".archive" / "past.md").resolve()): 1,
     }
@@ -106,7 +121,7 @@ def test_workspace_init_resolves_relative_path_from_note_dir(tmp_path: Path) -> 
     module.modified(ctx, system)
 
     assert (note_dir / "project" / ".lucy").is_dir()
-    assert (note_dir / "project" / ".lucy" / "config").exists()
+    assert (note_dir / "project" / ".lucy" / "config.txt").exists()
     assert (note_dir / "project" / "welcome.md").exists()
     assert (note_dir / "project" / "now.md").exists()
 
@@ -126,7 +141,9 @@ def test_workspace_init_keeps_non_default_system_values(tmp_path: Path) -> None:
 
     manager.run(str(trigger), FileModifiedEvent(str(trigger)))
 
-    config_text = (workspace_root / ".lucy" / "config").read_text(encoding="utf-8")
+    config_text = (workspace_root / ".lucy" / "config.txt").read_text(
+        encoding="utf-8"
+    )
     welcome_text = (workspace_root / "welcome.md").read_text(encoding="utf-8")
     assert "--sys-log-level info" in config_text
     assert "- `--sys-log-level info`" in welcome_text
@@ -137,7 +154,7 @@ def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> Non
     (workspace_root / ".archive").mkdir(parents=True)
     (workspace_root / ".status").mkdir()
     (workspace_root / ".lucy").mkdir()
-    (workspace_root / ".lucy" / "config").write_text(
+    (workspace_root / ".lucy" / "config.txt").write_text(
         "custom config\n",
         encoding="utf-8",
     )
@@ -162,7 +179,7 @@ def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> Non
     changed = module.modified(ctx, system)
 
     assert (
-        (workspace_root / ".lucy" / "config").read_text(encoding="utf-8")
+        (workspace_root / ".lucy" / "config.txt").read_text(encoding="utf-8")
         == "custom config\n"
     )
     assert (workspace_root / "welcome.md").read_text(encoding="utf-8") == (
@@ -173,6 +190,6 @@ def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> Non
         encoding="utf-8"
     ) == "keep past\n"
     assert changed == {
-        str((workspace_root / ".status" / "workspace-animation.md").resolve()): 1,
-        str((workspace_root / ".status" / "workspace-sync.md").resolve()): 1,
+        str((workspace_root / ".status" / "-- ---- --").resolve()): 1,
+        str((workspace_root / ".status" / "Sync:").resolve()): 1,
     }
