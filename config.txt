@@ -38,7 +38,7 @@
 # --- alias ---
 
 # Alias creates shortcuts for module args.
-# --alias-rule "b=--banner {args}" "todo=--formatter-todo" "rn=--rename {args}"
+# --alias "b=--banner {args}" "todo=--formatter-todo" "rn=--rename {args}"
 
 
 # --- linker ---

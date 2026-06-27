@@ -52,7 +52,7 @@ def test_alias_rewrites_note_flags_to_canonical_flags(tmp_path: Path):
         path=str(note),
         config=_config(
             [
-                "--alias-rule",
+                "--alias",
                 "b=--banner {args}",
                 "todo=--formatter-todo",
             ]
@@ -75,7 +75,7 @@ def test_alias_passes_inline_value_to_args_placeholder(tmp_path: Path):
     module = Alias()
     ctx = Context(
         path=str(note),
-        config=_config(["--alias-rule", "rn=--rename {args}"]),
+        config=_config(["--alias", "rn=--rename {args}"]),
         arg_lines={},
     )
 
@@ -92,7 +92,7 @@ def test_alias_dry_run_does_not_write(tmp_path: Path):
     module = Alias()
     ctx = Context(
         path=str(note),
-        config=_config(["--alias-rule", "b=--banner {args}", "--alias-dry-run"]),
+        config=_config(["--alias", "b=--banner {args}", "--alias-dry-run"]),
         arg_lines={},
     )
 
@@ -118,7 +118,7 @@ def test_alias_rejects_system_target_without_rewrite(
     module = Alias()
     ctx = Context(
         path=str(note),
-        config=_config(["--alias-rule", "x=--sys-log-level {args}"]),
+        config=_config(["--alias", "x=--sys-log-level {args}"]),
         arg_lines={},
     )
     system = _system(
@@ -149,7 +149,7 @@ def test_alias_rejects_cmd_target_without_rewrite(tmp_path: Path, monkeypatch):
     module = Alias()
     ctx = Context(
         path=str(note),
-        config=_config(["--alias-rule", "run=--cmd {args}"]),
+        config=_config(["--alias", "run=--cmd {args}"]),
         arg_lines={},
     )
     system = _system(
@@ -185,7 +185,7 @@ def test_alias_rewrite_is_reparsed_before_next_module(tmp_path: Path):
     recorder = _Recorder()
     manager = ModuleManager(
         modules=[recorder, Alias()],
-        args=["--alias-rule", "b=--banner {args}"],
+        args=["--alias", "b=--banner {args}"],
         system_config={
             "sys_ignore_paths": [],
             **_NOTIFICATION_CONFIG,

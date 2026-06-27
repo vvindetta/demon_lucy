@@ -48,11 +48,12 @@ class Alias(AbstractModule):
 
     template = [
         (
-            "--alias-rule",
+            "--alias",
             str,
             [],
-            "Experimental alias rule for note flags. Format: name=expansion. "
-            "Example: --alias-rule 'b=--banner {args}'. System flags (--sys-*) and --cmd are not rewritten.",
+            "Alias for note flags. Format: name=expansion. "
+            "Example: --alias 'b=--banner {args}' 'todo=--formatter-todo' 'rn=--rename {args}'. "
+            "System flags (--sys-*) and --cmd are not rewritten.",
             False,
         ),
         (
@@ -189,7 +190,7 @@ class Alias(AbstractModule):
         known_flags = self._known_flags(system)
         rules: dict[str, AliasRule] = {}
 
-        for raw_rule in ctx.config["alias_rule"]:
+        for raw_rule in ctx.config["alias"]:
             parsed = self._parse_rule(str(raw_rule), known_flags=known_flags)
             if isinstance(parsed, RuleError):
                 self._log_rule_error(ctx, system, parsed)
@@ -201,7 +202,7 @@ class Alias(AbstractModule):
     @staticmethod
     def _notification_key(error: RuleError) -> str:
         alias = error.alias or "-"
-        return f"alias-rule:{alias}:{error.reason}"
+        return f"alias:{alias}:{error.reason}"
 
     def _log_rule_error(
         self,
@@ -221,7 +222,7 @@ class Alias(AbstractModule):
         )
         safe_notify(
             self._notification_key(error),
-            f"Invalid alias rule: {error.reason} {error.detail}".strip(),
+            f"Invalid alias: {error.reason} {error.detail}".strip(),
             config=ctx.config,
             use_rare_mode=True,
         )
@@ -372,7 +373,7 @@ class Alias(AbstractModule):
             raise
 
     def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        if not ctx.config["alias_rule"]:
+        if not ctx.config["alias"]:
             return None
 
         rules = self._parse_rules(ctx, system)

@@ -65,20 +65,20 @@ def test_parse_args_allows_empty_list_flag_value():
 
 def test_parse_args_repeated_list_flag_uses_last_value():
     template = [
-        ("--alias-rule", str, [], "", False),
+        ("--alias", str, [], "", False),
     ]
 
     known, unknown = parse_args(
         args=[
-            "--alias-rule",
+            "--alias",
             "b=--banner {args}",
-            "--alias-rule",
+            "--alias",
             "todo=--formatter-todo",
         ],
         template=template,
     )
 
-    assert known["alias_rule"] == ["todo=--formatter-todo"]
+    assert known["alias"] == ["todo=--formatter-todo"]
     assert unknown == []
 
 
