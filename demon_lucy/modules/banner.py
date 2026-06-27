@@ -23,9 +23,9 @@ class Banner(AbstractModule):
         (
             "--banner",
             str,
-            None,
+            [],
             "Insert an ASCII banner (pyfiglet) at the line where the flag appears. "
-            "Use '--banner date' to insert today's date. Example: --banner 'LOL' or --banner date.",
+            "Use '--banner date' to insert today's date. Example: --banner LOL, --banner hello world, or --banner date.",
             False,
         ),
         (
@@ -38,10 +38,37 @@ class Banner(AbstractModule):
         ),
     ]
 
+    @staticmethod
+    def _banner_text_from_config(config: dict, arg_lines: dict) -> str:
+        raw_banner = config.get("banner")
+        if raw_banner is None:
+            return ""
+
+        if not isinstance(raw_banner, list):
+            return str(raw_banner).strip()
+
+        if not raw_banner:
+            return ""
+
+        banner_lines = arg_lines.get("banner") if isinstance(arg_lines, dict) else None
+        if not banner_lines:
+            return " ".join(str(item).strip() for item in raw_banner).strip()
+
+        first_line = banner_lines[0]
+        values: list[str] = []
+        for value, line in zip(raw_banner, banner_lines):
+            if line != first_line:
+                break
+            text = str(value).strip()
+            if text:
+                values.append(text)
+        return " ".join(values).strip()
+
     def _apply(
         self, *, path: str, config: dict, arg_lines: dict
     ) -> Optional[IgnoreMap]:
-        if not config["banner"]:
+        banner_text = self._banner_text_from_config(config, arg_lines)
+        if not banner_text:
             return None
 
         banner_lines = arg_lines.get("banner") if isinstance(arg_lines, dict) else None
@@ -52,7 +79,6 @@ class Banner(AbstractModule):
         except (TypeError, ValueError, IndexError):
             return None
 
-        banner_text = config["banner"].strip()
         if banner_text == "date":
             banner_text = str(date.today())
 

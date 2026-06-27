@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from watchdog.events import FileModifiedEvent
 
 import demon_lucy.modules.banner as banner_mod
+from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.banner import Banner
 
 
@@ -35,7 +37,7 @@ def test_apply_inserts_or_replaces_banner_block(
     module = Banner()
     changed = module._apply(
         path=str(path),
-        config={"banner": "Hello", "banner_separator": "---"},
+        config={"banner": ["Hello"], "banner_separator": "---"},
         arg_lines=arg_lines,
     )
 
@@ -52,7 +54,7 @@ def test_apply_returns_none_when_banner_is_not_configured(tmp_path: Path):
     module = Banner()
     changed = module._apply(
         path=str(path),
-        config={"banner": None, "banner_separator": "---"},
+        config={"banner": [], "banner_separator": "---"},
         arg_lines={},
     )
     assert changed is None
@@ -66,9 +68,53 @@ def test_apply_returns_none_when_banner_line_is_missing(tmp_path: Path):
     module = Banner()
     changed = module._apply(
         path=str(path),
-        config={"banner": "Hello", "banner_separator": "---"},
+        config={"banner": ["Hello"], "banner_separator": "---"},
         arg_lines={},
     )
 
     assert changed is None
     assert path.read_text(encoding="utf-8") == original
+
+
+def test_banner_text_from_config_joins_values_from_first_banner_line():
+    text = Banner._banner_text_from_config(
+        {"banner": ["Hello", "world", "Second"]},
+        {"banner": [1, 1, 3]},
+    )
+
+    assert text == "Hello world"
+
+
+def test_module_manager_parses_unquoted_multi_word_banner(
+    tmp_path: Path,
+    monkeypatch,
+):
+    seen_texts: list[str] = []
+
+    def fake_figlet(text: str) -> str:
+        seen_texts.append(text)
+        return "ASCII\n"
+
+    monkeypatch.setattr(banner_mod.pyfiglet, "figlet_format", fake_figlet)
+
+    path = tmp_path / "note.md"
+    path.write_text("--banner Hello world\nbody\n", encoding="utf-8")
+
+    manager = ModuleManager(
+        modules=[Banner()],
+        args=[],
+        system_config={
+            "sys_ignore_paths": [],
+            "sys_notification_provider": "disable",
+            "sys_notification_min_interval_seconds": 0.0,
+            "sys_notification_error_backoff_base_seconds": 0.0,
+            "sys_notification_error_backoff_max_seconds": 0.0,
+            "sys_notification_error_burst_limit": 0,
+            "sys_notification_error_burst_window_seconds": 0.0,
+        },
+    )
+
+    changed = manager.run(str(path), FileModifiedEvent(str(path)), event_id="evt-test")
+
+    assert changed == {str(path.resolve()): 1}
+    assert seen_texts == ["Hello world"]
