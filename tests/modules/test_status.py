@@ -8,6 +8,7 @@ import pytest
 from watchdog.events import FileModifiedEvent, FileOpenedEvent
 
 import demon_lucy.modules.status as status_mod
+import demon_lucy.modules.status.rendering as status_rendering_mod
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.git.sync_marker import write_sync_success_timestamp
 from demon_lucy.modules.status import Status
@@ -1317,6 +1318,12 @@ def test_status_sanitizes_unnameable_filename_tokens(
     assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
     assert revived_path.exists()
     assert not status_file.exists()
+
+
+def test_status_sanitizes_windows_forbidden_filename_tokens(monkeypatch) -> None:
+    monkeypatch.setattr(status_rendering_mod.os, "name", "nt")
+
+    assert Status._sanitize_filename_text("Sync: 08:09 A/B?") == "Sync_ 08_09 A_B_"
 
 
 def test_status_uses_fallback_name_when_target_exists(

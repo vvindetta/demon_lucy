@@ -8,6 +8,7 @@ from demon_lucy.lib.args.parser import (
     flag_to_dest,
     parse_template_item,
 )
+from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -22,7 +23,13 @@ class Sys(AbstractModule):
 
     template = [
         ("--mods", bool, False, "Print loaded modules and their priorities.", False),
-        ("--ping", bool, False, "Health-check command: prints pong.", False),
+        (
+            "--ping",
+            bool,
+            False,
+            "Health-check: sends notification and writes pong.",
+            False,
+        ),
         (
             "--config",
             bool,
@@ -62,7 +69,7 @@ class Sys(AbstractModule):
     def _command_help_lines() -> List[str]:
         return [
             "* --mods: print loaded modules and their priorities\n",
-            "* --ping: rewrite command line to ++pong!\n",
+            "* --ping: send notification and rewrite command line to ++pong!\n",
             "* --config: print config values that differ from defaults\n",
             "* --man <name>: print one argument with description (example: --man mods or --man --mods)\n",
             "* --event: print current filesystem event details\n",
@@ -78,6 +85,16 @@ class Sys(AbstractModule):
         file_lines[index : index + 1] = ["++pong!\n"]
         if cleaned_line.strip():
             file_lines[index + 1 : index + 1] = [cleaned_line]
+
+    @staticmethod
+    def _send_ping_notification(ctx: Context) -> None:
+        safe_notify(
+            "sys-ping",
+            "++pong!",
+            config=ctx.config,
+            title="Demon Lucy ping",
+            use_rare_mode=False,
+        )
 
     @staticmethod
     def _normalize_arg_name(raw: str) -> str:
@@ -344,6 +361,9 @@ class Sys(AbstractModule):
 
         if not line_to_opts:
             return None
+
+        if any("ping" in selected_opts for selected_opts in line_to_opts.values()):
+            self._send_ping_notification(ctx)
 
         try:
             with open(ctx.path, "r", encoding="utf-8") as file_handle:
