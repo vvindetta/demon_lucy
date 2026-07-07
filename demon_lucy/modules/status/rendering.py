@@ -32,9 +32,13 @@ class StatusRenderingMixin:
 
     @staticmethod
     def _sanitize_filename_text(name_text: str) -> str:
-        invalid_chars = [os.sep, "\x00"]
+        invalid_chars = {os.sep, os.altsep, "/", "\\", "\x00"}
+        if os.name == "nt":
+            invalid_chars.update('<>:"|?*')
+        invalid_chars.discard(None)
+
         if os.altsep:
-            invalid_chars.append(os.altsep)
+            invalid_chars.add(os.altsep)
 
         safe_name = str(name_text)
         for item in invalid_chars:

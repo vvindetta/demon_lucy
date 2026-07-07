@@ -26,6 +26,12 @@ def _base_config() -> dict[str, object]:
         "config": False,
         "event": False,
         "man": [],
+        "sys_notification_provider": "disable",
+        "sys_notification_min_interval_seconds": 0.0,
+        "sys_notification_error_backoff_base_seconds": 0.0,
+        "sys_notification_error_backoff_max_seconds": 0.0,
+        "sys_notification_error_burst_limit": 0,
+        "sys_notification_error_burst_window_seconds": 0.0,
     }
 
 
@@ -206,3 +212,43 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
     assert changed == {str(note): 1}
     assert "--- man ---\n" in content
     assert "* --man: manual (type=str, default=None)\n" in content
+
+
+def test_ping_sends_lucy_notification(tmp_path: Path, monkeypatch):
+    note = tmp_path / "note.md"
+    note.write_text("--ping\n", encoding="utf-8")
+    notifications: list[dict[str, object]] = []
+
+    def fake_safe_notify(name, message, **kwargs):
+        notifications.append({"name": name, "message": message, **kwargs})
+        return True
+
+    monkeypatch.setattr("demon_lucy.modules.sys.safe_notify", fake_safe_notify)
+
+    module = Sys()
+    config = _base_config()
+    config["ping"] = True
+    ctx = Context(
+        path=str(note),
+        config=config,
+        arg_lines={"ping": [1]},
+    )
+    system = System(
+        event=FileModifiedEvent(str(note)),
+        global_template=Sys.template,
+        modules=[module],
+    )
+
+    changed = module.modified(ctx, system)
+
+    assert changed == {str(note): 1}
+    assert note.read_text(encoding="utf-8") == "++pong!\n"
+    assert notifications == [
+        {
+            "name": "sys-ping",
+            "message": "++pong!",
+            "config": config,
+            "title": "Demon Lucy ping",
+            "use_rare_mode": False,
+        }
+    ]
