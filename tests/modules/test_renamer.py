@@ -68,7 +68,9 @@ def test_apply_auto_on_create_renames_any_one_letter_file_with_default_format(
     assert not old_path.exists()
 
 
-def test_apply_auto_on_create_uses_extension_shortcut(tmp_path: Path, monkeypatch):
+def test_apply_auto_on_create_adds_extension_to_extensionless_file(
+    tmp_path: Path, monkeypatch
+):
     class _FakeDatetime:
         @classmethod
         def now(cls):
@@ -86,7 +88,7 @@ def test_apply_auto_on_create_uses_extension_shortcut(tmp_path: Path, monkeypatc
     )
 
     assert changed is not None
-    assert (tmp_path / "21-04.org").exists()
+    assert (tmp_path / "m.org").exists()
     assert not old_path.exists()
 
 
@@ -112,7 +114,7 @@ def test_apply_auto_on_create_rejects_filename_format(tmp_path: Path, monkeypatc
     assert not (tmp_path / "2026-04-21.md").exists()
 
 
-def test_apply_auto_on_create_does_not_use_old_txt_md_name_shortcuts(
+def test_apply_auto_on_create_adds_default_extension_to_any_extensionless_file(
     tmp_path: Path, monkeypatch
 ):
     class _FakeDatetime:
@@ -131,9 +133,35 @@ def test_apply_auto_on_create_does_not_use_old_txt_md_name_shortcuts(
         config={"rename_auto": True, "rename_auto_format": "md"},
     )
 
-    assert changed is None
-    assert txt_path.exists()
+    assert changed is not None
+    assert not txt_path.exists()
+    assert (tmp_path / "txt.md").exists()
     assert not (tmp_path / "21-04.md").exists()
+
+
+def test_apply_auto_on_create_adds_suffix_when_extension_target_exists(
+    tmp_path: Path, monkeypatch
+):
+    class _FakeDatetime:
+        @classmethod
+        def now(cls):
+            return datetime(2026, 4, 21, 10, 30, 45, 123456)
+
+    monkeypatch.setattr(renamer_mod, "datetime", _FakeDatetime)
+
+    old_path = tmp_path / "note"
+    old_path.write_text("x\n", encoding="utf-8")
+    (tmp_path / "note.md").write_text("existing\n", encoding="utf-8")
+
+    module = Renamer()
+    changed = module._apply_auto_on_create(
+        path=str(old_path),
+        config={"rename_auto": True, "rename_auto_format": "md"},
+    )
+
+    assert changed is not None
+    assert not old_path.exists()
+    assert (tmp_path / "note-1030.md").exists()
 
 
 def test_apply_auto_on_create_adds_more_time_precision_until_name_is_free(
@@ -155,7 +183,7 @@ def test_apply_auto_on_create_adds_more_time_precision_until_name_is_free(
     ):
         (tmp_path / name).write_text("existing\n", encoding="utf-8")
 
-    old_path = tmp_path / "z"
+    old_path = tmp_path / "z.md"
     old_path.write_text("x\n", encoding="utf-8")
 
     module = Renamer()
