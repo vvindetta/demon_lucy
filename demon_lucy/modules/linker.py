@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import os
+import posixpath
 import re
+import subprocess
+from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 from demon_lucy.lib.args.parser import Template, get_args_from_file
-from demon_lucy.lib.path import canonical_path, find_parent_with, path_is_inside
+from demon_lucy.lib.path import (
+    canonical_path,
+    find_parent_git_repo,
+    find_parent_with,
+    path_is_inside,
+)
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -47,7 +56,7 @@ class Linker(AbstractModule):
             "--linker-auto-update-md-links",
             bool,
             False,
-            "If enabled, when a note is moved/renamed scan repo markdown files and update links that point to that note.",
+            "If enabled, keep markdown links and target files in sync both ways: moved files update links, edited links move target files.",
             False,
         ),
     ]
@@ -65,15 +74,18 @@ class Linker(AbstractModule):
             return False
 
         path_abs = canonical_path(path_value)
-        expanded = os.path.expanduser(selector)
-        if os.path.isabs(expanded):
-            return path_abs == canonical_path(expanded)
+        expanded_path = Path(selector).expanduser()
+        if expanded_path.is_absolute():
+            return path_abs == canonical_path(str(expanded_path))
 
-        if os.sep in expanded:
-            candidate = os.path.join(repo_root, expanded)
-            return path_abs == canonical_path(candidate)
+        has_separator = any(
+            separator and separator in selector
+            for separator in (os.sep, os.altsep, "/")
+        )
+        if has_separator or len(expanded_path.parts) > 1:
+            return path_abs == canonical_path(str(Path(repo_root) / expanded_path))
 
-        return os.path.basename(path_abs) == expanded
+        return Path(path_abs).name == str(expanded_path)
 
     def _is_ignored_path(
         self,
@@ -98,9 +110,7 @@ class Linker(AbstractModule):
         repo_root: str,
         ignore_selectors: list[str],
     ) -> Optional[IgnoreMap]:
-        link_path = os.path.abspath(
-            os.path.join(repo_root, os.path.basename(source_path))
-        )
+        link_path = str((Path(repo_root) / Path(source_path).name).absolute())
         if link_path == source_path:
             return None
 
@@ -145,15 +155,15 @@ class Linker(AbstractModule):
     ) -> Optional[IgnoreMap]:
         deleted: IgnoreMap = {}
         try:
-            entries = os.listdir(repo_root)
+            entries = list(Path(repo_root).iterdir())
         except OSError:
             return None
 
-        for name in entries:
-            if name == ".git":
+        for entry in entries:
+            if entry.name == ".git":
                 continue
-            abs_path = os.path.abspath(os.path.join(repo_root, name))
-            if not os.path.islink(abs_path):
+            abs_path = str(entry.absolute())
+            if not entry.is_symlink():
                 continue
             if self._is_ignored_path(
                 path_value=abs_path,
@@ -175,13 +185,13 @@ class Linker(AbstractModule):
 
     def _linked_source_has_linker_root_flag(self, link_path: str) -> bool:
         try:
-            source_path = os.path.realpath(link_path)
+            source_path = Path(link_path).resolve(strict=False)
         except OSError:
             return False
-        if not os.path.isfile(source_path):
+        if not source_path.is_file():
             return False
         known_args, _unknown_args, _arg_lines = get_args_from_file(
-            path=source_path,
+            path=str(source_path),
             template=self.template,
         )
         return bool(known_args.get("linker_root"))
@@ -203,17 +213,17 @@ class Linker(AbstractModule):
 
     @staticmethod
     def _is_supported_reference_file(path_value: str) -> bool:
-        _, ext = os.path.splitext(path_value.lower())
-        return ext in REFERENCE_LINK_FILE_EXTENSIONS
+        return Path(path_value).suffix.lower() in REFERENCE_LINK_FILE_EXTENSIONS
 
     @staticmethod
     def _split_link_destination_and_suffix(destination: str) -> tuple[str, str]:
-        split_at = len(destination)
-        for marker in ("#", "?"):
-            index = destination.find(marker)
-            if index != -1:
-                split_at = min(split_at, index)
-        return destination[:split_at], destination[split_at:]
+        parsed = urlsplit(destination)
+        suffix = ""
+        if parsed.query:
+            suffix += f"?{parsed.query}"
+        if parsed.fragment:
+            suffix += f"#{parsed.fragment}"
+        return parsed.path, suffix
 
     @staticmethod
     def _is_local_link_destination(destination: str) -> bool:
@@ -224,11 +234,8 @@ class Linker(AbstractModule):
             return False
         if "://" in lowered:
             return False
-        return not (
-            lowered.startswith("mailto:")
-            or lowered.startswith("javascript:")
-            or lowered.startswith("data:")
-        )
+        scheme = urlsplit(lowered).scheme
+        return scheme not in {"mailto", "javascript", "data"}
 
     @staticmethod
     def _parse_inline_destination(inside_text: str) -> tuple[str, str, str] | None:
@@ -257,8 +264,10 @@ class Linker(AbstractModule):
 
     @staticmethod
     def _normalize_rel_markdown_path(path_value: str) -> str:
-        normalized = os.path.normpath(path_value)
-        return normalized.replace(os.sep, "/")
+        value = path_value.replace(os.sep, "/")
+        if os.altsep:
+            value = value.replace(os.altsep, "/")
+        return posixpath.normpath(value)
 
     @staticmethod
     def _rebuild_destination_with_style(
@@ -353,35 +362,243 @@ class Linker(AbstractModule):
             return False
         return True
 
-    def _update_moved_links(
-        self, *, ctx: Context, system: System
+    def _inline_local_link_path_parts(self, line: str) -> list[tuple[str, str]]:
+        links: list[tuple[str, str]] = []
+        for match in self._INLINE_LINK_RE.finditer(line):
+            link_key = match.group(1)
+            parsed = self._parse_inline_destination(match.group(2))
+            if not parsed:
+                continue
+            _leading, destination_token, _tail = parsed
+            wrapped = (
+                len(destination_token) >= 2
+                and destination_token.startswith("<")
+                and destination_token.endswith(">")
+            )
+            destination_value = (
+                destination_token[1:-1] if wrapped else destination_token
+            ).strip()
+            if not self._is_local_link_destination(destination_value):
+                continue
+            path_part, _trailing_suffix = self._split_link_destination_and_suffix(
+                destination_value
+            )
+            if not path_part:
+                continue
+            if not self._is_supported_reference_file(path_part):
+                continue
+            links.append((link_key, path_part))
+        return links
+
+    def _edited_link_moves_from_lines(
+        self,
+        *,
+        old_line: str,
+        new_line: str,
+        markdown_path: str,
+        repo_root: str,
+    ) -> list[tuple[str, str]]:
+        old_links = self._inline_local_link_path_parts(old_line)
+        new_links = self._inline_local_link_path_parts(new_line)
+        if not old_links or not new_links:
+            return []
+
+        markdown_dir = os.path.dirname(markdown_path)
+        moves: list[tuple[str, str]] = []
+        used_new_indexes: set[int] = set()
+        for old_key, old_path_part in old_links:
+            for index, (new_key, new_path_part) in enumerate(new_links):
+                if index in used_new_indexes:
+                    continue
+                if old_key != new_key:
+                    continue
+                used_new_indexes.add(index)
+                if old_path_part == new_path_part:
+                    break
+                old_abs = self._resolve_link_path_part(
+                    path_part=old_path_part,
+                    markdown_dir=markdown_dir,
+                )
+                new_abs = self._resolve_link_path_part(
+                    path_part=new_path_part,
+                    markdown_dir=markdown_dir,
+                )
+                if not old_abs or not new_abs:
+                    break
+                if not path_is_inside(old_abs, repo_root):
+                    break
+                if not path_is_inside(new_abs, repo_root):
+                    break
+                moves.append((old_abs, new_abs))
+                break
+        return moves
+
+    @staticmethod
+    def _resolve_link_path_part(*, path_part: str, markdown_dir: str) -> str | None:
+        if not path_part:
+            return None
+        path = Path(path_part)
+        if path.is_absolute():
+            return canonical_path(str(path))
+        return canonical_path(str(Path(markdown_dir) / path))
+
+    def _edited_link_moves_from_diff(
+        self,
+        *,
+        markdown_path: str,
+        repo_root: str,
+    ) -> list[tuple[str, str]]:
+        try:
+            relative_path = Path(markdown_path).relative_to(repo_root)
+        except ValueError:
+            return []
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "diff",
+                    "--no-ext-diff",
+                    "--unified=0",
+                    "--",
+                    str(relative_path),
+                ],
+                cwd=repo_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+                timeout=3,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        if result.returncode != 0 or not result.stdout:
+            return []
+
+        moves: list[tuple[str, str]] = []
+        removed_lines: list[str] = []
+        added_lines: list[str] = []
+
+        def flush_hunk() -> None:
+            nonlocal removed_lines, added_lines
+            for old_line in removed_lines:
+                for new_line in added_lines:
+                    moves.extend(
+                        self._edited_link_moves_from_lines(
+                            old_line=old_line,
+                            new_line=new_line,
+                            markdown_path=markdown_path,
+                            repo_root=repo_root,
+                        )
+                    )
+            removed_lines = []
+            added_lines = []
+
+        for raw_line in result.stdout.splitlines():
+            if raw_line.startswith("@@"):
+                flush_hunk()
+                continue
+            if raw_line.startswith("---") or raw_line.startswith("+++"):
+                continue
+            if raw_line.startswith("-"):
+                removed_lines.append(raw_line[1:])
+                continue
+            if raw_line.startswith("+"):
+                added_lines.append(raw_line[1:])
+                continue
+        flush_hunk()
+        return moves
+
+    def _move_targets_for_edited_links(
+        self,
+        *,
+        ctx: Context,
     ) -> Optional[IgnoreMap]:
-        src_path_raw = str(getattr(system.event, "src_path", "") or "").strip()
-        dest_path_raw = str(getattr(system.event, "dest_path", "") or "").strip()
-        if not src_path_raw or not dest_path_raw:
+        markdown_path = canonical_path(ctx.path)
+        if not self._is_supported_reference_file(markdown_path):
             return None
-
-        moved_from_abs = canonical_path(src_path_raw)
-        moved_to_abs = canonical_path(dest_path_raw)
-        if moved_from_abs == moved_to_abs:
-            return None
-        if not self._is_supported_reference_file(moved_from_abs):
-            return None
-        if not self._is_supported_reference_file(moved_to_abs):
-            return None
-
-        repo_root = find_parent_with(moved_to_abs, ".git") or find_parent_with(
-            moved_from_abs, ".git"
-        )
+        repo_root = find_parent_git_repo(markdown_path)
         if not repo_root:
             return None
-
-        if not path_is_inside(moved_from_abs, repo_root):
-            return None
-        if not path_is_inside(moved_to_abs, repo_root):
+        if not path_is_inside(markdown_path, repo_root):
             return None
 
         ignore_selectors = list(ctx.config["linker_ignore"])
+        if self._is_ignored_path(
+            path_value=markdown_path,
+            repo_root=repo_root,
+            ignore_selectors=ignore_selectors,
+        ):
+            return None
+
+        changed_paths: IgnoreMap = {}
+        seen_moves: set[tuple[str, str]] = set()
+        for old_abs, new_abs in self._edited_link_moves_from_diff(
+            markdown_path=markdown_path,
+            repo_root=repo_root,
+        ):
+            move = (old_abs, new_abs)
+            if move in seen_moves:
+                continue
+            seen_moves.add(move)
+            if old_abs == new_abs:
+                continue
+            if self._is_ignored_path(
+                path_value=old_abs,
+                repo_root=repo_root,
+                ignore_selectors=ignore_selectors,
+            ) or self._is_ignored_path(
+                path_value=new_abs,
+                repo_root=repo_root,
+                ignore_selectors=ignore_selectors,
+            ):
+                continue
+            old_path = Path(old_abs)
+            new_path = Path(new_abs)
+            if not old_path.is_file():
+                continue
+            if old_path.is_symlink():
+                continue
+            if os.path.lexists(new_abs):
+                continue
+            try:
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+                old_path.rename(new_path)
+            except OSError:
+                continue
+            changed_paths[old_abs] = changed_paths.get(old_abs, 0) + 1
+            changed_paths[new_abs] = changed_paths.get(new_abs, 0) + 1
+            self._merge_ignore_maps_into(
+                changed_paths,
+                self._update_links_for_moved_paths(
+                    moved_from_abs=old_abs,
+                    moved_to_abs=new_abs,
+                    repo_root=repo_root,
+                    config=ctx.config,
+                ),
+            )
+        return changed_paths or None
+
+    @staticmethod
+    def _merge_ignore_maps_into(
+        target: IgnoreMap,
+        source: Optional[IgnoreMap],
+    ) -> None:
+        if not source:
+            return
+        for path_value, times in source.items():
+            if not times:
+                continue
+            target[path_value] = target.get(path_value, 0) + int(times)
+
+    def _update_links_for_moved_paths(
+        self,
+        *,
+        moved_from_abs: str,
+        moved_to_abs: str,
+        repo_root: str,
+        config: dict,
+    ) -> Optional[IgnoreMap]:
+        ignore_selectors = list(config["linker_ignore"])
         if self._is_ignored_path(
             path_value=moved_from_abs,
             repo_root=repo_root,
@@ -416,6 +633,41 @@ class Linker(AbstractModule):
 
         return changed_paths or None
 
+    def _update_moved_links(
+        self, *, ctx: Context, system: System
+    ) -> Optional[IgnoreMap]:
+        src_path_raw = str(getattr(system.event, "src_path", "") or "").strip()
+        dest_path_raw = str(getattr(system.event, "dest_path", "") or "").strip()
+        if not src_path_raw or not dest_path_raw:
+            return None
+
+        moved_from_abs = canonical_path(src_path_raw)
+        moved_to_abs = canonical_path(dest_path_raw)
+        if moved_from_abs == moved_to_abs:
+            return None
+        if not self._is_supported_reference_file(moved_from_abs):
+            return None
+        if not self._is_supported_reference_file(moved_to_abs):
+            return None
+
+        repo_root = find_parent_with(moved_to_abs, ".git") or find_parent_with(
+            moved_from_abs, ".git"
+        )
+        if not repo_root:
+            return None
+
+        if not path_is_inside(moved_from_abs, repo_root):
+            return None
+        if not path_is_inside(moved_to_abs, repo_root):
+            return None
+
+        return self._update_links_for_moved_paths(
+            moved_from_abs=moved_from_abs,
+            moved_to_abs=moved_to_abs,
+            repo_root=repo_root,
+            config=ctx.config,
+        )
+
     def _apply(self, *, path: str, config: dict) -> Optional[IgnoreMap]:
         use_link_top = bool(config["linker_root"])
         auto_cleanup = bool(config["linker_auto_clean_root_links"])
@@ -424,8 +676,8 @@ class Linker(AbstractModule):
         if not use_link_top and not auto_cleanup:
             return None
 
-        source_path = os.path.abspath(path)
-        if os.path.isdir(source_path):
+        source_path = str(Path(path).absolute())
+        if Path(source_path).is_dir():
             return None
 
         repo_root = find_parent_with(source_path, ".git")
@@ -451,7 +703,11 @@ class Linker(AbstractModule):
         return self._apply(path=ctx.path, config=ctx.config)
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(path=ctx.path, config=ctx.config)
+        link_changed = self._apply(path=ctx.path, config=ctx.config)
+        edited_links_changed = None
+        if bool(ctx.config["linker_auto_update_md_links"]):
+            edited_links_changed = self._move_targets_for_edited_links(ctx=ctx)
+        return self._merge_ignore_maps(link_changed, edited_links_changed)
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         link_changed = self._apply(path=ctx.path, config=ctx.config)

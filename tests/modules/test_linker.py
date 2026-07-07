@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import demon_lucy.modules.linker as linker_mod
-from watchdog.events import FileMovedEvent
+from watchdog.events import FileModifiedEvent, FileMovedEvent
 
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.linker import Linker
@@ -14,6 +15,44 @@ def _setup_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
     return repo
+
+
+def _setup_real_git_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(
+        ["git", "init"],
+        cwd=repo,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return repo
+
+
+def _git_add(repo: Path, *paths: Path) -> None:
+    subprocess.run(
+        ["git", "add", "--", *[str(path.relative_to(repo)) for path in paths]],
+        cwd=repo,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _linker_config(
+    *,
+    auto_update: bool = True,
+    ignore: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "linker_root": False,
+        "linker_auto_clean_root_links": False,
+        "linker_ignore": ignore or [],
+        "linker_auto_update_md_links": auto_update,
+    }
 
 
 def test_apply_creates_link_in_repo_root(tmp_path: Path):
@@ -337,6 +376,131 @@ def test_moved_updates_markdown_link_paths_only(tmp_path: Path):
         '[with title](./log/day.md#top "T")\n'
         "[external](https://example.com/day.md)\n"
     )
+
+
+def test_modified_markdown_link_move_renames_target_file_and_creates_dir(
+    tmp_path: Path,
+):
+    repo = _setup_real_git_repo(tmp_path)
+    notes_dir = repo / "notes"
+    notes_dir.mkdir()
+    target = notes_dir / "day.md"
+    target.write_text("note\n", encoding="utf-8")
+    index_path = notes_dir / "index.md"
+    index_path.write_text("[good day](day.md)\n", encoding="utf-8")
+    related_path = notes_dir / "related.md"
+    related_path.write_text("[same day](day.md)\n", encoding="utf-8")
+    _git_add(repo, target, index_path, related_path)
+
+    index_path.write_text("[good day](log/day.md)\n", encoding="utf-8")
+
+    module = Linker()
+    ctx = Context(path=str(index_path), config=_linker_config(), arg_lines={})
+    system = System(
+        event=FileModifiedEvent(str(index_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.modified(ctx, system)
+
+    moved_target = notes_dir / "log" / "day.md"
+    assert changed == {
+        str(target.resolve()): 1,
+        str(moved_target.resolve()): 1,
+        str(related_path.resolve()): 1,
+    }
+    assert not target.exists()
+    assert moved_target.read_text(encoding="utf-8") == "note\n"
+    assert index_path.read_text(encoding="utf-8") == "[good day](log/day.md)\n"
+    assert related_path.read_text(encoding="utf-8") == "[same day](log/day.md)\n"
+
+
+def test_modified_markdown_link_move_skips_when_target_exists(tmp_path: Path):
+    repo = _setup_real_git_repo(tmp_path)
+    notes_dir = repo / "notes"
+    notes_dir.mkdir()
+    target = notes_dir / "day.md"
+    target.write_text("note\n", encoding="utf-8")
+    existing_target = notes_dir / "log" / "day.md"
+    existing_target.parent.mkdir()
+    existing_target.write_text("existing\n", encoding="utf-8")
+    index_path = notes_dir / "index.md"
+    index_path.write_text("[good day](day.md)\n", encoding="utf-8")
+    _git_add(repo, target, existing_target, index_path)
+
+    index_path.write_text("[good day](log/day.md)\n", encoding="utf-8")
+
+    module = Linker()
+    ctx = Context(path=str(index_path), config=_linker_config(), arg_lines={})
+    system = System(
+        event=FileModifiedEvent(str(index_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.modified(ctx, system)
+
+    assert changed is None
+    assert target.read_text(encoding="utf-8") == "note\n"
+    assert existing_target.read_text(encoding="utf-8") == "existing\n"
+
+
+def test_modified_markdown_link_move_skips_when_flag_disabled(tmp_path: Path):
+    repo = _setup_real_git_repo(tmp_path)
+    notes_dir = repo / "notes"
+    notes_dir.mkdir()
+    target = notes_dir / "day.md"
+    target.write_text("note\n", encoding="utf-8")
+    index_path = notes_dir / "index.md"
+    index_path.write_text("[good day](day.md)\n", encoding="utf-8")
+    _git_add(repo, target, index_path)
+
+    index_path.write_text("[good day](log/day.md)\n", encoding="utf-8")
+
+    module = Linker()
+    ctx = Context(
+        path=str(index_path),
+        config=_linker_config(auto_update=False),
+        arg_lines={},
+    )
+    system = System(
+        event=FileModifiedEvent(str(index_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.modified(ctx, system)
+
+    assert changed is None
+    assert target.exists()
+    assert not (notes_dir / "log" / "day.md").exists()
+
+
+def test_modified_markdown_anchor_change_does_not_move_target(tmp_path: Path):
+    repo = _setup_real_git_repo(tmp_path)
+    notes_dir = repo / "notes"
+    notes_dir.mkdir()
+    target = notes_dir / "day.md"
+    target.write_text("note\n", encoding="utf-8")
+    index_path = notes_dir / "index.md"
+    index_path.write_text("[good day](day.md#old)\n", encoding="utf-8")
+    _git_add(repo, target, index_path)
+
+    index_path.write_text("[good day](day.md#new)\n", encoding="utf-8")
+
+    module = Linker()
+    ctx = Context(path=str(index_path), config=_linker_config(), arg_lines={})
+    system = System(
+        event=FileModifiedEvent(str(index_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    changed = module.modified(ctx, system)
+
+    assert changed is None
+    assert target.exists()
 
 
 def test_moved_skips_markdown_rewrite_for_ignored_targets(tmp_path: Path):
