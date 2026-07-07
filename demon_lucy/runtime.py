@@ -134,6 +134,7 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
             "linker",
             "formatter",
             "archive",
+            "status",
             "sys",
         ],
         "Run only selected modules by name. Example: --sys-modules git status",
