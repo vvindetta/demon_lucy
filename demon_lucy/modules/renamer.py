@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Iterator, Optional
 
 from demon_lucy.lib.args.parser import Template
@@ -21,7 +22,7 @@ class Renamer(AbstractModule):
             "--rename-auto",
             bool,
             False,  # IMPORTANT: for your argparse bool handling, default is a bool, not [False]
-            "On create, rename any one-letter scratch filename using --rename-auto-format.",
+            "On create, add default extension to extensionless files and rename one-letter scratch filenames using --rename-auto-format.",
             False,
         ),
         (
@@ -39,7 +40,7 @@ class Renamer(AbstractModule):
         name = (stem or base).strip()
         return len(name) == 1 and name.isalpha()
 
-    def _render_auto_name(self, *, config: dict, now: datetime) -> Optional[str]:
+    def _auto_extension(self, *, config: dict) -> Optional[str]:
         raw_extension = str(config["rename_auto_format"]).strip().lstrip(".")
         if not raw_extension:
             return None
@@ -52,7 +53,19 @@ class Renamer(AbstractModule):
         if raw_extension in (".", ".."):
             return None
 
-        return f"{now.strftime('%d-%m')}.{raw_extension}"
+        return raw_extension
+
+    def _render_auto_name(self, *, config: dict, now: datetime) -> Optional[str]:
+        extension = self._auto_extension(config=config)
+        if extension is None:
+            return None
+        return f"{now.strftime('%d-%m')}.{extension}"
+
+    def _render_missing_extension_name(self, *, path: str, config: dict) -> str | None:
+        extension = self._auto_extension(config=config)
+        if extension is None:
+            return None
+        return f"{os.path.basename(path)}.{extension}"
 
     def _with_collision_suffix(self, *, name: str, suffix: str) -> str:
         stem, ext = os.path.splitext(name)
@@ -104,11 +117,14 @@ class Renamer(AbstractModule):
         if os.path.isdir(old_path):
             return None
 
-        if not self._is_auto_source_name(old_path):
+        now = datetime.now()
+        if not Path(old_path).suffix:
+            new_name = self._render_missing_extension_name(path=old_path, config=config)
+        elif self._is_auto_source_name(old_path):
+            new_name = self._render_auto_name(config=config, now=now)
+        else:
             return None
 
-        now = datetime.now()
-        new_name = self._render_auto_name(config=config, now=now)
         if not new_name:
             return None
 
