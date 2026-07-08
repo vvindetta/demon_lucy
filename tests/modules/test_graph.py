@@ -114,6 +114,29 @@ def test_graph_date_sections_allow_suffix_comments(tmp_path: Path) -> None:
     )
 
 
+def test_graph_date_sections_allow_ranges(tmp_path: Path) -> None:
+    archive = tmp_path / "past.md"
+    archive.write_text(
+        "--- 2.01.2026 - 10.01.2026\n"
+        "sleep sleep\n"
+        "--- 12.01.2026 ... 14.01.2026 copied from old archive\n"
+        "sleep\n",
+        encoding="utf-8",
+    )
+    note = tmp_path / "graph.md"
+    note.write_text("--graph past.md sleep all\n", encoding="utf-8")
+
+    changed = _run_graph(note)
+
+    assert changed == {str(note): 1}
+    text = note.read_text(encoding="utf-8")
+    assert "range: 2026-01-02..2026-01-14\n" in text
+    assert "2026-01-02      0  |\n" in text
+    assert "2026-01-10      2  ########################\n" in text
+    assert "2026-01-11      0  |\n" in text
+    assert "2026-01-14      1  ############\n" in text
+
+
 def test_graph_regex_year_groups_by_month(tmp_path: Path) -> None:
     data = tmp_path / "tasks.md"
     data.write_text(
