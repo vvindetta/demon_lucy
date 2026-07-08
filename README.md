@@ -84,6 +84,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 - `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.
 - `banner`: inserts ASCII banner text or date banners into notes.
 - `formatter`: formats note text, including todo list conversion and blank-space padding.
+- `graph`: writes text graphs for word or regex frequency over dated note sections.
 - `workspace`: initializes a default notes workspace.
 
 **Integrations:**

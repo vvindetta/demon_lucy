@@ -50,6 +50,7 @@ def test_sys_modules_default_is_defined_in_startup_template():
     assert known_args["sys_modules"]
     assert "alias" in known_args["sys_modules"]
     assert "workspace" in known_args["sys_modules"]
+    assert "graph" in known_args["sys_modules"]
     assert "status" in known_args["sys_modules"]
 
 

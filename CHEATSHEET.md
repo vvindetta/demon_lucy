@@ -166,6 +166,20 @@ Example:
 | `--linker-ignore` | `str[]` | Ignore files/links for linker actions (basename or absolute/repo-relative path). |
 | `--linker-auto-update-md-links` | `bool` | On move/rename, scan markdown files in repo and update links to moved note. |
 
+## Graph
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--graph` | `str[]` | Build a text graph for a literal search in a file: `file pattern [week\|month\|year\|all]`. |
+| `--graph-regex` | `str[]` | Build a text graph for a regex search in a file: `file regex [week\|month\|year\|all]`. |
+
+Example:
+
+```text
+--graph past.md sleep week
+--graph-regex past.md "\\bsleep\\b|slept|nap" month
+```
+
 ## Archive
 
 | Arg | Type | Meaning |
