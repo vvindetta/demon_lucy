@@ -54,14 +54,14 @@ class Graph(AbstractModule):
             "--graph",
             str,
             [],
-            "Replace this command line with a text graph for a literal search in a file. Format: --graph file pattern [week|month|year|all]. Default period: month.",
+            "Build a text graph for a literal search in a file. Format: --graph file pattern [week|month|year|all]. Default period: month.",
             False,
         ),
         (
             "--graph-regex",
             str,
             [],
-            "Replace this command line with a text graph for a regular expression search in a file. Format: --graph-regex file regex [week|month|year|all]. Default period: month.",
+            "Build a text graph for a regular expression search in a file. Format: --graph-regex file regex [week|month|year|all]. Default period: month.",
             False,
         ),
     ]

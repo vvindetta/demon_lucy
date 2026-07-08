@@ -6,6 +6,7 @@ import pytest
 from watchdog.events import FileModifiedEvent
 
 from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.graph import Graph
 from demon_lucy.modules.sys import Sys
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
@@ -212,6 +213,30 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
     assert changed == {str(note): 1}
     assert "--- man ---\n" in content
     assert "* --man: manual (type=str, default=None)\n" in content
+
+
+def test_man_graph_description_is_direct() -> None:
+    module = Sys()
+    system = System(
+        event=FileModifiedEvent("note.md"),
+        global_template=Graph.template,
+        modules=[Graph()],
+    )
+
+    lines = module._man_one_lines(system, ["graph"])
+    text = "".join(lines)
+
+    assert "Replace this command line with" not in text
+    assert (
+        "* --graph: Build a text graph for a literal search in a file. "
+        "Format: --graph file pattern [week|month|year|all]. "
+        "Default period: month. (type=str, default=[])\n"
+    ) in text
+    assert (
+        "* --graph-regex: Build a text graph for a regular expression search in a file. "
+        "Format: --graph-regex file regex [week|month|year|all]. "
+        "Default period: month. (type=str, default=[])\n"
+    ) in text
 
 
 def test_ping_sends_lucy_notification(tmp_path: Path, monkeypatch):
