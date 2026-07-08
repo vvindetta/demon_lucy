@@ -58,22 +58,6 @@ def _repo_batch_kwargs(
         "sync_retry_backoff_max_seconds": config_snapshot[
             "git_sync_retry_backoff_max_seconds"
         ],
-        "notify_provider": config_snapshot["sys_notification_provider"],
-        "notify_min_interval_sec": config_snapshot[
-            "sys_notification_min_interval_seconds"
-        ],
-        "notify_error_backoff_base_seconds": config_snapshot[
-            "sys_notification_error_backoff_base_seconds"
-        ],
-        "notify_error_backoff_max_seconds": config_snapshot[
-            "sys_notification_error_backoff_max_seconds"
-        ],
-        "notify_error_burst_limit": config_snapshot[
-            "sys_notification_error_burst_limit"
-        ],
-        "notify_error_burst_window_seconds": config_snapshot[
-            "sys_notification_error_burst_window_seconds"
-        ],
         "policy": policy,
     }
 

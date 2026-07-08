@@ -28,7 +28,7 @@ def test_workspace_default_template_contains_created_files() -> None:
 
     assert (template_root / ".lucy" / "config.txt").exists()
     assert (template_root / ".status" / "-- ---- --").exists()
-    assert (template_root / ".status" / "Sync:").exists()
+    assert (template_root / ".status" / "Sync").exists()
     assert (template_root / ".archive" / "past.md").exists()
     assert (template_root / "now.md").exists()
     assert (template_root / "welcome.md").exists()
@@ -69,7 +69,7 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
     assert (workspace_root / ".status" / "-- ---- --").read_text(
         encoding="utf-8"
     ) == '--status-animation "-- ---- --" "-<( ✷ )>-" "-< --- >-"\n'
-    assert (workspace_root / ".status" / "Sync:").read_text(
+    assert (workspace_root / ".status" / "Sync").read_text(
         encoding="utf-8"
     ) == '--status git update --status-prefix "Sync: "\n'
 
@@ -94,7 +94,7 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
         str(config_path.resolve()): 1,
         str((workspace_root / "welcome.md").resolve()): 1,
         str((workspace_root / ".status" / "-- ---- --").resolve()): 1,
-        str((workspace_root / ".status" / "Sync:").resolve()): 1,
+        str((workspace_root / ".status" / "Sync").resolve()): 1,
         str((workspace_root / "now.md").resolve()): 1,
         str((workspace_root / ".archive" / "past.md").resolve()): 1,
     }
@@ -191,5 +191,5 @@ def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> Non
     ) == "keep past\n"
     assert changed == {
         str((workspace_root / ".status" / "-- ---- --").resolve()): 1,
-        str((workspace_root / ".status" / "Sync:").resolve()): 1,
+        str((workspace_root / ".status" / "Sync").resolve()): 1,
     }

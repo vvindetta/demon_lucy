@@ -73,3 +73,10 @@ def test_voice_module_is_available_only_when_requested():
 def test_sys_ignore_move_paths_default_is_defined_in_startup_template():
     known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
     assert known_args["sys_ignore_move_paths"] == [".status"]
+
+
+def test_sys_git_repo_lock_defaults_are_defined_in_startup_template():
+    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+    assert known_args["sys_git_repo_lock_wait_timeout_seconds"] == 30.0
+    assert known_args["sys_git_repo_lock_retry_sleep_seconds"] == 0.2
+    assert known_args["sys_git_repo_lock_stale_seconds"] == 1800.0

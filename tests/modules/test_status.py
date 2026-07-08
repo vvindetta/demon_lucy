@@ -8,9 +8,8 @@ import pytest
 from watchdog.events import FileModifiedEvent, FileOpenedEvent
 
 import demon_lucy.modules.status as status_mod
-import demon_lucy.modules.status.rendering as status_rendering_mod
+from demon_lucy.lib.git_state import write_sync_success_timestamp
 from demon_lucy.modules.abstract_module import Context, System
-from demon_lucy.modules.git.sync_marker import write_sync_success_timestamp
 from demon_lucy.modules.status import Status
 
 
@@ -57,6 +56,9 @@ def _ctx_for(
         path=str(path),
         config={
             "sys_watch_paths": list(sys_watch_paths or [str(path.parent)]),
+            "sys_git_repo_lock_wait_timeout_seconds": 30.0,
+            "sys_git_repo_lock_retry_sleep_seconds": 0.2,
+            "sys_git_repo_lock_stale_seconds": 1800.0,
             "status": list(status_values or []),
             "status_banner": status_banner_text,
             "status_banner_speed_milliseconds": status_banner_speed_milliseconds,
@@ -604,6 +606,63 @@ def test_status_git_update_zero_minutes_disables_prefix_animation(
     assert not (tmp_path / _inv("sYnc 0m")).exists()
 
 
+def test_status_git_update_active_git_sync_lock_enables_fast_animation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    active_sync = {"value": False}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
+    monkeypatch.setattr(
+        status_mod,
+        "repo_process_lock_is_active",
+        lambda _repo_root, **_kwargs: active_sync["value"],
+    )
+    monkeypatch.setattr(
+        status_mod.subprocess,
+        "run",
+        lambda cmd, **_kwargs: subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{int(200000.0 - (3.5 * 3600.0))}\n",
+            stderr="",
+        ),
+    )
+
+    module = Status()
+    system = System(
+        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
+    )
+
+    first_changed = module.modified(
+        _ctx_for(path, status_values=["git", "update"]), system
+    )
+    first_path = tmp_path / _inv("Sync 3h")
+    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert first_path.exists()
+
+    now_state["value"] = 200121.0
+    module._git_fast_tick_until = 0.0
+    assert module._ticker_interval_seconds() == 60.0
+
+    active_sync["value"] = True
+    assert module._ticker_interval_seconds() == 0.5
+
+    now_state["value"] = 200121.6
+    module._tick_once()
+    second_path = tmp_path / _inv("sYnc 3h")
+    assert second_path.exists()
+    assert not first_path.exists()
+
+
 def test_status_git_update_animates_custom_prefix_phrase(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -997,6 +1056,45 @@ def test_status_opened_events_flag_enables_opened_handler(
     assert not path.exists()
 
 
+def test_status_git_update_opened_ignores_opened_events_flag(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("--status git update\n", encoding="utf-8")
+
+    now_state = {"value": 200000.0}
+    monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
+    monkeypatch.setattr(status_mod, "find_parent_with", lambda _path, _marker: "/repo")
+    monkeypatch.setattr(
+        status_mod,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
+    monkeypatch.setattr(
+        status_mod.subprocess,
+        "run",
+        lambda cmd, **_kwargs: subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=f"{int(200000.0 - (3.5 * 3600.0))}\n",
+            stderr="",
+        ),
+    )
+
+    module = Status()
+    ctx = _ctx_for(path, status_values=["git", "update"])
+    system = System(
+        event=FileOpenedEvent(str(path)), global_template=[], modules=[module]
+    )
+
+    changed = module.opened(ctx, system)
+
+    new_path = tmp_path / _inv("Sync 3h")
+    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert new_path.exists()
+    assert not path.exists()
+
+
 def test_status_from_file_does_not_treat_opened_events_as_ascii_frame(
     tmp_path: Path,
 ) -> None:
@@ -1320,10 +1418,14 @@ def test_status_sanitizes_unnameable_filename_tokens(
     assert not status_file.exists()
 
 
-def test_status_sanitizes_windows_forbidden_filename_tokens(monkeypatch) -> None:
-    monkeypatch.setattr(status_rendering_mod.os, "name", "nt")
-
-    assert Status._sanitize_filename_text("Sync: 08:09 A/B?") == "Sync_ 08_09 A_B_"
+def test_status_sanitizes_windows_forbidden_filename_tokens() -> None:
+    assert (
+        Status._sanitize_filename_text(
+            "Sync: 08:09 A/B?",
+            runtime_platform="windows",
+        )
+        == "Sync_ 08_09 A_B_"
+    )
 
 
 def test_status_uses_fallback_name_when_target_exists(

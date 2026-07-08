@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.git_state import repo_process_lock_is_active
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import (
     abs_expand_path,
@@ -22,7 +23,7 @@ from demon_lucy.modules.git.config import (
 from demon_lucy.modules.git.commit_message import build_commit_message
 from demon_lucy.modules.git.helpers import to_str
 from demon_lucy.modules.git.types import _RepoBatch
-from demon_lucy.modules.git.worker import process_event, repo_process_lock_is_active
+from demon_lucy.modules.git.worker import process_event
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,15 @@ class Git(AbstractModule):
         if ctx.config["git_sync_on_opened_disable"]:
             return None
 
-        if repo_process_lock_is_active(repo_root):
+        if repo_process_lock_is_active(
+            repo_root,
+            wait_timeout_seconds=max(
+                0.0,
+                ctx.config["sys_git_repo_lock_wait_timeout_seconds"],
+            ),
+            stale_seconds=max(0.0, ctx.config["sys_git_repo_lock_stale_seconds"]),
+            runtime_platform=system.runtime_platform,
+        ):
             logger.info(
                 log_record(
                     "git.sync_skip",
@@ -76,6 +85,7 @@ class Git(AbstractModule):
             event_type="opened",
             paths=[to_str(ctx.path)],
             config_snapshot=ctx.config,
+            runtime_platform=system.runtime_platform,
             run_in_background=self._should_run_in_background(system),
         )
         return None
@@ -134,6 +144,7 @@ class Git(AbstractModule):
             event_type=event_type,
             paths=paths_to_hint,
             config_snapshot=ctx.config,
+            runtime_platform=system.runtime_platform,
             run_in_background=self._should_run_in_background(system),
         )
         return None

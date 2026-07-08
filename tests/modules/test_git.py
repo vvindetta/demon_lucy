@@ -17,7 +17,7 @@ import demon_lucy.modules.git.operations as git_ops
 import demon_lucy.modules.git.worker as git_worker
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.git import Git, _RepoBatch
-from demon_lucy.modules.git.sync_marker import read_sync_success_timestamp
+from demon_lucy.lib.git_state import read_sync_success_timestamp
 from demon_lucy.modules.git.types import (
     GitPolicy,
     MergeAutoresolveMode,
@@ -98,16 +98,30 @@ def _mk_batch(**overrides) -> _RepoBatch:
         "sync_retry_window_seconds": 10.0,
         "sync_retry_backoff_start_seconds": 1.0,
         "sync_retry_backoff_max_seconds": 4.0,
-        "notify_provider": "termuxapi",
-        "notify_min_interval_sec": 10.0,
-        "notify_error_backoff_base_seconds": 10.0,
-        "notify_error_backoff_max_seconds": 1800.0,
-        "notify_error_burst_limit": 3,
-        "notify_error_burst_window_seconds": 600.0,
         "policy": policy,
     }
     values.update(overrides)
     return _RepoBatch(**values)
+
+
+def _git_opened_config(**overrides) -> dict:
+    values = {
+        "git_sync_on_opened_disable": False,
+        "sys_git_repo_lock_wait_timeout_seconds": 30.0,
+        "sys_git_repo_lock_retry_sleep_seconds": 0.2,
+        "sys_git_repo_lock_stale_seconds": 1800.0,
+    }
+    values.update(overrides)
+    return values
+
+
+def _runtime_config(**overrides) -> dict:
+    values = {
+        **_NOTIFY_CFG,
+        **_git_opened_config(),
+    }
+    values.update(overrides)
+    return values
 
 
 def _mk_git_metadata(repo_root: Path) -> Path:
@@ -115,24 +129,6 @@ def _mk_git_metadata(repo_root: Path) -> Path:
     git_dir.mkdir(parents=True, exist_ok=True)
     (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     return git_dir
-
-
-def test_notify_config_from_batch_includes_rare_notification_settings():
-    batch = _mk_batch(
-        notify_error_backoff_base_seconds=2.0,
-        notify_error_backoff_max_seconds=30.0,
-        notify_error_burst_limit=4,
-        notify_error_burst_window_seconds=90.0,
-    )
-
-    assert git_worker._notify_config_from_batch(batch) == {
-        "sys_notification_provider": "termuxapi",
-        "sys_notification_min_interval_seconds": 10.0,
-        "sys_notification_error_backoff_base_seconds": 2.0,
-        "sys_notification_error_backoff_max_seconds": 30.0,
-        "sys_notification_error_burst_limit": 4,
-        "sys_notification_error_burst_window_seconds": 90.0,
-    }
 
 
 def test_parse_porcelain_paths_handles_regular_and_renamed(git_module):
@@ -375,7 +371,7 @@ def test_opened_processes_sync_when_repo_exists(git_module, monkeypatch):
 
     ctx = Context(
         path="/repo/note.md",
-        config={"git_sync_on_opened_disable": False},
+        config=_git_opened_config(),
         arg_lines={},
     )
     system = System(
@@ -402,7 +398,7 @@ def test_opened_skips_when_sync_on_opened_disabled(git_module, monkeypatch):
 
     ctx = Context(
         path="/repo/note.md",
-        config={"git_sync_on_opened_disable": True},
+        config=_git_opened_config(git_sync_on_opened_disable=True),
         arg_lines={},
     )
     system = System(
@@ -433,7 +429,7 @@ def test_opened_skips_when_repo_process_lock_is_active(
 
     ctx = Context(
         path=str(repo_root / "note.md"),
-        config={"git_sync_on_opened_disable": False},
+        config=_git_opened_config(),
         arg_lines={},
     )
     system = System(
@@ -466,7 +462,7 @@ def test_opened_removes_stale_repo_process_lock_and_syncs(
 
     ctx = Context(
         path=str(repo_root / "note.md"),
-        config={"git_sync_on_opened_disable": False},
+        config=_git_opened_config(),
         arg_lines={},
     )
     system = System(
@@ -493,7 +489,7 @@ def test_opened_runs_sync_in_oneshot_mode(git_module, monkeypatch):
 
     ctx = Context(
         path="/repo/note.md",
-        config={"git_sync_on_opened_disable": False},
+        config=_git_opened_config(),
         arg_lines={},
     )
     system = System(
@@ -573,7 +569,7 @@ def test_safe_pull_merge_waits_for_network_without_notification(
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -610,7 +606,7 @@ def test_safe_pull_merge_skips_remote_branch_lookup_without_notification_when_of
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -650,7 +646,7 @@ def test_safe_pull_merge_timeout_while_offline_does_not_notify(git_module, monke
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -687,7 +683,7 @@ def test_safe_pull_merge_offline_marker_does_not_notify(git_module, monkeypatch)
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
         auto_set_upstream=True,
         pull_offline_error_markers=["connection timed out"],
     )
@@ -889,7 +885,7 @@ def test_safe_pull_merge_conflict_abort_timeout_does_not_raise(git_module, monke
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -954,7 +950,7 @@ def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkey
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="union",
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -1019,7 +1015,7 @@ def test_safe_pull_merge_conflict_markers_mode_commits_and_returns_true(
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode="markers",
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
@@ -1064,7 +1060,7 @@ def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkey
         environment={},
         git_timeout_seconds=5.0,
         autoresolve_mode="union",
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
     )
 
     assert cleaned is False
@@ -1087,7 +1083,7 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
     monkeypatch.setattr(
         git_worker,
         "_with_repo_process_lock",
-        lambda _repo_root, run_fn: run_fn(),
+        lambda _repo_root, run_fn, **_kwargs: run_fn(),
     )
 
     def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
@@ -1145,7 +1141,15 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
 
     batch = _mk_batch(event_type="opened")
 
-    assert git_worker.process_batch(git_module, batch) is True
+    assert (
+        git_worker.process_batch(
+            git_module,
+            batch,
+            _runtime_config(),
+            runtime_platform="posix",
+        )
+        is True
+    )
     assert calls[0] == ["add", "-A"]
     assert calls[1] == ["status", "--porcelain"]
     assert ["diff", "--cached", "--name-status", "-z"] in calls
@@ -1223,7 +1227,15 @@ def test_process_batch_writes_sync_success_marker_on_push_success(
 
     batch = _mk_batch(repo_root=str(repo_root), event_type="opened")
     before_ts = time.time()
-    assert git_worker.process_batch(git_module, batch) is True
+    assert (
+        git_worker.process_batch(
+            git_module,
+            batch,
+            _runtime_config(),
+            runtime_platform="posix",
+        )
+        is True
+    )
     after_ts = time.time()
 
     marker_ts = read_sync_success_timestamp(str(repo_root))
@@ -1241,12 +1253,24 @@ def test_process_batch_wraps_pipeline_with_repo_process_lock(git_module, monkeyp
     calls = {"with_lock": 0, "unlocked": 0}
     batch = _mk_batch(repo_root="/repo")
 
-    def _with_repo_process_lock(repo_root: str, run_fn):
+    def _with_repo_process_lock(
+        repo_root: str,
+        run_fn,
+        *,
+        wait_timeout_seconds,
+        retry_sleep_seconds,
+        stale_seconds,
+        runtime_platform,
+    ):
         calls["with_lock"] += 1
         assert repo_root == "/repo"
+        assert wait_timeout_seconds == 30.0
+        assert retry_sleep_seconds == 0.2
+        assert stale_seconds == 1800.0
+        assert runtime_platform == "posix"
         return run_fn()
 
-    def _process_batch_unlocked(_self, _batch):
+    def _process_batch_unlocked(_self, _batch, _config_snapshot):
         calls["unlocked"] += 1
         assert _batch is batch
         return True
@@ -1254,7 +1278,15 @@ def test_process_batch_wraps_pipeline_with_repo_process_lock(git_module, monkeyp
     monkeypatch.setattr(git_worker, "_with_repo_process_lock", _with_repo_process_lock)
     monkeypatch.setattr(git_worker, "_process_batch_unlocked", _process_batch_unlocked)
 
-    assert git_worker.process_batch(git_module, batch) is True
+    assert (
+        git_worker.process_batch(
+            git_module,
+            batch,
+            _runtime_config(),
+            runtime_platform="posix",
+        )
+        is True
+    )
     assert calls == {"with_lock": 1, "unlocked": 1}
 
 
@@ -1266,12 +1298,6 @@ def test_with_repo_process_lock_skips_when_busy_not_stale(tmp_path, monkeypatch)
 
     clock = {"t": 0.0}
 
-    monkeypatch.setattr(
-        git_worker,
-        "_REPO_PROCESS_LOCK_WAIT_TIMEOUT_SECONDS",
-        0.05,
-    )
-    monkeypatch.setattr(git_worker, "_REPO_PROCESS_LOCK_RETRY_SLEEP_SECONDS", 0.01)
     monkeypatch.setattr(git_worker.time, "monotonic", lambda: clock["t"])
     monkeypatch.setattr(
         git_worker.time,
@@ -1285,7 +1311,17 @@ def test_with_repo_process_lock_skips_when_busy_not_stale(tmp_path, monkeypatch)
         calls["ran"] += 1
         return True
 
-    assert git_worker._with_repo_process_lock(str(repo_root), _run_fn) is False
+    assert (
+        git_worker._with_repo_process_lock(
+            str(repo_root),
+            _run_fn,
+            wait_timeout_seconds=0.05,
+            retry_sleep_seconds=0.01,
+            stale_seconds=1800.0,
+            runtime_platform="posix",
+        )
+        is False
+    )
     assert calls["ran"] == 0
     assert lock_path.exists()
 
@@ -1302,7 +1338,17 @@ def test_with_repo_process_lock_removes_stale_dead_owner_and_runs(tmp_path):
         calls["ran"] += 1
         return True
 
-    assert git_worker._with_repo_process_lock(str(repo_root), _run_fn) is True
+    assert (
+        git_worker._with_repo_process_lock(
+            str(repo_root),
+            _run_fn,
+            wait_timeout_seconds=30.0,
+            retry_sleep_seconds=0.2,
+            stale_seconds=1800.0,
+            runtime_platform="posix",
+        )
+        is True
+    )
     assert calls["ran"] == 1
     assert not lock_path.exists()
 
@@ -1321,7 +1367,17 @@ def test_with_repo_process_lock_removes_legacy_lock_without_pid(tmp_path):
         calls["ran"] += 1
         return True
 
-    assert git_worker._with_repo_process_lock(str(repo_root), _run_fn) is True
+    assert (
+        git_worker._with_repo_process_lock(
+            str(repo_root),
+            _run_fn,
+            wait_timeout_seconds=30.0,
+            retry_sleep_seconds=0.2,
+            stale_seconds=1800.0,
+            runtime_platform="posix",
+        )
+        is True
+    )
     assert calls["ran"] == 1
     assert not lock_path.exists()
 
@@ -1336,7 +1392,17 @@ def test_with_repo_process_lock_skips_invalid_repo_without_creating_git_dir(tmp_
         calls["ran"] += 1
         return True
 
-    assert git_worker._with_repo_process_lock(str(repo_root), _run_fn) is False
+    assert (
+        git_worker._with_repo_process_lock(
+            str(repo_root),
+            _run_fn,
+            wait_timeout_seconds=30.0,
+            retry_sleep_seconds=0.2,
+            stale_seconds=1800.0,
+            runtime_platform="posix",
+        )
+        is False
+    )
     assert calls["ran"] == 0
     assert not (repo_root / ".git").exists()
 
@@ -1401,7 +1467,7 @@ def test_stage_retries_after_corrupted_index_recovery(git_module, monkeypatch):
         repo_root="/repo",
         environment={},
         git_timeout_seconds=5.0,
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
     )
 
     assert staged_ok is True
@@ -1437,7 +1503,7 @@ def test_stage_handles_index_lock_as_transient_without_addfail_notification(
         repo_root="/repo",
         environment={},
         git_timeout_seconds=5.0,
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
     )
 
     assert staged_ok is False
@@ -1452,8 +1518,10 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
         lambda *_args, **_kwargs: {"X": "1"},
     )
 
-    def _process_batch(_self, batch):
+    def _process_batch(_self, batch, config_snapshot, *, runtime_platform):
         captured["batch"] = batch
+        captured["config_snapshot"] = config_snapshot
+        captured["runtime_platform"] = runtime_platform
 
     monkeypatch.setattr(git_worker, "process_batch", _process_batch)
 
@@ -1477,6 +1545,9 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
             "git_sync_retry_backoff_max_seconds": 60.0,
             "git_network_probe_timeout_seconds": 1.0,
             "git_pull_offline_error_markers": [],
+            "sys_git_repo_lock_wait_timeout_seconds": 30.0,
+            "sys_git_repo_lock_retry_sleep_seconds": 0.2,
+            "sys_git_repo_lock_stale_seconds": 1800.0,
             "sys_notification_provider": "termuxapi",
             "sys_notification_min_interval_seconds": 10.0,
             "sys_notification_error_backoff_base_seconds": 10.0,
@@ -1487,6 +1558,7 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
             "git_upstream_auto_set": True,
             "git_merge_autoresolve": "union",
         },
+        runtime_platform="posix",
         run_in_background=False,
     )
 
@@ -1494,6 +1566,11 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
     assert batch.repo_root == "/repo"
     assert batch.event_type == "modified"
     assert batch.hinted_paths == ["/repo/note.md"]
+    assert captured["config_snapshot"]["sys_git_repo_lock_wait_timeout_seconds"] == 30.0
+    assert captured["config_snapshot"]["sys_git_repo_lock_retry_sleep_seconds"] == 0.2
+    assert captured["config_snapshot"]["sys_git_repo_lock_stale_seconds"] == 1800.0
+    assert captured["config_snapshot"]["sys_notification_provider"] == "termuxapi"
+    assert captured["runtime_platform"] == "posix"
 
 
 def test_merge_cleanup_retries_abort_after_index_recovery(git_module, monkeypatch):
@@ -1537,7 +1614,7 @@ def test_merge_cleanup_retries_abort_after_index_recovery(git_module, monkeypatc
         environment={},
         git_timeout_seconds=5.0,
         autoresolve_mode="union",
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
     )
 
     assert result is False
@@ -1553,9 +1630,10 @@ def test_process_event_serializes_operations_per_repo(git_module, monkeypatch):
         "calls": 0,
     }
 
-    monkeypatch.setattr(git_worker, "_build_batch", lambda **_kwargs: object())
+    monkeypatch.setattr(git_worker, "make_repo_batch", lambda **_kwargs: object())
 
-    def _process_batch(_self, _batch):
+    def _process_batch(_self, _batch, _config_snapshot, *, runtime_platform):
+        assert runtime_platform == "posix"
         state["calls"] += 1
         state["inflight"] += 1
         state["max_inflight"] = max(state["max_inflight"], state["inflight"])
@@ -1566,6 +1644,7 @@ def test_process_event_serializes_operations_per_repo(git_module, monkeypatch):
     monkeypatch.setattr(git_worker, "process_batch", _process_batch)
     repo_root = f"/repo-queue-{time.time_ns()}"
     config_snapshot = {
+        **_git_opened_config(),
         "git_sync_retry_window_seconds": 0.0,
         "git_sync_retry_backoff_start_seconds": 0.01,
         "git_sync_retry_backoff_max_seconds": 0.01,
@@ -1577,6 +1656,7 @@ def test_process_event_serializes_operations_per_repo(git_module, monkeypatch):
         event_type="modified",
         paths=[f"{repo_root}/a.md"],
         config_snapshot=config_snapshot,
+        runtime_platform="posix",
         run_in_background=True,
     )
     git_worker.process_event(
@@ -1585,6 +1665,7 @@ def test_process_event_serializes_operations_per_repo(git_module, monkeypatch):
         event_type="modified",
         paths=[f"{repo_root}/b.md"],
         config_snapshot=config_snapshot,
+        runtime_platform="posix",
         run_in_background=True,
     )
 
@@ -1603,9 +1684,10 @@ def test_process_event_allows_parallel_operations_across_repos(git_module, monke
         "calls": 0,
     }
 
-    monkeypatch.setattr(git_worker, "_build_batch", lambda **_kwargs: object())
+    monkeypatch.setattr(git_worker, "make_repo_batch", lambda **_kwargs: object())
 
-    def _process_batch(_self, _batch):
+    def _process_batch(_self, _batch, _config_snapshot, *, runtime_platform):
+        assert runtime_platform == "posix"
         state["calls"] += 1
         state["inflight"] += 1
         state["max_inflight"] = max(state["max_inflight"], state["inflight"])
@@ -1617,6 +1699,7 @@ def test_process_event_allows_parallel_operations_across_repos(git_module, monke
     first_repo_root = f"/repo-queue-a-{time.time_ns()}"
     second_repo_root = f"/repo-queue-b-{time.time_ns()}"
     config_snapshot = {
+        **_git_opened_config(),
         "git_sync_retry_window_seconds": 0.0,
         "git_sync_retry_backoff_start_seconds": 0.01,
         "git_sync_retry_backoff_max_seconds": 0.01,
@@ -1628,6 +1711,7 @@ def test_process_event_allows_parallel_operations_across_repos(git_module, monke
         event_type="modified",
         paths=[f"{first_repo_root}/a.md"],
         config_snapshot=config_snapshot,
+        runtime_platform="posix",
         run_in_background=True,
     )
     git_worker.process_event(
@@ -1636,6 +1720,7 @@ def test_process_event_allows_parallel_operations_across_repos(git_module, monke
         event_type="modified",
         paths=[f"{second_repo_root}/b.md"],
         config_snapshot=config_snapshot,
+        runtime_platform="posix",
         run_in_background=True,
     )
 
@@ -1675,6 +1760,7 @@ def test_retry_window_retries_with_backoff_until_success(git_module, monkeypatch
             "git_sync_retry_backoff_start_seconds": 1.0,
             "git_sync_retry_backoff_max_seconds": 4.0,
         },
+        runtime_platform="posix",
     )
 
     assert attempts["count"] == 3
@@ -1719,7 +1805,7 @@ def test_attempt_push_with_retry_second_push_timeout_does_not_notify(
         pull_timeout_seconds=6.0,
         push_timeout_seconds=7.0,
         git_timeout_seconds=5.0,
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
     )
 
     assert notifications == []
@@ -1766,7 +1852,7 @@ def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypat
         pull_timeout_seconds=6.0,
         push_timeout_seconds=7.0,
         git_timeout_seconds=5.0,
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
     )
 
     push_fail_notifications = [
@@ -1828,7 +1914,7 @@ def test_attempt_push_with_retry_retries_plain_push_error_before_notify(
         pull_timeout_seconds=6.0,
         push_timeout_seconds=7.0,
         git_timeout_seconds=5.0,
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
     )
 
     assert push_attempts["count"] == 2
@@ -1877,7 +1963,7 @@ def test_attempt_push_with_retry_retries_timeout_before_notify(git_module, monke
         pull_timeout_seconds=6.0,
         push_timeout_seconds=7.0,
         git_timeout_seconds=5.0,
-        notify_config=_NOTIFY_CFG,
+        config=_NOTIFY_CFG,
     )
 
     assert push_attempts["count"] == 2
@@ -1887,7 +1973,7 @@ def test_attempt_push_with_retry_retries_timeout_before_notify(git_module, monke
 def test_commit_dirty_tree_returns_busy_when_repo_lock_is_busy(git_module, monkeypatch):
     monkeypatch.setattr(
         git_worker,
-        "_build_batch",
+        "make_repo_batch",
         lambda **kwargs: _mk_batch(
             repo_root=kwargs["repo_root"],
             event_type=kwargs["event_type"],
@@ -1897,7 +1983,15 @@ def test_commit_dirty_tree_returns_busy_when_repo_lock_is_busy(git_module, monke
     monkeypatch.setattr(
         git_worker,
         "_with_repo_process_lock_status",
-        lambda _repo_root, _run_fn, *, on_busy_fn, on_invalid_repo_fn: on_busy_fn(),
+        lambda _repo_root,
+        _run_fn,
+        *,
+        wait_timeout_seconds,
+        retry_sleep_seconds,
+        stale_seconds,
+        runtime_platform,
+        on_busy_fn,
+        on_invalid_repo_fn: on_busy_fn(),
     )
 
     result = git_worker.commit_dirty_tree(
@@ -1905,7 +1999,8 @@ def test_commit_dirty_tree_returns_busy_when_repo_lock_is_busy(git_module, monke
         repo_root="/repo",
         event_type="modified",
         paths=["/repo/note.md"],
-        config_snapshot={},
+        config_snapshot=_git_opened_config(),
+        runtime_platform="posix",
     )
 
     assert result.status == "busy"
@@ -1917,7 +2012,7 @@ def test_build_patch_packet_returns_busy_when_repo_lock_is_busy(
 ):
     monkeypatch.setattr(
         git_worker,
-        "_build_batch",
+        "make_repo_batch",
         lambda **kwargs: _mk_batch(
             repo_root=kwargs["repo_root"],
             event_type=kwargs["event_type"],
@@ -1927,7 +2022,15 @@ def test_build_patch_packet_returns_busy_when_repo_lock_is_busy(
     monkeypatch.setattr(
         git_worker,
         "_with_repo_process_lock_status",
-        lambda _repo_root, _run_fn, *, on_busy_fn, on_invalid_repo_fn: on_busy_fn(),
+        lambda _repo_root,
+        _run_fn,
+        *,
+        wait_timeout_seconds,
+        retry_sleep_seconds,
+        stale_seconds,
+        runtime_platform,
+        on_busy_fn,
+        on_invalid_repo_fn: on_busy_fn(),
     )
 
     result = git_worker.build_patch_packet(
@@ -1937,7 +2040,8 @@ def test_build_patch_packet_returns_busy_when_repo_lock_is_busy(
         changed_paths=["note.md"],
         queue_dir="/tmp/outgoing",
         author_device="device-1",
-        config_snapshot={},
+        config_snapshot=_git_opened_config(),
+        runtime_platform="posix",
     )
 
     assert result.status == "busy"

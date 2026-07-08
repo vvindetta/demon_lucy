@@ -7,6 +7,7 @@ from watchdog.events import FileSystemEvent
 
 from demon_lucy.lib.logfmt import ignore_summary, log_record, next_event_id
 from demon_lucy.lib.notifications import safe_notify
+from demon_lucy.lib.runtime_platform import RuntimePlatform, detect_runtime_platform
 from demon_lucy.lib.args.parser import (
     Template,
     flag_to_dest,
@@ -37,6 +38,7 @@ class ModuleManager:
     ):
         self.modules = modules
         self.run_mode: RunMode = run_mode
+        self.runtime_platform: RuntimePlatform = detect_runtime_platform()
         self.template: Template = [
             (
                 "--sys-modules-priority",
@@ -211,6 +213,7 @@ class ModuleManager:
                         modules=self.modules,
                         run_mode=self.run_mode,
                         event_id=event_id,
+                        runtime_platform=self.runtime_platform,
                     ),
                 )
             except Exception:

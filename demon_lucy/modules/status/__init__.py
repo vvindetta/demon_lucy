@@ -10,15 +10,19 @@ from datetime import datetime
 from typing import Optional
 
 from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.git_state import (
+    read_sync_success_timestamp,
+    repo_process_lock_is_active,
+)
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import find_parent_with
+from demon_lucy.lib.runtime_platform import RuntimePlatform
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
     IgnoreMap,
     System,
 )
-from demon_lucy.modules.git.sync_marker import read_sync_success_timestamp
 from demon_lucy.modules.status.files import StatusFileMixin
 from demon_lucy.modules.status.parsing import StatusParsingMixin
 from demon_lucy.modules.status.rendering import StatusRenderingMixin
@@ -159,6 +163,9 @@ class Status(
         self._git_sync_prefix_cycle_pause_seconds = float(
             defaults["status_git_sync_prefix_cycle_pause_seconds"]
         )
+        self._git_repo_lock_wait_timeout_seconds: float | None = None
+        self._git_repo_lock_stale_seconds: float | None = None
+        self._runtime_platform: RuntimePlatform | None = None
         self._targets: dict[str, _StatusTarget] = {}
         self._track_lock = threading.Lock()
         self._rename_lock = threading.Lock()
@@ -219,6 +226,38 @@ class Status(
         if last_commit_ts is None:
             return "0"
         return str(int(last_commit_ts))
+
+    def _git_sync_is_active(self, path: str) -> bool:
+        repo_root = find_parent_with(path, ".git")
+        if not repo_root:
+            return False
+        if (
+            self._git_repo_lock_wait_timeout_seconds is None
+            or self._git_repo_lock_stale_seconds is None
+            or self._runtime_platform is None
+        ):
+            return False
+        return repo_process_lock_is_active(
+            repo_root,
+            wait_timeout_seconds=self._git_repo_lock_wait_timeout_seconds,
+            stale_seconds=self._git_repo_lock_stale_seconds,
+            runtime_platform=self._runtime_platform,
+        )
+
+    def _update_git_repo_lock_settings(
+        self,
+        config: dict,
+        runtime_platform: RuntimePlatform,
+    ) -> None:
+        self._git_repo_lock_wait_timeout_seconds = max(
+            0.0,
+            config["sys_git_repo_lock_wait_timeout_seconds"],
+        )
+        self._git_repo_lock_stale_seconds = max(
+            0.0,
+            config["sys_git_repo_lock_stale_seconds"],
+        )
+        self._runtime_platform = runtime_platform
 
     def _build_tokens(
         self,
@@ -543,27 +582,30 @@ class Status(
             ascii_speed_ms = self._default_animation_speed_ms
             with self._track_lock:
                 target = self._targets.get(path)
-                banner_state = target.banner if target is not None else None
-                if banner_state:
-                    banner_text, banner_speed_ms, banner_max_chars = banner_state
-                    speed_seconds = max(1, banner_speed_ms) / 1000.0
-                    current_slot = int(now_ts // speed_seconds)
-                    last_slot = target.banner_last_slot
-                    if last_slot is None:
-                        target.banner_last_slot = current_slot
-                    elif current_slot != last_slot:
-                        step_count = max(1, current_slot - last_slot)
-                        target.banner_last_slot = current_slot
-                        target.banner_offset += step_count
-                    banner_offset = target.banner_offset
-                status_prefix = target.status_prefix if target is not None else ""
-                if ascii_animation_state is None:
-                    ascii_animation_state = (
-                        target.animation if target is not None else None
-                    )
+                if target is not None:
+                    banner_state = target.banner
+                    if banner_state:
+                        banner_text, banner_speed_ms, banner_max_chars = banner_state
+                        speed_seconds = max(1, banner_speed_ms) / 1000.0
+                        current_slot = int(now_ts // speed_seconds)
+                        last_slot = target.banner_last_slot
+                        if last_slot is None:
+                            target.banner_last_slot = current_slot
+                        elif current_slot != last_slot:
+                            step_count = max(1, current_slot - last_slot)
+                            target.banner_last_slot = current_slot
+                            target.banner_offset += step_count
+                        banner_offset = target.banner_offset
+                    status_prefix = target.status_prefix
+                    if ascii_animation_state is None:
+                        ascii_animation_state = target.animation
                 if ascii_animation_state is not None:
                     ascii_frames = list(ascii_animation_state[0])
                     ascii_speed_ms = int(ascii_animation_state[1])
+
+            runtime_platform = self._runtime_platform
+            if runtime_platform is None:
+                continue
 
             self._apply(
                 path=path,
@@ -575,13 +617,17 @@ class Status(
                 ascii_animation_frames=ascii_frames,
                 ascii_animation_speed_ms=ascii_speed_ms,
                 advance_ascii_frame=bool(ascii_frames),
+                runtime_platform=runtime_platform,
             )
 
     def _ticker_interval_seconds(self) -> float:
         now_ts = time.time()
         with self._track_lock:
+            tracked_items = [
+                (path, list(target.parts)) for path, target in self._targets.items()
+            ]
             targets = list(self._targets.values())
-            tracked_parts = [list(target.parts) for target in targets]
+            tracked_parts = [parts for _path, parts in tracked_items]
             tracked_banners = [
                 target.banner for target in targets if target.banner is not None
             ]
@@ -595,7 +641,11 @@ class Status(
         interval = self._tick_interval_seconds
         if has_seconds:
             interval = min(interval, self._SECONDS_TICK_INTERVAL_SECONDS)
-        if has_git_update and now_ts < fast_until:
+        git_sync_active = any(
+            "git_update" in parts and self._git_sync_is_active(path)
+            for path, parts in tracked_items
+        )
+        if has_git_update and (now_ts < fast_until or git_sync_active):
             interval = min(interval, self._git_fast_tick_interval_seconds)
         if tracked_banners:
             min_banner_speed = min(
@@ -634,6 +684,7 @@ class Status(
     def _bootstrap_from_root_status_directories(
         self,
         watch_paths: list[str],
+        runtime_platform: RuntimePlatform,
     ) -> Optional[IgnoreMap]:
         root_status_directories = self._discover_root_status_directories(watch_paths)
         if not root_status_directories:
@@ -688,6 +739,7 @@ class Status(
                         ascii_animation_frames=ascii_animation_frames,
                         ascii_animation_speed_ms=ascii_animation_speed_ms,
                         advance_ascii_frame=True,
+                        runtime_platform=runtime_platform,
                     )
                     merged = self._merge_ignore_maps(merged, changed)
         return merged
@@ -695,6 +747,7 @@ class Status(
     def _bootstrap_once(
         self,
         watch_paths: list[str],
+        runtime_platform: RuntimePlatform,
     ) -> Optional[IgnoreMap]:
         if self._bootstrap_done:
             return None
@@ -705,6 +758,7 @@ class Status(
             # .status files need one lazy scan to revive ticker/animations.
             changed = self._bootstrap_from_root_status_directories(
                 watch_paths,
+                runtime_platform,
             )
             self._bootstrap_done = True
             return changed
@@ -713,6 +767,8 @@ class Status(
         self,
         path: str,
         parts: list[str],
+        *,
+        runtime_platform: RuntimePlatform,
         banner_text: str | None = None,
         banner_offset: int = 0,
         banner_max_chars: int | None = None,
@@ -739,11 +795,12 @@ class Status(
             if banner_text is None:
                 with self._track_lock:
                     target = self._targets.get(old_path)
-                    banner_state = target.banner if target is not None else None
-                    if banner_state:
-                        banner_text = banner_state[0]
-                        banner_max_chars = banner_state[2]
-                        banner_offset = target.banner_offset
+                    if target is not None:
+                        banner_state = target.banner
+                        if banner_state:
+                            banner_text = banner_state[0]
+                            banner_max_chars = banner_state[2]
+                            banner_offset = target.banner_offset
             if status_prefix is None:
                 with self._track_lock:
                     target = self._targets.get(old_path)
@@ -763,6 +820,8 @@ class Status(
                 current_git_age_label = self._git_age_label(old_path)
                 with self._track_lock:
                     fast_mode = time.time() < self._git_fast_tick_until
+                if self._git_sync_is_active(old_path):
+                    fast_mode = True
                 if current_git_age_label == "0m":
                     fast_mode = False
                 status_prefix = self._animated_git_sync_prefix(
@@ -796,7 +855,11 @@ class Status(
             if not new_name.strip():
                 new_name = " - "
             dir_path = os.path.dirname(old_path)
-            safe_new_name = self._make_filename_candidate(dir_path, new_name)
+            safe_new_name = self._make_filename_candidate(
+                dir_path,
+                new_name,
+                runtime_platform=runtime_platform,
+            )
             new_path = self._pick_available_new_path(
                 old_path=old_path,
                 dir_path=dir_path,
@@ -816,7 +879,8 @@ class Status(
             self._move_tracked_path(old_path=old_path, new_path=new_path)
             return {old_path: 1, new_path: 1}
 
-    def _handle_event(self, ctx: Context) -> Optional[IgnoreMap]:
+    def _handle_event(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+        self._update_git_repo_lock_settings(ctx.config, system.runtime_platform)
         self._tick_interval_seconds = max(
             0.1, float(ctx.config["status_tick_interval_seconds"])
         )
@@ -831,6 +895,7 @@ class Status(
         )
         bootstrap_changed = self._bootstrap_once(
             list(ctx.config["sys_watch_paths"]),
+            system.runtime_platform,
         )
         self._restart_tracked_animation_cycles(ctx.path)
         parts = self._parse_status_parts(list(ctx.config["status"]))
@@ -873,23 +938,21 @@ class Status(
             ascii_animation_frames=ascii_animation_frames,
             ascii_animation_speed_ms=ascii_animation_speed_ms,
             advance_ascii_frame=True,
+            runtime_platform=system.runtime_platform,
         )
         return self._merge_ignore_maps(bootstrap_changed, current_changed)
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        _ = system
-        return self._handle_event(ctx)
+        return self._handle_event(ctx, system)
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        _ = system
-        return self._handle_event(ctx)
+        return self._handle_event(ctx, system)
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        _ = system
-        return self._handle_event(ctx)
+        return self._handle_event(ctx, system)
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        _ = system
-        if not ctx.config["status_opened_events"]:
+        parts = self._parse_status_parts(list(ctx.config["status"]))
+        if not ctx.config["status_opened_events"] and "git_update" not in parts:
             return None
-        return self._handle_event(ctx)
+        return self._handle_event(ctx, system)

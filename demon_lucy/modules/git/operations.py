@@ -490,7 +490,7 @@ def _handle_pull_failure(
     autoresolve_mode: str,
     pull_result: subprocess.CompletedProcess[str],
     pull_offline_error_markers: list[str] | None,
-    notify_config: Mapping[str, Any],
+    config: Mapping[str, Any],
 ) -> bool:
     if merge_in_progress(self, repo_root, environment, operation_timeout_seconds):
         resolved = resolve_merge_conflicts_with_fallback(
@@ -533,7 +533,7 @@ def _handle_pull_failure(
                 f"Error:\n{pull_error[:1200]}"
                 f"{merge_abort_note}"
             ),
-            config=notify_config,
+            config=config,
             use_rare_mode=True,
         )
         return False
@@ -565,7 +565,7 @@ def safe_pull_merge(
     pull_timeout_seconds: float,
     operation_timeout_seconds: float,
     autoresolve_mode: str,
-    notify_config: Mapping[str, Any],
+    config: Mapping[str, Any],
     auto_set_upstream: bool = True,
     network_probe_timeout_seconds: float = 0.0,
     pull_offline_error_markers: list[str] | None = None,
@@ -611,5 +611,5 @@ def safe_pull_merge(
         autoresolve_mode=autoresolve_mode,
         pull_result=pull_result,
         pull_offline_error_markers=pull_offline_error_markers,
-        notify_config=notify_config,
+        config=config,
     )

@@ -32,6 +32,9 @@ these values from the resolved `config[...]`.
 | `--sys-notification-error-burst-window-seconds` | `float` | Burst window length used for global error notification limiting. |
 | `--sys-ignore-paths` | `str[]` | Paths where modules should not run. |
 | `--sys-ignore-move-paths` | `str[]` | Directories where internal `moved` events are skipped before module execution. Relative paths are resolved under each watched root. Default: `.status`. |
+| `--sys-git-repo-lock-wait-timeout-seconds` | `float` | Maximum wait for Lucy's shared Git repo lock before skipping this cycle. |
+| `--sys-git-repo-lock-retry-sleep-seconds` | `float` | Delay between attempts to acquire Lucy's shared Git repo lock. |
+| `--sys-git-repo-lock-stale-seconds` | `float` | Age after which Lucy's shared Git repo lock is treated as stale. |
 | `--sys-modules` | `str[]` | Include only these modules by name for both daemon and one-shot runs. |
 | `--sys-modules-exclude` | `str[]` | Exclude modules from the selected module list. |
 

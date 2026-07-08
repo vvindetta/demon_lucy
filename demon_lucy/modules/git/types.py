@@ -52,11 +52,4 @@ class _RepoBatch:
     sync_retry_window_seconds: float
     sync_retry_backoff_start_seconds: float
     sync_retry_backoff_max_seconds: float
-
-    notify_provider: str
-    notify_min_interval_sec: float
-    notify_error_backoff_base_seconds: float
-    notify_error_backoff_max_seconds: float
-    notify_error_burst_limit: int
-    notify_error_burst_window_seconds: float
     policy: GitPolicy = field(default_factory=GitPolicy)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 
+from demon_lucy.lib.runtime_platform import RuntimePlatform
+
 
 class StatusRenderingMixin:
     @staticmethod
@@ -31,14 +33,14 @@ class StatusRenderingMixin:
         return stream[step : step + width].ljust(width)
 
     @staticmethod
-    def _sanitize_filename_text(name_text: str) -> str:
-        invalid_chars = {os.sep, os.altsep, "/", "\\", "\x00"}
-        if os.name == "nt":
+    def _sanitize_filename_text(
+        name_text: str,
+        *,
+        runtime_platform: RuntimePlatform,
+    ) -> str:
+        invalid_chars = {"/", "\\", "\x00"}
+        if runtime_platform == "windows":
             invalid_chars.update('<>:"|?*')
-        invalid_chars.discard(None)
-
-        if os.altsep:
-            invalid_chars.add(os.altsep)
 
         safe_name = str(name_text)
         for item in invalid_chars:
@@ -70,8 +72,17 @@ class StatusRenderingMixin:
                 clipped = clipped[: exc.start]
         return ""
 
-    def _make_filename_candidate(self, dir_path: str, name_text: str) -> str:
-        sanitized = self._sanitize_filename_text(name_text)
+    def _make_filename_candidate(
+        self,
+        dir_path: str,
+        name_text: str,
+        *,
+        runtime_platform: RuntimePlatform,
+    ) -> str:
+        sanitized = self._sanitize_filename_text(
+            name_text,
+            runtime_platform=runtime_platform,
+        )
         max_bytes = self._filename_max_bytes(dir_path)
         clipped = self._truncate_utf8_to_bytes(sanitized, max_bytes)
         if clipped.strip():

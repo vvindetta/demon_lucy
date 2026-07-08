@@ -125,6 +125,27 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         False,
     ),
     (
+        "--sys-git-repo-lock-wait-timeout-seconds",
+        float,
+        30.0,
+        "Maximum seconds to wait for Lucy's shared Git repo lock before skipping this cycle.",
+        False,
+    ),
+    (
+        "--sys-git-repo-lock-retry-sleep-seconds",
+        float,
+        0.2,
+        "Seconds to sleep between attempts to acquire Lucy's shared Git repo lock.",
+        False,
+    ),
+    (
+        "--sys-git-repo-lock-stale-seconds",
+        float,
+        1800.0,
+        "Age in seconds after which Lucy's shared Git repo lock is treated as stale.",
+        False,
+    ),
+    (
         "--sys-modules",
         str,
         [

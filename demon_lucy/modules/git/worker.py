@@ -9,9 +9,16 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from demon_lucy.lib.git_state import (
+    release_repo_process_lock,
+    remove_stale_repo_process_lock,
+    repo_process_lock_path,
+    try_create_repo_process_lock,
+    write_sync_success_timestamp,
+)
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
-from demon_lucy.lib.path import git_dir_for_repo_root
+from demon_lucy.lib.runtime_platform import RuntimePlatform
 from demon_lucy.modules.git.batch_factory import make_repo_batch
 from demon_lucy.modules.git.commit_message import (
     GitChange,
@@ -32,7 +39,6 @@ from demon_lucy.modules.git.operations import (
     run_git,
     safe_pull_merge,
 )
-from demon_lucy.modules.git.sync_marker import write_sync_success_timestamp
 from demon_lucy.modules.git.types import _RepoBatch
 
 logger = logging.getLogger(__name__)
@@ -40,9 +46,6 @@ logger = logging.getLogger(__name__)
 
 _REPO_EVENT_LOCKS_GUARD = threading.Lock()
 _REPO_EVENT_LOCKS: dict[str, threading.Lock] = {}
-_REPO_PROCESS_LOCK_WAIT_TIMEOUT_SECONDS = 30.0
-_REPO_PROCESS_LOCK_RETRY_SLEEP_SECONDS = 0.2
-_REPO_PROCESS_LOCK_STALE_SECONDS = 1800.0
 _INDEX_LOCK_ERROR_LOG_GUARD = threading.Lock()
 _INDEX_LOCK_ERROR_LAST_LOG_TS: dict[str, float] = {}
 _INDEX_LOCK_ERROR_LOG_MIN_INTERVAL_SECONDS = 30.0
@@ -87,6 +90,7 @@ def _run_event_with_repo_lock(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
+    runtime_platform: RuntimePlatform,
 ) -> bool:
     repo_lock = _repo_event_lock(repo_root)
     with repo_lock:
@@ -96,6 +100,7 @@ def _run_event_with_repo_lock(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
+            runtime_platform=runtime_platform,
         )
 
 
@@ -105,6 +110,7 @@ def _run_event_with_retry_window_repo_locked(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
+    runtime_platform: RuntimePlatform,
 ) -> None:
     repo_lock = _repo_event_lock(repo_root)
     with repo_lock:
@@ -114,28 +120,14 @@ def _run_event_with_retry_window_repo_locked(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
+            runtime_platform=runtime_platform,
         )
-
-
-def _notify_config_from_batch(batch: _RepoBatch) -> dict[str, Any]:
-    return {
-        "sys_notification_provider": batch.notify_provider,
-        "sys_notification_min_interval_seconds": batch.notify_min_interval_sec,
-        "sys_notification_error_backoff_base_seconds": (
-            batch.notify_error_backoff_base_seconds
-        ),
-        "sys_notification_error_backoff_max_seconds": batch.notify_error_backoff_max_seconds,
-        "sys_notification_error_burst_limit": batch.notify_error_burst_limit,
-        "sys_notification_error_burst_window_seconds": (
-            batch.notify_error_burst_window_seconds
-        ),
-    }
 
 
 def _notify_git_sync_issue(
     repo_root: str,
     summary_text: str,
-    notify_config: dict[str, Any],
+    config: dict[str, Any],
     details_text: str = "",
 ) -> None:
     message_text = f"Repository:\n{repo_root}\n\n{summary_text}"
@@ -144,7 +136,7 @@ def _notify_git_sync_issue(
     safe_notify(
         name=f"git-sync:{repo_root}",
         message=message_text,
-        config=notify_config,
+        config=config,
         use_rare_mode=True,
     )
 
@@ -210,69 +202,11 @@ def _attempt_rebuild_git_index(
     return False
 
 
-def _repo_process_lock_path(repo_root: str) -> str | None:
-    git_dir = git_dir_for_repo_root(repo_root)
-    if not git_dir:
-        return None
-    return os.path.join(git_dir, "demon_lucy-sync.lock")
-
-
-def _lock_owner_pid(lock_path: str) -> int | None:
-    try:
-        with open(lock_path, "r", encoding="utf-8") as lock_file:
-            for raw_line in lock_file:
-                line = raw_line.strip()
-                if not line.startswith("pid="):
-                    continue
-                pid_text = line.split("=", 1)[1].strip()
-                if not pid_text:
-                    return None
-                return int(pid_text)
-    except (FileNotFoundError, OSError, ValueError):
-        return None
-    return None
-
-
-def _pid_is_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return True
-
-
-def _remove_stale_repo_process_lock(lock_path: str) -> bool:
-    try:
-        lock_mtime_seconds = os.path.getmtime(lock_path)
-    except FileNotFoundError:
-        return False
-    except OSError:
-        return False
-
-    lock_age_seconds = max(0.0, time.time() - lock_mtime_seconds)
-    owner_pid = _lock_owner_pid(lock_path)
-    stale_by_pid = owner_pid is not None and not _pid_is_alive(owner_pid)
-    stale_by_age = lock_age_seconds >= _REPO_PROCESS_LOCK_STALE_SECONDS
-    stale_legacy_no_pid = (
-        owner_pid is None
-        and lock_age_seconds >= _REPO_PROCESS_LOCK_WAIT_TIMEOUT_SECONDS
-    )
-    if not stale_by_pid and not stale_by_age and not stale_legacy_no_pid:
-        return False
-
-    try:
-        os.remove(lock_path)
-    except FileNotFoundError:
-        return False
-    except OSError:
-        return False
-
+def _log_stale_repo_process_lock_removed(
+    lock_path: str,
+    lock_age_seconds: float,
+    owner_pid: int | None,
+) -> None:
     logger.warning(
         log_record(
             "git.repo_lock_removed",
@@ -282,46 +216,18 @@ def _remove_stale_repo_process_lock(lock_path: str) -> bool:
             owner_pid=owner_pid if owner_pid is not None else "unknown",
         )
     )
-    return True
 
 
-def repo_process_lock_is_active(repo_root: str) -> bool:
-    lock_path = _repo_process_lock_path(repo_root)
-    if not lock_path:
-        return False
-    if not os.path.exists(lock_path):
-        return False
-    if _remove_stale_repo_process_lock(lock_path):
-        return False
-    return os.path.exists(lock_path)
-
-
-def _try_create_repo_process_lock(lock_path: str) -> bool:
-    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
-    try:
-        fd = os.open(lock_path, flags, 0o644)
-    except FileExistsError:
-        return False
-
-    try:
-        payload = f"pid={os.getpid()}\ncreated_ts={int(time.time())}\n"
-        os.write(fd, payload.encode("utf-8", errors="replace"))
-    finally:
-        os.close(fd)
-    return True
-
-
-def _release_repo_process_lock(lock_path: str) -> None:
-    try:
-        os.remove(lock_path)
-    except FileNotFoundError:
-        return
-    except OSError:
-        logger.warning(log_record("git.repo_lock_release_failed", lock=lock_path))
-
-
-def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
-    lock_path = _repo_process_lock_path(repo_root)
+def _with_repo_process_lock(
+    repo_root: str,
+    run_fn: Callable[[], bool],
+    *,
+    wait_timeout_seconds: float,
+    retry_sleep_seconds: float,
+    stale_seconds: float,
+    runtime_platform: RuntimePlatform,
+) -> bool:
+    lock_path = repo_process_lock_path(repo_root)
     if not lock_path:
         logger.warning(
             log_record("git.batch_skip", reason="invalid_repo_root", repo=repo_root)
@@ -334,10 +240,13 @@ def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
         logger.exception(log_record("git.repo_lock_prepare_failed", repo=repo_root))
         return run_fn()
 
-    deadline = time.monotonic() + _REPO_PROCESS_LOCK_WAIT_TIMEOUT_SECONDS
+    wait_timeout_seconds = max(0.0, wait_timeout_seconds)
+    retry_sleep_seconds = max(0.01, retry_sleep_seconds)
+    stale_seconds = max(0.0, stale_seconds)
+    deadline = time.monotonic() + wait_timeout_seconds
     while True:
         try:
-            acquired = _try_create_repo_process_lock(lock_path)
+            acquired = try_create_repo_process_lock(lock_path)
         except OSError:
             logger.exception(log_record("git.repo_lock_create_failed", repo=repo_root))
             return run_fn()
@@ -346,9 +255,18 @@ def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
             try:
                 return run_fn()
             finally:
-                _release_repo_process_lock(lock_path)
+                if not release_repo_process_lock(lock_path):
+                    logger.warning(
+                        log_record("git.repo_lock_release_failed", lock=lock_path)
+                    )
 
-        if _remove_stale_repo_process_lock(lock_path):
+        if remove_stale_repo_process_lock(
+            lock_path,
+            wait_timeout_seconds=wait_timeout_seconds,
+            stale_seconds=stale_seconds,
+            runtime_platform=runtime_platform,
+            on_removed=_log_stale_repo_process_lock_removed,
+        ):
             continue
 
         if time.monotonic() >= deadline:
@@ -356,17 +274,21 @@ def _with_repo_process_lock(repo_root: str, run_fn: Callable[[], bool]) -> bool:
                 log_record("git.batch_skip", reason="repo_lock_busy", repo=repo_root)
             )
             return False
-        time.sleep(_REPO_PROCESS_LOCK_RETRY_SLEEP_SECONDS)
+        time.sleep(retry_sleep_seconds)
 
 
 def _with_repo_process_lock_status(
     repo_root: str,
     run_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
     *,
+    wait_timeout_seconds: float,
+    retry_sleep_seconds: float,
+    stale_seconds: float,
+    runtime_platform: RuntimePlatform,
     on_busy_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
     on_invalid_repo_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
 ) -> DirtyTreeCommitResult | PatchPacketBuildResult:
-    lock_path = _repo_process_lock_path(repo_root)
+    lock_path = repo_process_lock_path(repo_root)
     if not lock_path:
         logger.warning(
             log_record(
@@ -383,10 +305,13 @@ def _with_repo_process_lock_status(
         logger.exception(log_record("git.repo_lock_prepare_failed", repo=repo_root))
         return run_fn()
 
-    deadline = time.monotonic() + _REPO_PROCESS_LOCK_WAIT_TIMEOUT_SECONDS
+    wait_timeout_seconds = max(0.0, wait_timeout_seconds)
+    retry_sleep_seconds = max(0.01, retry_sleep_seconds)
+    stale_seconds = max(0.0, stale_seconds)
+    deadline = time.monotonic() + wait_timeout_seconds
     while True:
         try:
-            acquired = _try_create_repo_process_lock(lock_path)
+            acquired = try_create_repo_process_lock(lock_path)
         except OSError:
             logger.exception(log_record("git.repo_lock_create_failed", repo=repo_root))
             return run_fn()
@@ -395,30 +320,23 @@ def _with_repo_process_lock_status(
             try:
                 return run_fn()
             finally:
-                _release_repo_process_lock(lock_path)
+                if not release_repo_process_lock(lock_path):
+                    logger.warning(
+                        log_record("git.repo_lock_release_failed", lock=lock_path)
+                    )
 
-        if _remove_stale_repo_process_lock(lock_path):
+        if remove_stale_repo_process_lock(
+            lock_path,
+            wait_timeout_seconds=wait_timeout_seconds,
+            stale_seconds=stale_seconds,
+            runtime_platform=runtime_platform,
+            on_removed=_log_stale_repo_process_lock_removed,
+        ):
             continue
 
         if time.monotonic() >= deadline:
             return on_busy_fn()
-        time.sleep(_REPO_PROCESS_LOCK_RETRY_SLEEP_SECONDS)
-
-
-def _build_batch(
-    self,
-    repo_root: str,
-    event_type: str,
-    paths: list[str],
-    config_snapshot: dict,
-) -> _RepoBatch:
-    return make_repo_batch(
-        repo_root=repo_root,
-        event_type=event_type,
-        paths=paths,
-        config_snapshot=config_snapshot,
-        environment=git_environment(self, config_snapshot),
-    )
+        time.sleep(retry_sleep_seconds)
 
 
 def _process_event_once(
@@ -427,15 +345,21 @@ def _process_event_once(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
+    runtime_platform: RuntimePlatform,
 ) -> bool:
-    batch = _build_batch(
-        self=self,
+    batch = make_repo_batch(
         repo_root=repo_root,
         event_type=event_type,
         paths=paths,
         config_snapshot=config_snapshot,
+        environment=git_environment(self, config_snapshot),
     )
-    return process_batch(self, batch)
+    return process_batch(
+        self,
+        batch,
+        config_snapshot,
+        runtime_platform=runtime_platform,
+    )
 
 
 def _run_event_with_retry_window(
@@ -444,17 +368,18 @@ def _run_event_with_retry_window(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
+    runtime_platform: RuntimePlatform,
 ) -> None:
     retry_window_seconds = max(
-        0.0, float(config_snapshot.get("git_sync_retry_window_seconds", 0.0))
+        0.0, float(config_snapshot["git_sync_retry_window_seconds"])
     )
     backoff_start_seconds = max(
         0.2,
-        float(config_snapshot.get("git_sync_retry_backoff_start_seconds", 5.0)),
+        float(config_snapshot["git_sync_retry_backoff_start_seconds"]),
     )
     backoff_max_seconds = max(
         backoff_start_seconds,
-        float(config_snapshot.get("git_sync_retry_backoff_max_seconds", 60.0)),
+        float(config_snapshot["git_sync_retry_backoff_max_seconds"]),
     )
 
     deadline = None
@@ -469,6 +394,7 @@ def _run_event_with_retry_window(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
+            runtime_platform=runtime_platform,
         )
         if success:
             return
@@ -492,6 +418,7 @@ def process_event(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
+    runtime_platform: RuntimePlatform,
     run_in_background: bool = False,
 ) -> bool:
     if not run_in_background:
@@ -501,6 +428,7 @@ def process_event(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
+            runtime_platform=runtime_platform,
         )
 
     runner = threading.Thread(
@@ -511,6 +439,7 @@ def process_event(
             "event_type": event_type,
             "paths": list(paths),
             "config_snapshot": dict(config_snapshot),
+            "runtime_platform": runtime_platform,
         },
         daemon=True,
     )
@@ -524,7 +453,7 @@ def _ensure_merge_state_clean(
     environment: dict[str, str],
     git_timeout_seconds: float,
     autoresolve_mode: str,
-    notify_config: dict[str, Any],
+    config: dict[str, Any],
 ) -> bool:
     if not merge_in_progress(self, repo_root, environment, git_timeout_seconds):
         return True
@@ -577,7 +506,7 @@ def _ensure_merge_state_clean(
     _notify_git_sync_issue(
         repo_root=repo_root,
         summary_text=f"Found unfinished merge; auto-resolve failed; merge aborted.{abort_note}",
-        notify_config=notify_config,
+        config=config,
     )
     return False
 
@@ -587,7 +516,7 @@ def _stage_and_collect_changes(
     repo_root: str,
     environment: dict[str, str],
     git_timeout_seconds: float,
-    notify_config: dict[str, Any],
+    config: dict[str, Any],
 ) -> tuple[bool, str, list[str]]:
     recovered_index = False
     while True:
@@ -606,7 +535,7 @@ def _stage_and_collect_changes(
             _notify_git_sync_issue(
                 repo_root=repo_root,
                 summary_text="git add timed out.",
-                notify_config=notify_config,
+                config=config,
             )
             return False, "", []
 
@@ -642,7 +571,7 @@ def _stage_and_collect_changes(
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git add failed.",
-            notify_config=notify_config,
+            config=config,
             details_text=add_error,
         )
         return False, "", []
@@ -660,7 +589,7 @@ def _stage_and_collect_changes(
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git status timed out.",
-            notify_config=notify_config,
+            config=config,
         )
         return False, "", []
 
@@ -678,7 +607,7 @@ def _stage_and_collect_changes(
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git status failed.",
-            notify_config=notify_config,
+            config=config,
             details_text=status_error,
         )
         return False, "", []
@@ -751,7 +680,7 @@ def _commit_if_needed(
     git_timeout_seconds: float,
     porcelain_text: str,
     changed_paths: list[str],
-    notify_config: dict[str, Any],
+    config: dict[str, Any],
 ) -> bool:
     if not porcelain_text:
         return True
@@ -780,7 +709,7 @@ def _commit_if_needed(
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git commit timed out.",
-            notify_config=notify_config,
+            config=config,
         )
         return False
 
@@ -804,7 +733,7 @@ def _commit_if_needed(
     _notify_git_sync_issue(
         repo_root=repo_root,
         summary_text="git commit failed.",
-        notify_config=notify_config,
+        config=config,
         details_text=commit_error,
     )
     return False
@@ -837,7 +766,7 @@ def _attempt_push_with_retry(
     pull_timeout_seconds: float,
     push_timeout_seconds: float,
     git_timeout_seconds: float,
-    notify_config: dict[str, Any],
+    config: dict[str, Any],
 ) -> bool:
     try:
         first_push_result = _run_push_once(
@@ -890,7 +819,7 @@ def _attempt_push_with_retry(
             pull_timeout_seconds=pull_timeout_seconds,
             operation_timeout_seconds=git_timeout_seconds,
             autoresolve_mode=batch.policy.autoresolve_mode.value,
-            notify_config=notify_config,
+            config=config,
             auto_set_upstream=batch.policy.auto_set_upstream,
             network_probe_timeout_seconds=batch.policy.network_probe_timeout_seconds,
             pull_offline_error_markers=list(batch.policy.pull_offline_error_markers),
@@ -936,19 +865,22 @@ def _attempt_push_with_retry(
     _notify_git_sync_issue(
         repo_root=repo_root,
         summary_text="git push failed.",
-        notify_config=notify_config,
+        config=config,
         details_text=push_error,
     )
     return False
 
 
-def _process_batch_unlocked(self, batch: _RepoBatch) -> bool:
+def _process_batch_unlocked(
+    self,
+    batch: _RepoBatch,
+    config_snapshot: dict,
+) -> bool:
     repo_root = batch.repo_root
     environment = batch.environment
     git_timeout_seconds = batch.git_timeout_seconds
     pull_timeout_seconds = batch.pull_timeout_seconds
     push_timeout_seconds = batch.push_timeout_seconds
-    notify_config = _notify_config_from_batch(batch)
 
     if not _ensure_merge_state_clean(
         self=self,
@@ -956,7 +888,7 @@ def _process_batch_unlocked(self, batch: _RepoBatch) -> bool:
         environment=environment,
         git_timeout_seconds=git_timeout_seconds,
         autoresolve_mode=batch.policy.autoresolve_mode.value,
-        notify_config=notify_config,
+        config=config_snapshot,
     ):
         return False
 
@@ -965,7 +897,7 @@ def _process_batch_unlocked(self, batch: _RepoBatch) -> bool:
         repo_root=repo_root,
         environment=environment,
         git_timeout_seconds=git_timeout_seconds,
-        notify_config=notify_config,
+        config=config_snapshot,
     )
     if not staged_ok:
         return False
@@ -978,7 +910,7 @@ def _process_batch_unlocked(self, batch: _RepoBatch) -> bool:
         git_timeout_seconds=git_timeout_seconds,
         porcelain_text=porcelain_text,
         changed_paths=changed_paths,
-        notify_config=notify_config,
+        config=config_snapshot,
     ):
         return False
 
@@ -990,7 +922,7 @@ def _process_batch_unlocked(self, batch: _RepoBatch) -> bool:
         pull_timeout_seconds=pull_timeout_seconds,
         push_timeout_seconds=push_timeout_seconds,
         git_timeout_seconds=git_timeout_seconds,
-        notify_config=notify_config,
+        config=config_snapshot,
     )
     if not pushed_ok:
         return False
@@ -1000,10 +932,29 @@ def _process_batch_unlocked(self, batch: _RepoBatch) -> bool:
     return True
 
 
-def process_batch(self, batch: _RepoBatch) -> bool:
+def process_batch(
+    self,
+    batch: _RepoBatch,
+    config_snapshot: dict,
+    *,
+    runtime_platform: RuntimePlatform,
+) -> bool:
     return _with_repo_process_lock(
         batch.repo_root,
-        lambda: _process_batch_unlocked(self, batch),
+        lambda: _process_batch_unlocked(self, batch, config_snapshot),
+        wait_timeout_seconds=max(
+            0.0,
+            config_snapshot["sys_git_repo_lock_wait_timeout_seconds"],
+        ),
+        retry_sleep_seconds=max(
+            0.01,
+            config_snapshot["sys_git_repo_lock_retry_sleep_seconds"],
+        ),
+        stale_seconds=max(
+            0.0,
+            config_snapshot["sys_git_repo_lock_stale_seconds"],
+        ),
+        runtime_platform=runtime_platform,
     )
 
 
@@ -1059,15 +1010,15 @@ def commit_dirty_tree(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
+    runtime_platform: RuntimePlatform,
 ) -> DirtyTreeCommitResult:
-    batch = _build_batch(
-        self=self,
+    batch = make_repo_batch(
         repo_root=repo_root,
         event_type=event_type,
         paths=paths,
         config_snapshot=config_snapshot,
+        environment=git_environment(self, config_snapshot),
     )
-    notify_config = _notify_config_from_batch(batch)
 
     def _run_commit() -> DirtyTreeCommitResult:
         if not _ensure_merge_state_clean(
@@ -1076,7 +1027,7 @@ def commit_dirty_tree(
             environment=batch.environment,
             git_timeout_seconds=batch.git_timeout_seconds,
             autoresolve_mode=batch.policy.autoresolve_mode.value,
-            notify_config=notify_config,
+            config=config_snapshot,
         ):
             return DirtyTreeCommitResult(
                 status="error",
@@ -1089,7 +1040,7 @@ def commit_dirty_tree(
             repo_root=repo_root,
             environment=batch.environment,
             git_timeout_seconds=batch.git_timeout_seconds,
-            notify_config=notify_config,
+            config=config_snapshot,
         )
         if not staged_ok:
             return DirtyTreeCommitResult(
@@ -1111,7 +1062,7 @@ def commit_dirty_tree(
             git_timeout_seconds=batch.git_timeout_seconds,
             porcelain_text=porcelain_text,
             changed_paths=changed_paths,
-            notify_config=notify_config,
+            config=config_snapshot,
         )
         if not committed_ok:
             return DirtyTreeCommitResult(
@@ -1149,6 +1100,19 @@ def commit_dirty_tree(
     result = _with_repo_process_lock_status(
         repo_root,
         _run_commit,
+        wait_timeout_seconds=max(
+            0.0,
+            config_snapshot["sys_git_repo_lock_wait_timeout_seconds"],
+        ),
+        retry_sleep_seconds=max(
+            0.01,
+            config_snapshot["sys_git_repo_lock_retry_sleep_seconds"],
+        ),
+        stale_seconds=max(
+            0.0,
+            config_snapshot["sys_git_repo_lock_stale_seconds"],
+        ),
+        runtime_platform=runtime_platform,
         on_busy_fn=lambda: DirtyTreeCommitResult(
             status="busy",
             repo_root=repo_root,
@@ -1178,13 +1142,14 @@ def build_patch_packet(
     queue_dir: str,
     author_device: str,
     config_snapshot: dict,
+    runtime_platform: RuntimePlatform,
 ) -> PatchPacketBuildResult:
-    batch = _build_batch(
-        self=self,
+    batch = make_repo_batch(
         repo_root=repo_root,
         event_type="modified",
         paths=changed_paths,
         config_snapshot=config_snapshot,
+        environment=git_environment(self, config_snapshot),
     )
 
     if not commit_sha.strip():
@@ -1267,6 +1232,19 @@ def build_patch_packet(
     result = _with_repo_process_lock_status(
         repo_root,
         _run_build,
+        wait_timeout_seconds=max(
+            0.0,
+            config_snapshot["sys_git_repo_lock_wait_timeout_seconds"],
+        ),
+        retry_sleep_seconds=max(
+            0.01,
+            config_snapshot["sys_git_repo_lock_retry_sleep_seconds"],
+        ),
+        stale_seconds=max(
+            0.0,
+            config_snapshot["sys_git_repo_lock_stale_seconds"],
+        ),
+        runtime_platform=runtime_platform,
         on_busy_fn=lambda: PatchPacketBuildResult(
             status="busy",
             repo_root=repo_root,
