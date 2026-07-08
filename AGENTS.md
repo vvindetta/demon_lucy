@@ -50,18 +50,40 @@ watchdog file events.
   use it from feature code.
 - Keep module code focused on module behavior; shared mechanics belong in
   `demon_lucy/lib/`.
+- Do not add pass-through wrapper functions that only rename or forward to
+  another helper. Import and call the helper directly, or refactor the shared
+  behavior into a real library function when additional policy/logging/state is
+  needed.
+- Do not make one feature module import another feature module just to share
+  mechanics. Move shared state/helpers into `demon_lucy/lib/` first. For
+  example, `status` reads Git sync marker/lock state via
+  `demon_lucy.lib.git_state`, not `demon_lucy.modules.git`.
 - Use absolute imports inside the project, including intra-package imports. For
   example, use `from demon_lucy.modules.archive import notify`, not
   `from . import notify`.
 
 ## Modules
 
+- When a module grows beyond one file, make it a package directory under
+  `demon_lucy/modules/<name>/`, not a set of sibling files like
+  `modules/<name>_helpers.py`. Keep the public module class import stable from
+  `demon_lucy.modules.<name>` by exposing the class in `__init__.py`, and put
+  focused internals in files such as `module.py`, `config.py`, `paths.py`,
+  `storage.py`, `requests.py`, `render.py`, or domain-specific names.
 - `modules/sys.py`: in-note debug/manual commands such as `--mods`, `--config`,
   `--man`, `--event`, `--ping`, `--help`.
+- `modules/alias/`: in-note aliases for module args. `__init__.py` owns the
+  `Alias` module class, rule error logging/notifications, and event handlers;
+  `rules.py` owns alias validation/parsing, and `rewrite.py` owns line expansion
+  and atomic writes.
 - `modules/banner.py`: inserts pyfiglet banners or date banners at flag lines.
 - `modules/renamer.py`: manual `--rename` and create-time `--rename-auto` for
   one-letter scratch files with configurable output format.
 - `modules/formatter.py`: TODO checkbox formatting and top/bottom blank padding.
+- `modules/graph/`: text graphs for word/regex frequency over dated note
+  sections. `__init__.py` owns the `Graph` module class, command parsing, and
+  file rewrite orchestration; `data.py` owns dated-section and Git-history data
+  collection; `render.py` owns period bucketing and ASCII output.
 - `modules/archive/`: archives stale or forced source note content through
   pair/local/global routes. `module.py` owns orchestration and event handlers,
   `requests.py` builds `ArchiveRequest` objects from already-parsed config/note
@@ -69,8 +91,10 @@ watchdog file events.
   destination resolution, `storage.py` owns no-follow IO and text/file archive
   writes, `clock.py` owns Git/mtime dates, and `notify.py` owns archive
   error/security notifications.
-- `modules/linker.py`: root symlink creation/cleanup and markdown link updates on
-  move/rename.
+- `modules/linker/`: root symlink creation/cleanup and markdown link updates on
+  move/rename. `__init__.py` owns the `Linker` module class and event handlers,
+  `root.py` owns root symlink and ignore-selector logic, and `markdown.py` owns
+  Markdown link parsing, rewrites, and edited-link target moves.
 - `modules/dropdir.py`: moved-file drop-directory workflow that can trigger
   archive cleanup through the `Archive` module.
 - `modules/status/`: standalone filename status tokens, banners, animations,
