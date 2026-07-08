@@ -139,6 +139,9 @@ watchdog file events.
 - `CHEATSHEET.md` is a quick command reference, not full documentation. Keep it
   to current flags, compact meanings, and short examples. Do not turn it into a
   module manual or design document.
+- In manuals/help text, do not write obvious transition wording such as
+  "Replace this command line with". Show the final command/config/example
+  directly.
 
 ## Fast Search Targets
 
