@@ -24,6 +24,8 @@ from demon_lucy.modules.archive import Archive
 from demon_lucy.modules.voice import Voice
 from demon_lucy.modules.workspace import Workspace
 
+logger = logging.getLogger(__name__)
+
 DEMON_LUCY_STARTUP_TEMPLATE: Template = [
     (
         "--sys-config-path",
@@ -186,7 +188,6 @@ def run_config_migrations(config_path: str) -> list[Migration]:
                 migration.migrate()
                 migrated.append(migration)
         except Exception:
-            logger = logging.getLogger(__name__)
             logger.exception(
                 log_record(
                     "config.migration_error",
@@ -281,28 +282,38 @@ def select_demon_lucy_modules(
         PlasmaWidget,
         Voice,
     ]
-    include_set = set(normalize_name_list(include_names or []))
-    exclude_set = set(normalize_name_list(exclude_names or []))
+    requested_include = normalize_name_list(include_names or [])
+    requested_exclude = normalize_name_list(exclude_names or [])
+    include_set = set(requested_include)
+    exclude_set = set(requested_exclude)
     available_names = {cls.name for cls in module_classes}
 
     unknown_include = include_set - available_names
     if unknown_include:
-        raise ValueError(
-            "Unknown modules in include list: "
-            f"{', '.join(sorted(unknown_include))}. "
-            f"Available: {', '.join(sorted(available_names))}"
+        logger.error(
+            log_record(
+                "runtime.module_unknown",
+                reason="include",
+                modules=sorted(unknown_include),
+                available=sorted(available_names),
+            )
         )
+        include_set -= unknown_include
 
     unknown_exclude = exclude_set - available_names
     if unknown_exclude:
-        raise ValueError(
-            "Unknown modules in exclude list: "
-            f"{', '.join(sorted(unknown_exclude))}. "
-            f"Available: {', '.join(sorted(available_names))}"
+        logger.error(
+            log_record(
+                "runtime.module_unknown",
+                reason="exclude",
+                modules=sorted(unknown_exclude),
+                available=sorted(available_names),
+            )
         )
+        exclude_set -= unknown_exclude
 
     selected_classes = module_classes
-    if include_set:
+    if requested_include:
         selected_classes = [cls for cls in selected_classes if cls.name in include_set]
     if exclude_set:
         selected_classes = [
@@ -310,6 +321,6 @@ def select_demon_lucy_modules(
         ]
 
     if not selected_classes:
-        raise ValueError("No modules selected after include filter.")
+        logger.error(log_record("runtime.modules_empty", reason="selection_empty"))
 
     return [cls() for cls in selected_classes]

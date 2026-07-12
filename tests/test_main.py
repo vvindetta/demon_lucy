@@ -15,12 +15,14 @@ class _ObserverState:
     started: bool = False
     stopped: bool = False
     joined: bool = False
+    return_code: int | None = None
 
 
 def _run_main_with_flag(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     watch_paths: list[str] | None = None,
+    sys_modules: list[str] | None = None,
 ) -> _ObserverState:
     state = _ObserverState()
 
@@ -84,13 +86,13 @@ def _run_main_with_flag(
                 "sys_disable_opened_events": True,
                 "sys_notification_provider": "auto",
                 "sys_notification_min_interval_seconds": 10.0,
-                "sys_modules": [],
+                "sys_modules": list(sys_modules or []),
                 "sys_modules_exclude": [],
             },
             [],
         ),
     )
-    main_daemon.main()
+    state.return_code = main_daemon.main()
     return state
 
 
@@ -167,6 +169,28 @@ def test_main_raises_when_startup_args_are_invalid(monkeypatch):
 
     with pytest.raises(ValueError):
         main_daemon.main()
+
+
+def test_main_continues_when_module_is_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+):
+    state = _run_main_with_flag(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        sys_modules=["missing"],
+    )
+
+    assert state.return_code == 0
+    assert state.started is True
+    assert len(state.scheduled) == 1
+    handler, _scheduled_path, _recursive = state.scheduled[0]
+    assert handler.modules.modules == []
+    captured = capsys.readouterr()
+    assert "runtime.module_unknown" in captured.err
+    assert "modules=missing" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_main_expands_user_paths_before_scheduling(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pytest
+import logging
 
 from demon_lucy.runtime import (
     DEMON_LUCY_STARTUP_TEMPLATE,
@@ -35,14 +35,35 @@ def test_select_demon_lucy_modules_include_then_exclude_applies_exclude():
     assert set(names) == {"git", "archive"}
 
 
-def test_select_demon_lucy_modules_rejects_unknown_include():
-    with pytest.raises(ValueError, match="Unknown modules in include list"):
-        select_demon_lucy_modules(include_names=["nope"])
+def test_select_demon_lucy_modules_skips_unknown_include(caplog):
+    with caplog.at_level(logging.ERROR, logger="demon_lucy.runtime"):
+        modules = select_demon_lucy_modules(include_names=["git", "nope"])
+
+    assert _module_names(modules) == ["git"]
+    assert "runtime.module_unknown" in caplog.text
+    assert "reason=include" in caplog.text
+    assert "modules=nope" in caplog.text
 
 
-def test_select_demon_lucy_modules_rejects_unknown_exclude():
-    with pytest.raises(ValueError, match="Unknown modules in exclude list"):
-        select_demon_lucy_modules(exclude_names=["nope"])
+def test_select_demon_lucy_modules_skips_unknown_exclude(caplog):
+    with caplog.at_level(logging.ERROR, logger="demon_lucy.runtime"):
+        modules = select_demon_lucy_modules(exclude_names=["git", "nope"])
+
+    names = _module_names(modules)
+    assert "git" not in names
+    assert "status" in names
+    assert "runtime.module_unknown" in caplog.text
+    assert "reason=exclude" in caplog.text
+    assert "modules=nope" in caplog.text
+
+
+def test_select_demon_lucy_modules_can_return_empty_after_unknown_include(caplog):
+    with caplog.at_level(logging.ERROR, logger="demon_lucy.runtime"):
+        modules = select_demon_lucy_modules(include_names=["nope"])
+
+    assert modules == []
+    assert "runtime.module_unknown" in caplog.text
+    assert "runtime.modules_empty" in caplog.text
 
 
 def test_sys_modules_default_is_defined_in_startup_template():
