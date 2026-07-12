@@ -3,10 +3,11 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Dict, List, Optional, Tuple
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import ArgTemplate, StrEnum
+from demon_lucy.lib.args.parser import ArgTemplate
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,

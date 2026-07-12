@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from enum import StrEnum
 from typing import List
 
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
-    StrEnum,
     Template,
     parse_enum_value,
 )

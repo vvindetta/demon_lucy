@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from enum import StrEnum
 from typing import Sequence
 
 from watchdog.events import (
@@ -16,7 +17,6 @@ from watchdog.events import (
 
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
-    StringEnum,
     Template,
     enum_value_text,
     parse_args,
@@ -40,7 +40,7 @@ from demon_lucy.runtime import (
 )
 
 
-class OneShotEvent(StringEnum):
+class OneShotEvent(StrEnum):
     CREATED = "created"
     MODIFIED = "modified"
     MOVED = "moved"

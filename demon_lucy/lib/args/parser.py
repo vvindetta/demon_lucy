@@ -5,7 +5,6 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from enum import StrEnum
 from typing import Any, Dict, List, Tuple, TypeVar
 
 from demon_lucy.lib.logfmt import log_record

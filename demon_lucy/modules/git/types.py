@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Dict, Union
-
-from demon_lucy.lib.args.parser import StrEnum
 
 PathLike = Union[str, bytes]
 

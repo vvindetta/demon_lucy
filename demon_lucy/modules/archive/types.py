@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-from demon_lucy.lib.args.parser import StrEnum
+from enum import StrEnum
 
 
 class ArchiveOutputMode(StrEnum):

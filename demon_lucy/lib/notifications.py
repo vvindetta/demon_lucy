@@ -7,9 +7,10 @@ import subprocess
 import threading
 import time
 from collections import deque
+from enum import StrEnum
 from typing import Any, Dict, Mapping
 
-from demon_lucy.lib.args.parser import StrEnum, parse_enum_value
+from demon_lucy.lib.args.parser import parse_enum_value
 from demon_lucy.lib.logfmt import log_record
 
 logger = logging.getLogger(__name__)

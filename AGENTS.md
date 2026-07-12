@@ -179,7 +179,7 @@ use positional arguments.
 
 - Do not add subcommands like `--git pull hours 2`.
 - One flag must have one concrete type: `bool`, `str`, `int`, `float`, a
-  `StringEnum`, or a real `str[]`. Use `StringEnum` for fixed string domains and
+  `StrEnum`, or a real `str[]`. Use `StrEnum` for fixed string domains and
   carry the Enum member through module logic instead of converting it back to
   an untyped string.
 - Do not shorten words just to save a few letters: write `hours`.

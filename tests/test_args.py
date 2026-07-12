@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from enum import StrEnum
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,6 @@ import pytest
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
-    StringEnum,
     get_args_from_file,
     get_config_args,
     is_valid_flag_token,
@@ -18,7 +18,7 @@ from demon_lucy.lib.args.parser import (
 )
 
 
-class _Mode(StringEnum):
+class _Mode(StrEnum):
     FIRST = "first"
     SECOND = "second"
 
