@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-import re
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
+from demon_lucy.lib.date_sections import parse_exact_date_section_header
 
 from demon_lucy.modules.archive.constants import STRIP_FLAGS
 
@@ -46,16 +46,6 @@ def normalize_archive_body(text: str, max_blank_lines: int = 3) -> str:
             result.append("")
 
     return "\n".join(result)
-
-
-def archive_text_header_line(*, date_label: str, prefix: str, suffix: str) -> str:
-    return f"{prefix}{date_label}{suffix}"
-
-
-def _archive_text_header_pattern(*, prefix: str, suffix: str) -> re.Pattern[str]:
-    return re.compile(
-        rf"^{re.escape(prefix)}\d{{2}}\.\d{{2}}\.\d{{4}}{re.escape(suffix)}$"
-    )
 
 
 def _line_without_newline(line: str) -> str:
@@ -103,11 +93,17 @@ def text_archive_content_with_entry(
         sep = _append_body_separator(old_content)
         return f"{old_content}{sep}{entry}", True
 
-    header_pattern = _archive_text_header_pattern(prefix=prefix, suffix=suffix)
     start = header_indexes[-1]
     end = len(lines)
     for index in range(start + 1, len(lines)):
-        if header_pattern.match(_line_without_newline(lines[index])):
+        if (
+            parse_exact_date_section_header(
+                _line_without_newline(lines[index]),
+                prefix=prefix,
+                suffix=suffix,
+            )
+            is not None
+        ):
             end = index
             break
 

@@ -5,6 +5,7 @@ from dataclasses import replace
 from typing import Optional
 
 from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.date_sections import format_date_section_header
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
@@ -81,8 +82,9 @@ class Archive(AbstractModule):
 
         date_prefix = str(ctx.config["archive_date_prefix"])
         date_suffix = str(ctx.config["archive_date_suffix"])
-        header_line = storage.archive_text_header_line(
-            date_label=clock.archive_text_date_label(timestamp),
+        entry_date = clock.archive_entry_date(timestamp)
+        header_line = format_date_section_header(
+            entry_date,
             prefix=date_prefix,
             suffix=date_suffix,
         )
@@ -138,7 +140,7 @@ class Archive(AbstractModule):
         dest_path = storage.unique_file_archive_path(
             dest_dir=dest_dir,
             src_path=src_path,
-            date_label=clock.archive_file_date_label(timestamp),
+            date_label=clock.archive_entry_date(timestamp).isoformat(),
         )
         if not dest_path:
             notify.operation_failed(

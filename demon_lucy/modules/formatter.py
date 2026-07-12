@@ -7,6 +7,7 @@ from typing import Optional
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.parser import Template, is_valid_flag_token, parse_args
+from demon_lucy.lib.date_sections import complete_partial_date_section_headers
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -34,6 +35,13 @@ class Formatter(AbstractModule):
             str,
             [],
             "Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
+            False,
+        ),
+        (
+            "--formatter-date",
+            bool,
+            False,
+            "Complete consecutive archive date headers written as '--- day' from the previous full date.",
             False,
         ),
     ]
@@ -110,6 +118,7 @@ class Formatter(AbstractModule):
         for key, flag in (
             ("formatter_todo", "--formatter-todo"),
             ("formatter_blank", "--formatter-blank"),
+            ("formatter_date", "--formatter-date"),
         ):
             for raw_line in arg_lines.get(key) or []:
                 try:
@@ -236,10 +245,16 @@ class Formatter(AbstractModule):
         global_template: Template | None = None,
     ) -> Optional[IgnoreMap]:
         use_formatter_todo = bool(config.get("formatter_todo"))
+        use_formatter_date = bool(config.get("formatter_date"))
         blank_modes, blank_lines_count = self._blank_config(config)
         use_down = "down" in blank_modes
         use_up = "up" in blank_modes
-        if not use_formatter_todo and not use_down and not use_up:
+        if (
+            not use_formatter_todo
+            and not use_formatter_date
+            and not use_down
+            and not use_up
+        ):
             return None
 
         if not os.path.isfile(path):
@@ -264,6 +279,10 @@ class Formatter(AbstractModule):
         if use_formatter_todo:
             new_lines, todo_changed = self._format_todo_lines(new_lines)
             changed = changed or todo_changed
+
+        if use_formatter_date:
+            new_lines, date_changed = complete_partial_date_section_headers(new_lines)
+            changed = changed or date_changed
 
         if use_up or use_down:
             non_empty_indexes = [

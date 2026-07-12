@@ -9,14 +9,12 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Pattern
 
+from demon_lucy.lib.date_sections import (
+    iter_date_section_days,
+    parse_date_section_header,
+)
 from demon_lucy.lib.path import canonical_path, find_parent_git_repo
 
-DATE_VALUE_RE = r"(\d{1,2})\.(\d{1,2})\.(\d{4})"
-DATE_HEADER_RE = re.compile(
-    rf"^\s*---\s*{DATE_VALUE_RE}"
-    rf"(?:\s*(?:-|\.\.\.)\s*{DATE_VALUE_RE})?"
-    r"(?:\s+.*)?\s*$"
-)
 GIT_COMMIT_MARKER = "__DEMON_LUCY_GRAPH_COMMIT__"
 
 
@@ -42,32 +40,6 @@ def count_matches(text: str, pattern: Pattern[str]) -> int:
     return sum(1 for _match in pattern.finditer(text))
 
 
-def _date_from_match_groups(
-    day_text: str | None,
-    month_text: str | None,
-    year_text: str | None,
-) -> date | None:
-    if day_text is None or month_text is None or year_text is None:
-        return None
-    try:
-        return date(
-            int(year_text),
-            int(month_text),
-            int(day_text),
-        )
-    except ValueError:
-        return None
-
-
-def _iter_date_range(start: date, end: date) -> list[date]:
-    days: list[date] = []
-    current = start
-    while current <= end:
-        days.append(current)
-        current = date.fromordinal(current.toordinal() + 1)
-    return days
-
-
 def counts_from_dated_text(text: str, pattern: Pattern[str]) -> dict[date, int] | None:
     counts: Counter[date] = Counter()
     current_date: date | None = None
@@ -85,35 +57,12 @@ def counts_from_dated_text(text: str, pattern: Pattern[str]) -> dict[date, int] 
         current_lines = []
 
     for raw_line in text.splitlines(keepends=True):
-        match = DATE_HEADER_RE.match(raw_line)
-        if match:
+        section = parse_date_section_header(raw_line)
+        if section is not None:
             flush_current_section()
-            (
-                start_day_text,
-                start_month_text,
-                start_year_text,
-                end_day_text,
-                end_month_text,
-                end_year_text,
-            ) = match.groups()
-            start_date = _date_from_match_groups(
-                start_day_text,
-                start_month_text,
-                start_year_text,
-            )
-            end_date = start_date
-            if end_day_text is not None:
-                end_date = _date_from_match_groups(
-                    end_day_text,
-                    end_month_text,
-                    end_year_text,
-                )
-            if start_date is None or end_date is None or end_date < start_date:
-                current_date = None
-            else:
-                for day in _iter_date_range(start_date, end_date):
-                    counts.setdefault(day, 0)
-                current_date = end_date
+            for day in iter_date_section_days(section):
+                counts.setdefault(day, 0)
+            current_date = section.end
             found_date = True
             continue
 

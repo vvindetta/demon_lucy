@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from demon_lucy.lib.path import find_parent_with
@@ -120,17 +120,9 @@ def archive_entry_timestamp(ctx: Context, src_path: str) -> Optional[float]:
     return git_last_commit_timestamp(src_path)
 
 
-def archive_text_date_label(timestamp_value: Optional[float]) -> str:
+def archive_entry_date(timestamp_value: Optional[float]) -> date:
     if timestamp_value is None:
-        return datetime.now().strftime("%d.%m.%Y")
+        return datetime.now().date()
     from datetime import datetime as real_datetime
 
-    return real_datetime.fromtimestamp(timestamp_value).strftime("%d.%m.%Y")
-
-
-def archive_file_date_label(timestamp_value: Optional[float]) -> str:
-    if timestamp_value is None:
-        return datetime.now().strftime("%Y-%m-%d")
-    from datetime import datetime as real_datetime
-
-    return real_datetime.fromtimestamp(timestamp_value).strftime("%Y-%m-%d")
+    return real_datetime.fromtimestamp(timestamp_value).date()

@@ -58,6 +58,100 @@ def test_apply_todo_flag_controls_checkbox_formatting(
 
 
 @pytest.mark.parametrize(
+    ("initial_text", "expected_text"),
+    [
+        (
+            "--- 9.01.2030\ntext\n--- 10\n",
+            "--- 9.01.2030\ntext\n--- 10.01.2030\n",
+        ),
+        (
+            "--- 31.12.2030 note\n--- 1\n",
+            "--- 31.12.2030 note\n--- 1.01.2031\n",
+        ),
+        (
+            "--- 28.02.2028\n--- 29\n--- 1\n",
+            "--- 28.02.2028\n--- 29.02.2028\n--- 1.03.2028\n",
+        ),
+        (
+            "--- 28.02.2030\n--- 1\n",
+            "--- 28.02.2030\n--- 1.03.2030\n",
+        ),
+    ],
+)
+def test_apply_completes_only_next_archive_dates(
+    tmp_path: Path,
+    initial_text: str,
+    expected_text: str,
+):
+    note = tmp_path / "archive.md"
+    note.write_text(initial_text, encoding="utf-8")
+
+    changed = Formatter()._apply(
+        path=str(note),
+        config={
+            "formatter_todo": False,
+            "formatter_blank": [],
+            "formatter_date": True,
+        },
+        arg_lines={},
+    )
+
+    assert changed == {str(note.resolve()): 1}
+    assert note.read_text(encoding="utf-8") == expected_text
+
+
+@pytest.mark.parametrize(
+    "initial_text",
+    [
+        "--- 9.01.2030\n--- 11\n",
+        "--- 10.01.2030\n--- 9\n",
+        "--- 31.02.2030\n--- 1\n",
+        "--- 10\n",
+        "--- 10.01.2030\n--- 9.01.2030\n--- 10\n",
+        "--- 9.01.2030\n--- 10\n--- 12\n",
+    ],
+)
+def test_apply_leaves_ambiguous_date_sequences_unchanged(
+    tmp_path: Path,
+    initial_text: str,
+):
+    note = tmp_path / "archive.md"
+    note.write_text(initial_text, encoding="utf-8")
+
+    changed = Formatter()._apply(
+        path=str(note),
+        config={
+            "formatter_todo": False,
+            "formatter_blank": [],
+            "formatter_date": True,
+        },
+        arg_lines={},
+    )
+
+    assert changed is None
+    assert note.read_text(encoding="utf-8") == initial_text
+
+
+def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
+    initial_text = "--- 1.1.2030 comment\n--- 02.01.2030\n"
+    note = tmp_path / "archive.md"
+    note.write_text(initial_text, encoding="utf-8")
+
+    changed = Formatter()._apply(
+        path=str(note),
+        config={
+            "formatter_todo": False,
+            "formatter_blank": [],
+            "formatter_date": True,
+        },
+        arg_lines={},
+    )
+
+    assert changed is None
+    assert note.read_text(encoding="utf-8") == initial_text
+
+
+@pytest.mark.parametrize(
     ("config", "initial_text", "expected_leading", "expected_trailing"),
     [
         (

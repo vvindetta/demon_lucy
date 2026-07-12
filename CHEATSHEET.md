@@ -214,11 +214,13 @@ an archive destination.
 |---|---:|---|
 | `--formatter-todo` | `bool` | Convert `- task` list items into `- [ ] task`. |
 | `--formatter-blank` | `str[]` | Add blank lines at top/bottom. Values: `up`, `down`, `both`, optional count. |
+| `--formatter-date` | `bool` | Complete the next archive date written as `--- day`. |
 
 Examples:
 
 ```text
 --formatter-todo
+--formatter-date
 --formatter-blank up
 --formatter-blank down 20
 --formatter-blank both 12
