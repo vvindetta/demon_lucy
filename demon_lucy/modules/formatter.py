@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 import re
 import shlex
+from collections.abc import Iterable
 from typing import Optional
 
-from demon_lucy.lib.args.completion import complete_flag_prefixes_in_line
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
@@ -22,6 +22,72 @@ from demon_lucy.modules.abstract_module import (
     IgnoreMap,
     System,
 )
+
+
+def _complete_flag_token(token: str, flag_names: Iterable[str]) -> str:
+    if not is_valid_flag_token(token):
+        return token
+
+    matches = [flag for flag in flag_names if flag.startswith(token)]
+    if not matches:
+        return token
+    return os.path.commonprefix(matches)
+
+
+def _flag_token_spans(line: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    in_single_quote = False
+    in_double_quote = False
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            index += 1
+            continue
+        if char == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            index += 1
+            continue
+        if in_single_quote or in_double_quote:
+            index += 1
+            continue
+        if (
+            char == "-"
+            and index + 2 < len(line)
+            and line[index + 1] == "-"
+            and line[index + 2].isalpha()
+        ):
+            end = index + 3
+            while end < len(line):
+                next_char = line[end]
+                if not (next_char.isalnum() or next_char in {"_", "-"}):
+                    break
+                end += 1
+            spans.append((index, end))
+            index = end
+            continue
+        index += 1
+    return spans
+
+
+def _complete_flag_prefixes_in_line(line: str, *, template: Template) -> str:
+    flag_spans = _flag_token_spans(line)
+    if not flag_spans:
+        return line
+
+    first_nonspace = len(line) - len(line.lstrip())
+    if flag_spans[0][0] != first_nonspace:
+        return line
+
+    flag_names = tuple(item.name for item in template)
+    completed = line
+    for start, end in reversed(flag_spans):
+        token = line[start:end]
+        completed_token = _complete_flag_token(token, flag_names)
+        if completed_token != token:
+            completed = completed[:start] + completed_token + completed[end:]
+    return completed
 
 
 class Formatter(AbstractModule):
@@ -56,7 +122,7 @@ class Formatter(AbstractModule):
             name="--formatter-complete-args",
             value_type=bool,
             default=False,
-            description="Complete unique Demon Lucy argument prefixes in command lines.",
+            description="Complete Demon Lucy arguments to their longest shared prefix.",
             required=False,
         ),
     ]
@@ -272,7 +338,7 @@ class Formatter(AbstractModule):
                 completed_lines.append(line)
                 continue
 
-            completed = complete_flag_prefixes_in_line(
+            completed = _complete_flag_prefixes_in_line(
                 line,
                 template=global_template,
             )

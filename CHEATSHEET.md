@@ -234,7 +234,7 @@ an archive destination.
 | `--formatter-todo` | `bool` | Convert `- task` list items into `- [ ] task`. |
 | `--formatter-blank` | `str[]` | Add blank lines at top/bottom. Values: `up`, `down`, `both`, optional count. |
 | `--formatter-date` | `bool` | Complete the next archive date written as `--- day`. |
-| `--formatter-complete-args` | `bool` | Complete unique Demon Lucy argument prefixes in command lines. |
+| `--formatter-complete-args` | `bool` | Complete arguments to their longest shared prefix. |
 
 Examples:
 

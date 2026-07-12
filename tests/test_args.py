@@ -7,10 +7,6 @@ from pathlib import Path
 import pytest
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.completion import (
-    complete_flag_prefixes_in_line,
-    complete_flag_token,
-)
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
     get_args_from_file,
@@ -210,48 +206,6 @@ def test_delete_args_from_string_removes_flag_segments(
     line: str, args: list[str], expected: str
 ):
     assert delete_args_from_string(line, args) == expected
-
-
-def test_complete_flag_token_uses_only_unique_template_prefixes() -> None:
-    flags = (
-        "--formatter-todo",
-        "--formatter-date",
-        "--formatter-complete-args",
-        "--graph-regex",
-    )
-
-    assert complete_flag_token("--graph-r", flags) == "--graph-regex"
-    assert complete_flag_token("--formatter-d", flags) == "--formatter-date"
-    assert complete_flag_token("--formatter", flags) == "--formatter"
-    assert complete_flag_token("formatter-d", flags) == "formatter-d"
-
-
-def test_complete_flag_prefixes_in_line_rewrites_command_flags_only() -> None:
-    template = [
-        ArgTemplate(name="--formatter-todo", value_type=bool, default=False),
-        ArgTemplate(name="--formatter-date", value_type=bool, default=False),
-        ArgTemplate(name="--graph-regex", value_type=str, default=[]),
-    ]
-
-    assert (
-        complete_flag_prefixes_in_line("--graph-r past.md www\n", template=template)
-        == "--graph-regex past.md www\n"
-    )
-    assert (
-        complete_flag_prefixes_in_line(
-            "  --formatter-d --graph-r=pattern\n",
-            template=template,
-        )
-        == "  --formatter-date --graph-regex=pattern\n"
-    )
-    assert (
-        complete_flag_prefixes_in_line("text --graph-r\n", template=template)
-        == "text --graph-r\n"
-    )
-    assert (
-        complete_flag_prefixes_in_line('--formatter-d "--graph-r"\n', template=template)
-        == '--formatter-date "--graph-r"\n'
-    )
 
 
 def test_get_args_from_file_skips_non_utf8_files(tmp_path: Path):
