@@ -230,12 +230,12 @@ def test_man_graph_description_is_direct() -> None:
     assert (
         "* --graph: Build a text graph for a literal search in a file. "
         "Format: --graph file pattern [week|month|year|all]. "
-        "Default period: month. (type=str, default=[])\n"
+        "Default period: year. (type=str, default=[])\n"
     ) in text
     assert (
         "* --graph-regex: Build a text graph for a regular expression search in a file. "
         "Format: --graph-regex file regex [week|month|year|all]. "
-        "Default period: month. (type=str, default=[])\n"
+        "Default period: year. (type=str, default=[])\n"
     ) in text
 
 

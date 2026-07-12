@@ -7,6 +7,10 @@ from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileMovedEvent
 
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.formatter import Formatter
+from demon_lucy.lib.dynamic_blocks.parser import (
+    format_dynamic_block,
+    format_fenced_body,
+)
 
 
 def _count_leading_blank_lines(lines: list[str]) -> int:
@@ -55,6 +59,57 @@ def test_apply_todo_flag_controls_checkbox_formatting(
 
     assert (changed is not None) is expected_changed
     assert note.read_text(encoding="utf-8") == expected_text
+
+
+def test_apply_todo_does_not_change_dynamic_block_lists(tmp_path: Path):
+    block = format_dynamic_block(
+        arg="graph",
+        params={"source": "past.md", "pattern": "sleep", "period": "week"},
+        body=format_fenced_body("- generated row", info="text"),
+    )
+    note = tmp_path / "note.md"
+    note.write_text(block + "- task\n", encoding="utf-8")
+
+    changed = Formatter()._apply(
+        path=str(note),
+        config={
+            "formatter_todo": True,
+            "formatter_blank": [],
+            "formatter_date": False,
+        },
+        arg_lines={},
+    )
+
+    assert changed == {str(note.resolve()): 1}
+    text = note.read_text(encoding="utf-8")
+    assert "- source: past.md\n" in text
+    assert "- generated row\n" in text
+    assert text.endswith("- [ ] task\n")
+
+
+def test_apply_date_does_not_change_dynamic_block_body(tmp_path: Path):
+    block = format_dynamic_block(
+        arg="example",
+        params={"value": "one"},
+        body=format_fenced_body("--- 10", info="text"),
+    )
+    note = tmp_path / "note.md"
+    note.write_text("--- 9.01.2030\n" + block + "--- 10\n", encoding="utf-8")
+
+    changed = Formatter()._apply(
+        path=str(note),
+        config={
+            "formatter_todo": False,
+            "formatter_blank": [],
+            "formatter_date": True,
+        },
+        arg_lines={},
+    )
+
+    assert changed == {str(note.resolve()): 1}
+    text = note.read_text(encoding="utf-8")
+    assert "```text\n--- 10\n```" in text
+    assert text.endswith("--- 10.01.2030\n")
 
 
 @pytest.mark.parametrize(

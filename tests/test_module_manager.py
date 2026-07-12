@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from watchdog.events import FileModifiedEvent
+from watchdog.events import FileModifiedEvent, FileOpenedEvent
 
 import demon_lucy.module_manager as module_manager_mod
 from demon_lucy.module_manager import ModuleManager
+from demon_lucy.lib.dynamic_blocks.parser import format_dynamic_block
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 
 _SYSTEM_CONFIG = {
@@ -75,6 +76,20 @@ class _ListMod(AbstractModule):
         return None
 
 
+def _render_test_block(block, _target_path: str) -> str:
+    return f"rendered {block.params['value']}"
+
+
+class _DynamicBlockMod(AbstractModule):
+    name = "dynamic_block"
+    dynamic_block_renderers = {"example": _render_test_block}
+
+
+class _DuplicateDynamicBlockMod(AbstractModule):
+    name = "duplicate_dynamic_block"
+    dynamic_block_renderers = {"example": _render_test_block}
+
+
 @pytest.mark.parametrize(
     "value",
     ["broken-item", "a=not-int", "=5"],
@@ -135,6 +150,15 @@ def test_init_sorts_modules_by_priority_override():
         system_config=_SYSTEM_CONFIG,
     )
     assert [m.name for m in manager.modules] == ["c", "a"]
+
+
+def test_init_rejects_duplicate_dynamic_block_args():
+    with pytest.raises(ValueError, match="Duplicate dynamic block arg 'example'"):
+        ModuleManager(
+            modules=[_DynamicBlockMod(), _DuplicateDynamicBlockMod()],
+            args=[],
+            system_config=_SYSTEM_CONFIG,
+        )
 
 
 def test_file_list_args_override_config_list_args(tmp_path: Path):
@@ -252,3 +276,71 @@ def test_run_passes_oneshot_run_mode_to_system(tmp_path: Path):
 
     assert a.calls == 1
     assert a.last_run_mode == "oneshot"
+
+
+def test_run_refreshes_dynamic_blocks_after_module_pipeline(tmp_path: Path):
+    note = tmp_path / "n.md"
+    note.write_text(
+        format_dynamic_block(
+            arg="example",
+            params={"value": "one"},
+            body="old",
+        ),
+        encoding="utf-8",
+    )
+    manager = ModuleManager(
+        modules=[_DynamicBlockMod()],
+        args=[],
+        system_config=_SYSTEM_CONFIG,
+    )
+
+    ignore = manager.run(
+        str(note),
+        FileModifiedEvent(str(note)),
+        event_id="evt-test",
+    )
+
+    assert ignore == {str(note.resolve()): 1}
+    assert "rendered one\n\n--- example end ---" in note.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_run_does_not_refresh_dynamic_blocks_on_opened(tmp_path: Path):
+    note = tmp_path / "n.md"
+    original = format_dynamic_block(
+        arg="example",
+        params={"value": "one"},
+        body="old",
+    )
+    note.write_text(original, encoding="utf-8")
+    manager = ModuleManager(
+        modules=[_DynamicBlockMod()],
+        args=[],
+        system_config=_SYSTEM_CONFIG,
+    )
+
+    ignore = manager.run(str(note), FileOpenedEvent(str(note)), event_id="evt-test")
+
+    assert ignore is None
+    assert note.read_text(encoding="utf-8") == original
+
+
+def test_run_leaves_malformed_dynamic_block_file_unchanged(tmp_path: Path):
+    note = tmp_path / "n.md"
+    original = "--- example begin ---\n- value: one\n"
+    note.write_text(original, encoding="utf-8")
+    manager = ModuleManager(
+        modules=[_DynamicBlockMod()],
+        args=[],
+        system_config=_SYSTEM_CONFIG,
+    )
+
+    ignore = manager.run(
+        str(note),
+        FileModifiedEvent(str(note)),
+        event_id="evt-test",
+    )
+
+    assert ignore is None
+    assert note.read_text(encoding="utf-8") == original

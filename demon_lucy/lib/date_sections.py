@@ -95,12 +95,18 @@ def iter_date_section_days(section: DateSection) -> Iterator[date]:
 
 def complete_partial_date_section_headers(
     lines: list[str],
+    *,
+    protected_line_numbers: set[int] | None = None,
 ) -> tuple[list[str], bool]:
     completed_lines: list[str] = []
     previous_date: date | None = None
     changed = False
 
-    for original_line in lines:
+    for line_number, original_line in enumerate(lines, start=1):
+        if protected_line_numbers and line_number in protected_line_numbers:
+            completed_lines.append(original_line)
+            continue
+
         line = original_line.rstrip("\r\n")
         newline = original_line[len(line) :]
 

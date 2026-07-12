@@ -17,8 +17,8 @@ watchdog file events.
   `--sys-ignore-move-paths`, and ignore-count loop prevention after module
   writes.
 - `demon_lucy/module_manager.py`: builds the global args template from all loaded
-  modules, merges defaults/system config/file flags, sorts by priority, and runs
-  event handlers.
+  modules, merges defaults/system config/file flags, sorts by priority, runs
+  event handlers, and refreshes registered dynamic blocks afterward.
 - `demon_lucy/modules/abstract_module.py`: module contract (`created`,
   `modified`, `moved`, `deleted`, `opened`) plus `Context` and `System`.
 
@@ -35,6 +35,14 @@ watchdog file events.
   path rendering, and ignore-count summaries.
 - `demon_lucy/lib/notifications.py`: notifications (`safe_notify`, `notify`)
   and throttled/rare-mode error notification state.
+- `demon_lucy/lib/date_sections.py`: archive date values/headers, dated ranges,
+  and safe completion of consecutive short date headers.
+- `demon_lucy/lib/file_time.py`: shared Git/mtime content timestamps, local
+  timestamp formatting, and relative age text.
+- `demon_lucy/lib/text_file.py`: newline detection/normalization and atomic
+  UTF-8 text replacement with mode preservation.
+- `demon_lucy/lib/dynamic_blocks/`: parsing, serialization, and pure-text refresh of
+  `--- <arg> begin ---` generated blocks.
 - `demon_lucy/migrations/`: class-based config migration modules. `__init__.py`
   owns the sync `Migration` interface, config-file migration methods using
   `lib.args.line_edit` arg-segment helpers, and the `MIGRATIONS` registry.
@@ -74,23 +82,23 @@ watchdog file events.
   `--man`, `--event`, `--ping`, `--help`.
 - `modules/alias/`: in-note aliases for module args. `__init__.py` owns the
   `Alias` module class, rule error logging/notifications, and event handlers;
-  `rules.py` owns alias validation/parsing, and `rewrite.py` owns line expansion
-  and atomic writes.
+  `rules.py` owns alias validation/parsing, and `rewrite.py` owns line expansion.
 - `modules/banner.py`: inserts pyfiglet banners or date banners at flag lines.
 - `modules/renamer.py`: manual `--rename` and create-time `--rename-auto` for
   one-letter scratch files with configurable output format.
-- `modules/formatter.py`: TODO checkbox formatting and top/bottom blank padding.
-- `modules/graph/`: text graphs for word/regex frequency over dated note
-  sections. `__init__.py` owns the `Graph` module class, command parsing, and
-  file rewrite orchestration; `data.py` owns dated-section and Git-history data
-  collection; `render.py` owns period bucketing and ASCII output.
+- `modules/formatter.py`: TODO checkbox formatting, archive date completion,
+  and top/bottom blank padding; dynamic blocks are left untouched.
+- `modules/graph/`: dynamic text/Markdown graph blocks for word/regex frequency.
+  `__init__.py` owns command-to-block conversion; `params.py` owns shared
+  command/block normalization; `dynamic_block.py` owns source safety and renderer
+  registration; `data.py` collects dated/Git data; `render.py` builds output.
 - `modules/archive/`: archives stale or forced source note content through
   pair/local/global routes. `module.py` owns orchestration and event handlers,
   `requests.py` builds `ArchiveRequest` objects from already-parsed config/note
   values, `paths.py` owns path safety and
   destination resolution, `storage.py` owns no-follow IO and text/file archive
-  writes, `clock.py` owns Git/mtime dates, and `notify.py` owns archive
-  error/security notifications.
+  writes, `clock.py` applies archive timestamp policy through `lib.file_time`,
+  and `notify.py` owns archive error/security notifications.
 - `modules/linker/`: root symlink creation/cleanup and markdown link updates on
   move/rename. `__init__.py` owns the `Linker` module class and event handlers,
   `root.py` owns root symlink and ignore-selector logic, and `markdown.py` owns

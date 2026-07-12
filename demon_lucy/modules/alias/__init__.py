@@ -5,13 +5,14 @@ from typing import Optional
 
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
+from demon_lucy.lib.text_file import write_text_atomic
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
     IgnoreMap,
     System,
 )
-from demon_lucy.modules.alias.rewrite import rewrite_lines, write_lines_atomic
+from demon_lucy.modules.alias.rewrite import rewrite_lines
 from demon_lucy.modules.alias.rules import AliasRule, RuleError, known_flags, parse_rule
 
 logger = logging.getLogger(__name__)
@@ -149,7 +150,7 @@ class Alias(AbstractModule):
             return None
 
         try:
-            write_lines_atomic(ctx.path, rewritten_lines)
+            write_text_atomic(ctx.path, "".join(rewritten_lines))
         except OSError as exc:
             logger.error(
                 log_record(

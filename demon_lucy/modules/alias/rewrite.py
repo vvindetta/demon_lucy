@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-import os
 import shlex
-import tempfile
 
 from demon_lucy.lib.args.parser import is_valid_flag_token
 from demon_lucy.lib.logfmt import log_record
@@ -137,22 +135,3 @@ def rewrite_lines(
         alias_count += rewrites
 
     return rewritten_lines, changed_lines, alias_count
-
-
-def write_lines_atomic(path: str, lines: list[str]) -> None:
-    directory = os.path.dirname(path) or "."
-    fd, temp_path = tempfile.mkstemp(
-        prefix="." + os.path.basename(path) + ".",
-        suffix=".tmp",
-        dir=directory,
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.writelines(lines)
-        os.replace(temp_path, path)
-    except Exception:
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
-        raise

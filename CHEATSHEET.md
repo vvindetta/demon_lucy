@@ -173,8 +173,8 @@ Example:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--graph` | `str[]` | Build a text graph for a literal search in a file: `file pattern [week\|month\|year\|all]`. |
-| `--graph-regex` | `str[]` | Build a text graph for a regex search in a file: `file regex [week\|month\|year\|all]`. |
+| `--graph` | `str[]` | Build a text graph for a literal search in a file: `file pattern [week\|month\|year\|all]`. Default: `year`. |
+| `--graph-regex` | `str[]` | Build a text graph for a regex search in a file: `file regex [week\|month\|year\|all]`. Default: `year`. |
 
 Example:
 
@@ -182,6 +182,10 @@ Example:
 --graph past.md sleep week
 --graph-regex past.md "\\bsleep\\b|slept|nap" month
 ```
+
+Commands become dynamic `--- graph begin ---` / `--- graph-regex begin ---`
+blocks. Set `view` inside a block to `ascii` (default), `markdown`, or
+`markdown-code` to change its generated body.
 
 ## Archive
 

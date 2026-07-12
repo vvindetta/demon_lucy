@@ -5,18 +5,21 @@ from typing import Dict, List
 
 from watchdog.events import FileSystemEvent
 
-from demon_lucy.lib.logfmt import ignore_summary, log_record, next_event_id
-from demon_lucy.lib.notifications import safe_notify
-from demon_lucy.lib.runtime_platform import RuntimePlatform, detect_runtime_platform
 from demon_lucy.lib.args.parser import (
     Template,
     flag_to_dest,
     get_args_from_file,
     merge_known_args,
-    parse_template_item,
     parse_args,
+    parse_template_item,
 )
+from demon_lucy.lib.logfmt import ignore_summary, log_record, next_event_id
+from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path, path_is_inside
+from demon_lucy.lib.runtime_platform import RuntimePlatform, detect_runtime_platform
+from demon_lucy.lib.text_file import write_text_atomic
+from demon_lucy.lib.dynamic_blocks.model import DynamicBlockRenderer
+from demon_lucy.lib.dynamic_blocks.refresh import refresh_dynamic_blocks
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -39,6 +42,7 @@ class ModuleManager:
         self.modules = modules
         self.run_mode: RunMode = run_mode
         self.runtime_platform: RuntimePlatform = detect_runtime_platform()
+        self.dynamic_block_renderers = self._collect_dynamic_block_renderers(self.modules)
         self.template: Template = [
             (
                 "--sys-modules-priority",
@@ -71,6 +75,103 @@ class ModuleManager:
         )
         priority_dict = self._parse_priority_list(self.config["sys_modules_priority"])
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))
+
+    @staticmethod
+    def _collect_dynamic_block_renderers(
+        modules: List[AbstractModule],
+    ) -> dict[str, DynamicBlockRenderer]:
+        renderers: dict[str, DynamicBlockRenderer] = {}
+        owners: dict[str, str] = {}
+        for module in modules:
+            for arg, renderer in module.dynamic_block_renderers.items():
+                if arg in renderers:
+                    raise ValueError(
+                        f"Duplicate dynamic block arg '{arg}' in modules "
+                        f"'{owners[arg]}' and '{module.name}'"
+                    )
+                renderers[arg] = renderer
+                owners[arg] = module.name
+        return renderers
+
+    def _refresh_dynamic_blocks(
+        self,
+        *,
+        path: str,
+        event_id: str,
+        event_type: str,
+        config: dict,
+    ) -> bool:
+        if event_type not in {"created", "modified", "moved"}:
+            return False
+        if not self.dynamic_block_renderers:
+            return False
+        if not os.path.isfile(path) or os.path.islink(path):
+            return False
+
+        try:
+            with open(path, "r", encoding="utf-8", newline="") as handle:
+                text = handle.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning(
+                log_record(
+                    "dynamic_block.refresh_skipped",
+                    id=event_id,
+                    path=path,
+                    reason="file_unreadable",
+                    error=exc,
+                )
+            )
+            return False
+
+        try:
+            refreshed, changed_blocks = refresh_dynamic_blocks(
+                text=text,
+                target_path=path,
+                renderers=self.dynamic_block_renderers,
+                event_id=event_id,
+            )
+        except ValueError as exc:
+            logger.warning(
+                log_record(
+                    "dynamic_block.parse_failed",
+                    id=event_id,
+                    path=path,
+                    reason="invalid_structure",
+                    error=exc,
+                )
+            )
+            return False
+        if changed_blocks == 0:
+            return False
+
+        try:
+            write_text_atomic(path, refreshed)
+        except OSError as exc:
+            logger.error(
+                log_record(
+                    "dynamic_block.write_failed",
+                    id=event_id,
+                    path=path,
+                    error=exc,
+                )
+            )
+            safe_notify(
+                f"dynamic-block-write:{path}",
+                f"Dynamic block write failed for {path}: {exc}",
+                config=config,
+                use_rare_mode=True,
+            )
+            return False
+
+        logger.info(
+            log_record(
+                "dynamic_block.refresh_done",
+                id=event_id,
+                path=path,
+                changed=changed_blocks,
+            )
+        )
+        return True
 
     def _is_blacklisted_path(self, path: str, values: list[str]) -> bool:
         for value in values or []:
@@ -253,6 +354,14 @@ class ModuleManager:
 
                 current_path = self._next_context_path(current_path, event_ignore)
                 config, arg_lines = _update_config(current_path)
+
+        if self._refresh_dynamic_blocks(
+            path=current_path,
+            event_id=event_id,
+            event_type=event_type,
+            config=config,
+        ):
+            ignore_paths[current_path] = ignore_paths.get(current_path, 0) + 1
 
         return ignore_paths or None
 

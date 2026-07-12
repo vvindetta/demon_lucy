@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
@@ -8,6 +9,7 @@ from watchdog.events import FileSystemEvent
 
 from demon_lucy.lib.args.parser import Template
 from demon_lucy.lib.runtime_platform import RuntimePlatform, detect_runtime_platform
+from demon_lucy.lib.dynamic_blocks.model import DynamicBlockRenderer
 
 IgnoreMap = Dict[str, int]
 RunMode = Literal["daemon", "oneshot"]
@@ -83,6 +85,7 @@ class AbstractModule(ABC):
     name: str
     priority: int = 15
     template: Template = []
+    dynamic_block_renderers: Mapping[str, DynamicBlockRenderer] = {}
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         return None

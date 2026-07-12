@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 from collections import Counter
@@ -206,10 +205,3 @@ def load_graph_data(path: str, pattern: Pattern[str]) -> GraphDataResult:
     if dated_result.counts_by_date:
         return dated_result
     return counts_from_git_history(path, pattern)
-
-
-def resolve_graph_target_path(*, command_path: str, note_path: str) -> str:
-    expanded = Path(command_path).expanduser()
-    if expanded.is_absolute():
-        return canonical_path(str(expanded))
-    return canonical_path(str(Path(os.path.dirname(note_path)) / expanded))

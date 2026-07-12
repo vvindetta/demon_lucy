@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
+from demon_lucy.lib import file_time
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.archive import Archive
 from demon_lucy.modules.archive import clock as archive_clock
@@ -1394,7 +1395,7 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
     monkeypatch.setattr(archive_clock.time, "time", lambda: now_ts)
 
     module = Archive()
-    monkeypatch.setattr(archive_clock, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(file_time, "find_parent_git_repo", lambda _p: "/repo")
 
     git_commit_ts = now_ts - (13.0 * 3600.0)
 
@@ -1412,7 +1413,7 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
             )
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    monkeypatch.setattr(archive_clock.subprocess, "run", _fake_run)
+    monkeypatch.setattr(file_time.subprocess, "run", _fake_run)
 
     ctx = _ctx_for(now_path)
     system = System(
@@ -1435,7 +1436,7 @@ def test_archive_header_uses_git_commit_date_for_dirty_forced_file(
     now_path.write_text("--archive-global\nold note text\n", encoding="utf-8")
 
     module = Archive()
-    monkeypatch.setattr(archive_clock, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(file_time, "find_parent_git_repo", lambda _p: "/repo")
 
     git_commit_ts = datetime(2026, 5, 20, 9, 0, 0).timestamp()
 
@@ -1449,7 +1450,7 @@ def test_archive_header_uses_git_commit_date_for_dirty_forced_file(
             )
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    monkeypatch.setattr(archive_clock.subprocess, "run", _fake_run)
+    monkeypatch.setattr(file_time.subprocess, "run", _fake_run)
 
     ctx = _ctx_for(
         now_path,
@@ -1475,9 +1476,9 @@ def test_force_fs_flag_skips_git_even_in_repo(tmp_path: Path, monkeypatch) -> No
     _make_stale(now_path, 1.0)
 
     module = Archive()
-    monkeypatch.setattr(archive_clock, "find_parent_with", lambda _p, _m: "/repo")
+    monkeypatch.setattr(file_time, "find_parent_git_repo", lambda _p: "/repo")
     monkeypatch.setattr(
-        archive_clock.subprocess,
+        file_time.subprocess,
         "run",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError(

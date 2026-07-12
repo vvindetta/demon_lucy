@@ -8,6 +8,8 @@ from typing import Optional
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.parser import Template, is_valid_flag_token, parse_args
 from demon_lucy.lib.date_sections import complete_partial_date_section_headers
+from demon_lucy.lib.text_file import detect_newline
+from demon_lucy.lib.dynamic_blocks.parser import parse_dynamic_blocks
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -45,12 +47,6 @@ class Formatter(AbstractModule):
             False,
         ),
     ]
-
-    def _detect_newline(self, text: str) -> str:
-        for separator in ("\r\n", "\n", "\r"):
-            if separator in text:
-                return separator
-        return "\n"
 
     @staticmethod
     def _has_text(line: str) -> bool:
@@ -205,11 +201,20 @@ class Formatter(AbstractModule):
             default_count=self.blank_lines_count,
         )
 
-    def _format_todo_lines(self, lines: list[str]) -> tuple[list[str], bool]:
+    def _format_todo_lines(
+        self,
+        lines: list[str],
+        *,
+        protected_lines: set[int],
+    ) -> tuple[list[str], bool]:
         changed = False
         new_lines: list[str] = []
 
-        for original_line in lines:
+        for line_number, original_line in enumerate(lines, start=1):
+            if line_number in protected_lines:
+                new_lines.append(original_line)
+                continue
+
             if original_line.endswith("\r\n"):
                 newline = "\r\n"
                 line = original_line[:-2]
@@ -276,13 +281,32 @@ class Formatter(AbstractModule):
         new_lines, flags_removed = self._remove_formatter_flags(new_lines, arg_lines)
         changed = changed or flags_removed
 
+        try:
+            dynamic_blocks = parse_dynamic_blocks("".join(new_lines))
+        except ValueError:
+            protected_lines: set[int] | None = None
+        else:
+            protected_lines = {
+                line_number
+                for block in dynamic_blocks
+                for line_number in range(block.line, block.end_line + 1)
+            }
+
         if use_formatter_todo:
-            new_lines, todo_changed = self._format_todo_lines(new_lines)
-            changed = changed or todo_changed
+            if protected_lines is not None:
+                new_lines, todo_changed = self._format_todo_lines(
+                    new_lines,
+                    protected_lines=protected_lines,
+                )
+                changed = changed or todo_changed
 
         if use_formatter_date:
-            new_lines, date_changed = complete_partial_date_section_headers(new_lines)
-            changed = changed or date_changed
+            if protected_lines is not None:
+                new_lines, date_changed = complete_partial_date_section_headers(
+                    new_lines,
+                    protected_line_numbers=protected_lines,
+                )
+                changed = changed or date_changed
 
         if use_up or use_down:
             non_empty_indexes = [
@@ -299,7 +323,7 @@ class Formatter(AbstractModule):
                 return None
 
         if use_up:
-            newline = self._detect_newline(original_text)
+            newline = detect_newline(original_text)
             if self._first_line_has_demon_lucy_flags(
                 lines=new_lines,
                 global_template=global_template,
@@ -333,7 +357,7 @@ class Formatter(AbstractModule):
             changed = changed or (new_lines != lines)
 
         if use_down:
-            newline = self._detect_newline(original_text)
+            newline = detect_newline(original_text)
             last_non_empty = max(
                 idx for idx, line in enumerate(new_lines) if self._has_text(line)
             )

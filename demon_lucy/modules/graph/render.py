@@ -4,7 +4,8 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-BAR_WIDTH = 24
+BAR_SEGMENT_COUNT = 6
+BAR_SEGMENT_WIDTH = 6
 
 
 @dataclass(frozen=True)
@@ -153,31 +154,22 @@ def build_series(counts_by_date: dict[date, int], period: str) -> RenderSeries |
 def _bar_for_count(count: int, max_count: int) -> str:
     if count <= 0 or max_count <= 0:
         return "|"
-    length = max(1, round((count / max_count) * BAR_WIDTH))
-    return "#" * int(length)
+    fill_width = max(1, round((count / max_count) * BAR_SEGMENT_WIDTH))
+    segment = f"[{'#' * int(fill_width)}]"
+    return segment * BAR_SEGMENT_COUNT
 
 
-def render_graph_block(
+def render_text_graph(
     *,
-    title_pattern: str,
-    period: str,
-    file_label: str,
-    counts_by_date: dict[date, int],
-) -> list[str]:
-    series = build_series(counts_by_date, period)
-    if series is None:
-        return render_error_block(
-            file_label=file_label,
-            reason="no_dates",
-            detail="no date sections or git history dates found",
-        )
-
+    series: RenderSeries,
+    updated_at: str,
+    updated_ago: str,
+) -> str:
     max_count = max((bucket.count for bucket in series.buckets), default=0)
     label_width = max(4, max(len(bucket.label) for bucket in series.buckets))
     lines = [
-        f"--- graph: {title_pattern} / {period} ---\n",
-        f"file: {file_label}\n",
-        f"range: {series.range_start}..{series.range_end}\n",
+        f"last updated: {updated_at}\n",
+        f"updated ago: {updated_ago}\n",
         "\n",
         f"{'time':<{label_width}} {'count':>6}  graph\n",
     ]
@@ -186,19 +178,24 @@ def render_graph_block(
             f"{bucket.label:<{label_width}} {bucket.count:>6}  "
             f"{_bar_for_count(bucket.count, max_count)}\n"
         )
-    return lines
+    return "".join(lines)
 
 
-def render_error_block(
+def render_markdown_graph(
     *,
-    file_label: str = "",
-    reason: str,
-    detail: str = "",
-) -> list[str]:
-    lines = ["--- graph error ---\n"]
-    if file_label:
-        lines.append(f"file: {file_label}\n")
-    lines.append(f"reason: {reason}\n")
-    if detail:
-        lines.append(f"detail: {detail}\n")
-    return lines
+    series: RenderSeries,
+    updated_at: str,
+    updated_ago: str,
+) -> str:
+    max_count = max((bucket.count for bucket in series.buckets), default=0)
+    lines = [
+        f"- last updated: `{updated_at}`\n",
+        f"- updated ago: {updated_ago}\n",
+        "\n",
+        "| time | count | graph |\n",
+        "|---|---:|---|\n",
+    ]
+    for bucket in series.buckets:
+        bar = _bar_for_count(bucket.count, max_count)
+        lines.append(f"| {bucket.label} | {bucket.count} | `{bar}` |\n")
+    return "".join(lines)
