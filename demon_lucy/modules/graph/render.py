@@ -6,7 +6,6 @@ from datetime import date, timedelta
 
 from demon_lucy.modules.graph.params import GraphPeriod
 
-BAR_SEGMENT_COUNT = 6
 BAR_SEGMENT_WIDTH = 6
 
 
@@ -155,24 +154,16 @@ def build_series(
     return _monthly_all_series(counts_by_date)
 
 
-def _bar_segment_count(count: int, max_count: int) -> int:
-    if count <= 0 or max_count <= 0:
-        return 0
-    return max(1, round((count / max_count) * BAR_SEGMENT_COUNT))
-
-
-def _bar_for_count(count: int, max_count: int, segment: str) -> str:
-    segment_count = _bar_segment_count(count, max_count)
-    if segment_count == 0:
+def _bar_for_count(count: int, segment: str) -> str:
+    if count <= 0:
         return "|"
-    return segment * segment_count
+    return segment * count
 
 
 def render_text_graph(
     *,
     series: RenderSeries,
 ) -> str:
-    max_count = max((bucket.count for bucket in series.buckets), default=0)
     segment = f"[{'#' * BAR_SEGMENT_WIDTH}]"
     label_width = max(4, max(len(bucket.label) for bucket in series.buckets))
     lines = [
@@ -181,7 +172,7 @@ def render_text_graph(
     for bucket in series.buckets:
         lines.append(
             f"{bucket.label:<{label_width}} {bucket.count:>6}  "
-            f"{_bar_for_count(bucket.count, max_count, segment)}\n"
+            f"{_bar_for_count(bucket.count, segment)}\n"
         )
     return "".join(lines)
 
@@ -190,13 +181,12 @@ def render_markdown_graph(
     *,
     series: RenderSeries,
 ) -> str:
-    max_count = max((bucket.count for bucket in series.buckets), default=0)
     segment = f"[{'#' * BAR_SEGMENT_WIDTH}]"
     lines = [
         "| time | count | graph |\n",
         "|---|---:|---|\n",
     ]
     for bucket in series.buckets:
-        bar = _bar_for_count(bucket.count, max_count, segment)
+        bar = _bar_for_count(bucket.count, segment)
         lines.append(f"| {bucket.label} | {bucket.count} | `{bar}` |\n")
     return "".join(lines)

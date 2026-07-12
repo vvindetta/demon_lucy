@@ -148,13 +148,13 @@ def test_graph_literal_command_creates_dynamic_text_block(tmp_path: Path) -> Non
         body=format_fenced_body(
             _text_body(
                 [
-                    "2026-07-01      1  [######][######]\n",
+                    "2026-07-01      1  [######]\n",
                     "2026-07-02      0  |\n",
-                    "2026-07-03      2  [######][######][######]\n",
+                    "2026-07-03      2  [######][######]\n",
                     "2026-07-04      0  |\n",
-                    "2026-07-05      4  [######][######][######][######][######][######]\n",
-                    "2026-07-06      1  [######][######]\n",
-                    "2026-07-07      3  [######][######][######][######]\n",
+                    "2026-07-05      4  [######][######][######][######]\n",
+                    "2026-07-06      1  [######]\n",
+                    "2026-07-07      3  [######][######][######]\n",
                 ]
             ),
             info="text",
@@ -213,11 +213,11 @@ def test_graph_date_sections_allow_comments_and_ranges(tmp_path: Path) -> None:
     assert "--- graph begin ---\n" in text
     assert "2026-01-02      0  |\n" in text
     assert (
-        "2026-01-10      2  [######][######][######][######][######][######]\n"
+        "2026-01-10      2  [######][######]\n"
     ) in text
     assert "2026-01-11      0  |\n" in text
     assert (
-        "2026-01-14      1  [######][######][######]\n"
+        "2026-01-14      1  [######]\n"
         in text
     )
 
@@ -253,11 +253,11 @@ def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
     assert "updated:" in text
     assert "less than a minute ago\n" in text
     assert (
-        "2026-01      2  [######][######][######][######]\n"
+        "2026-01      2  [######][######]\n"
         in text
     )
     assert (
-        "2026-04      3  [######][######][######][######][######][######]\n"
+        "2026-04      3  [######][######][######]\n"
     ) in text
 
 
@@ -483,10 +483,10 @@ def test_graph_falls_back_to_git_history_added_lines(tmp_path: Path) -> None:
     block = parse_dynamic_blocks(note.read_text(encoding="utf-8"))[0]
     assert block.arg == "graph-regex"
     assert (
-        "2026-01-01      1  [######][######][######]\n"
+        "2026-01-01      1  [######]\n"
         in block.body
     )
     assert "2026-01-02      0  |\n" in block.body
     assert (
-        "2026-01-03      2  [######][######][######][######][######][######]\n"
+        "2026-01-03      2  [######][######]\n"
     ) in block.body
