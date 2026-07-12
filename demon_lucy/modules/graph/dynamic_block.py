@@ -46,10 +46,8 @@ def render_graph(
         return format_fenced_body(text_graph, info="text")
 
     markdown_graph = render_markdown_graph(series=series)
-    if params.view is GraphView.MARKDOWN:
+    if params.view is GraphView.MD:
         return markdown_graph
-    if params.view is GraphView.CODE:
-        return format_fenced_body(markdown_graph, info="markdown")
     raise ValueError(f"unsupported graph view: {params.view.value}")
 
 

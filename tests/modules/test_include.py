@@ -53,7 +53,7 @@ def test_include_command_renders_every_source_line_with_tab(tmp_path: Path) -> N
     assert changed == {str(note.resolve()): 1}
     block = parse_dynamic_blocks(note.read_text(encoding="utf-8"))[0]
     assert block.arg == "include"
-    assert block.params == {"source": "shared file.md"}
+    assert block.params == {"source": "shared file.md", "depth": "3"}
     assert block.body == (
         "\t# Shared\n"
         "\t\n"
@@ -108,18 +108,61 @@ def test_multiple_include_commands_create_independent_blocks(tmp_path: Path) -> 
     assert changed == {str(note.resolve()): 1}
     blocks = parse_dynamic_blocks(note.read_text(encoding="utf-8"))
     assert [block.params["source"] for block in blocks] == ["one.md", "two.md"]
+    assert [block.params["depth"] for block in blocks] == ["3", "3"]
     assert [block.body for block in blocks] == ["\tone\n", "\ttwo\n"]
 
 
-def test_include_rejects_target_as_its_own_source(tmp_path: Path) -> None:
+def test_include_renders_nested_include_commands_until_depth(tmp_path: Path) -> None:
+    (tmp_path / "child.md").write_text("child\n", encoding="utf-8")
+    (tmp_path / "parent.md").write_text(
+        "before\n--include child.md\nafter\n",
+        encoding="utf-8",
+    )
     note = tmp_path / "note.md"
-    original = "--include note.md\n"
-    note.write_text(original, encoding="utf-8")
+    note.write_text("--include-depth 2\n--include parent.md\n", encoding="utf-8")
 
     changed = _run(_manager(), note)
 
-    assert changed is None
-    assert note.read_text(encoding="utf-8") == original
+    assert changed == {str(note.resolve()): 1}
+    block = parse_dynamic_blocks(note.read_text(encoding="utf-8"))[0]
+    assert block.params == {"source": "parent.md", "depth": "2"}
+    assert "\tbefore\n" in block.body
+    assert "\t--- include begin ---\n" in block.body
+    assert "\t- source: child.md\n" in block.body
+    assert "\t- depth: 1\n" in block.body
+    assert "\t\tchild\n" in block.body
+    assert "\tafter\n" in block.body
+
+
+def test_include_depth_one_preserves_nested_include_commands(tmp_path: Path) -> None:
+    (tmp_path / "child.md").write_text("child\n", encoding="utf-8")
+    (tmp_path / "parent.md").write_text("--include child.md\n", encoding="utf-8")
+    note = tmp_path / "note.md"
+    note.write_text("--include-depth 1\n--include parent.md\n", encoding="utf-8")
+
+    changed = _run(_manager(), note)
+
+    assert changed == {str(note.resolve()): 1}
+    block = parse_dynamic_blocks(note.read_text(encoding="utf-8"))[0]
+    assert block.params == {"source": "parent.md", "depth": "1"}
+    assert block.body == "\t--include child.md\n"
+
+
+def test_include_can_render_target_as_its_own_source_until_depth(
+    tmp_path: Path,
+) -> None:
+    note = tmp_path / "note.md"
+    note.write_text("--include-depth 2\n--include note.md\n", encoding="utf-8")
+
+    changed = _run(_manager(), note)
+
+    assert changed == {str(note.resolve()): 1}
+    block = parse_dynamic_blocks(note.read_text(encoding="utf-8"))[0]
+    assert block.params == {"source": "note.md", "depth": "2"}
+    assert "\t--include-depth 2\n" in block.body
+    assert "\t--- include begin ---\n" in block.body
+    assert "\t\t--include note.md\n" in block.body
+    assert _run(_manager(), note) is None
 
 
 def test_include_rejects_source_outside_target_root(tmp_path: Path) -> None:

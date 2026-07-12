@@ -250,7 +250,7 @@ def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
         "- source: tasks.md\n"
         "- pattern: #work\n"
         "- period [week|month|year|all]: year\n"
-        "- view [ascii|markdown|code]: ascii\n"
+        "- view [ascii|md]: ascii\n"
         in text
     )
     assert text.endswith("--- graph-regex end ---\n")
@@ -317,8 +317,7 @@ def test_multiple_graph_commands_create_independent_blocks(tmp_path: Path) -> No
     ("view", "expected", "opening"),
     [
         ("ascii", "time        count  graph\n", "```text\n"),
-        ("markdown", "| time | count | graph |\n", None),
-        ("code", "| time | count | graph |\n", "```markdown\n"),
+        ("md", "| time | count | graph |\n", None),
     ],
 )
 def test_existing_block_renders_by_selected_format(

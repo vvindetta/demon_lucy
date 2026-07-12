@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-import shlex
-from typing import Optional
+from typing import Optional, cast
 
-from demon_lucy.lib.args.parser import is_valid_flag_token
-from demon_lucy.lib.dynamic_blocks.parser import format_dynamic_block
+from demon_lucy.lib.dynamic_blocks.parser import (
+    format_dynamic_block,
+    parse_dynamic_blocks,
+)
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.text_file import detect_newline, write_text_atomic
@@ -17,7 +18,8 @@ from demon_lucy.modules.abstract_module import (
 )
 from demon_lucy.modules.include.params import (
     INCLUDE_TEMPLATE,
-    include_source_from_command,
+    include_params_from_command,
+    include_sources_from_line,
 )
 from demon_lucy.modules.include.render import (
     render_file,
@@ -33,38 +35,11 @@ class Include(AbstractModule):
     template = INCLUDE_TEMPLATE
     dynamic_block_renderers = {"include": render_include_dynamic_block}
 
-    @staticmethod
-    def _sources_from_line(line: str) -> list[str]:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            return []
-        tokens = shlex.split(stripped, comments=False, posix=True)
-
-        sources: list[str] = []
-        index = 0
-        while index < len(tokens):
-            token = tokens[index]
-            flag, separator, inline_value = token.partition("=")
-            if flag != "--include":
-                index += 1
-                continue
-
-            values: list[str] = []
-            if separator:
-                values.append(inline_value)
-            index += 1
-            while index < len(tokens) and not is_valid_flag_token(tokens[index]):
-                values.append(tokens[index])
-                index += 1
-            sources.append(include_source_from_command(values))
-        return sources
-
     def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        candidate_lines = sorted(
-            {int(value) for value in (ctx.arg_lines.get("include") or [])},
-            reverse=True,
-        )
-        if not candidate_lines:
+        raw_candidate_lines = {
+            int(value) for value in (ctx.arg_lines.get("include") or [])
+        }
+        if not raw_candidate_lines:
             return None
 
         try:
@@ -84,6 +59,21 @@ class Include(AbstractModule):
             )
             return None
 
+        try:
+            dynamic_block_lines = {
+                line_number
+                for block in parse_dynamic_blocks(original_text)
+                for line_number in range(block.line, block.end_line + 1)
+            }
+        except ValueError:
+            dynamic_block_lines = set()
+        candidate_lines = sorted(
+            raw_candidate_lines - dynamic_block_lines,
+            reverse=True,
+        )
+        if not candidate_lines:
+            return None
+
         lines = original_text.splitlines(keepends=True)
         newline = detect_newline(original_text)
         rendered_files = 0
@@ -92,19 +82,27 @@ class Include(AbstractModule):
             if index < 0 or index >= len(lines):
                 continue
             try:
-                sources = self._sources_from_line(lines[index])
+                include_depth = cast(int, ctx.config["include_depth"])
+                params_list = [
+                    include_params_from_command([source], depth=include_depth)
+                    for source in include_sources_from_line(lines[index])
+                ]
                 blocks = [
                     format_dynamic_block(
                         arg="include",
-                        params={"source": source},
-                        body=render_file(source, target_path=ctx.path),
+                        params={"source": params.source, "depth": params.depth},
+                        body=render_file(
+                            params.source,
+                            target_path=ctx.path,
+                            depth=params.depth,
+                        ),
                         arg_template=INCLUDE_TEMPLATE[0],
                         show_allowed_values=not ctx.config[
                             "sys_dynamic_block_hide_allowed_values"
                         ],
                         newline=newline,
                     )
-                    for source in sources
+                    for params in params_list
                 ]
             except (OSError, ValueError) as exc:
                 logger.warning(

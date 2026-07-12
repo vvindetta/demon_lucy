@@ -185,8 +185,8 @@ Example:
 ```
 
 Commands become dynamic `--- graph begin ---` / `--- graph-regex begin ---`
-blocks. Set `view` inside a block to `ascii` (default), `markdown`, or
-`code` to change its generated body. Allowed values are shown beside
+blocks. Set `view` inside a block to `ascii` (default) or `md` to change its
+generated body. Allowed values are shown beside
 Enum fields by default; `--sys-dynamic-block-hide-allowed-values` hides them in
 newly created blocks.
 
@@ -195,8 +195,10 @@ newly created blocks.
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--include` | `str[]` | Render a complete file inside an indented dynamic block: `file`. |
+| `--include-depth` | `int` | Maximum nested include render depth. Default: `3`. |
 
 ```text
+--include-depth 3
 --include shared/project.md
 ```
 

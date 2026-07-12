@@ -27,8 +27,7 @@ class GraphPeriod(StrEnum):
 
 class GraphView(StrEnum):
     ASCII = "ascii"
-    MARKDOWN = "markdown"
-    CODE = "code"
+    MD = "md"
 
 
 GRAPH_PARAMS = (
