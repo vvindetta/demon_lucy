@@ -3,11 +3,8 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from demon_lucy.lib.file_time import format_timestamp_age
-
-
 _UPDATED_RE = re.compile(
-    r"^updated: (?P<timestamp>\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}), .+$"
+    r"^updated: (?P<timestamp>\d{4}\.\d{2}\.\d{2} \d{2}:\d{2})(?:, .+)?$"
 )
 _UPDATED_TIMESTAMP_FORMAT = "%Y.%m.%d %H:%M"
 
@@ -29,18 +26,10 @@ def parse_updated_timestamp(line: str) -> float | None:
     return value.astimezone().timestamp()
 
 
-def format_updated_line(
-    updated_timestamp: float,
-    *,
-    now_timestamp: float,
-) -> str:
+def format_updated_line(updated_timestamp: float) -> str:
     updated_at = (
         datetime.fromtimestamp(updated_timestamp)
         .astimezone()
         .strftime(_UPDATED_TIMESTAMP_FORMAT)
     )
-    updated_ago = format_timestamp_age(
-        updated_timestamp,
-        now_timestamp=now_timestamp,
-    )
-    return f"updated: {updated_at}, {updated_ago}"
+    return f"updated: {updated_at}"

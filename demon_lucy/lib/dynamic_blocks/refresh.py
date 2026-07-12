@@ -22,13 +22,9 @@ def _format_content(
     body: str,
     *,
     updated_timestamp: float,
-    now_timestamp: float,
     newline: str,
 ) -> str:
-    updated_line = metadata.format_updated_line(
-        updated_timestamp,
-        now_timestamp=now_timestamp,
-    )
+    updated_line = metadata.format_updated_line(updated_timestamp)
     return updated_line + newline * 2 + _normalize_body(body, newline)
 
 
@@ -102,7 +98,6 @@ def refresh_dynamic_blocks(
         replacement = _format_content(
             normalized_body,
             updated_timestamp=updated_timestamp,
-            now_timestamp=now_timestamp,
             newline=newline,
         )
         if replacement == text[block.content_start : block.body_end]:

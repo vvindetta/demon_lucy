@@ -251,7 +251,7 @@ def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
     )
     assert text.endswith("--- graph-regex end ---\n")
     assert "updated:" in text
-    assert "less than a minute ago\n" in text
+    assert "ago" not in text
     assert (
         "2026-01      2  [######][######]\n"
         in text

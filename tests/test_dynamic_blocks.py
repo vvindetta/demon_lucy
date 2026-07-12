@@ -87,7 +87,7 @@ def test_format_block_shows_and_hides_enum_values() -> None:
     assert "- period [week|month|year|all]: year\n" in shown
     assert "- period: year\n" in hidden
     assert "updated:" in shown
-    assert "less than a minute ago\n" in shown
+    assert "ago" not in shown
     assert parse_dynamic_blocks(shown)[0].params == {"period": "year"}
 
 
@@ -220,7 +220,13 @@ def test_refresh_preserves_update_time_when_rendered_body_is_unchanged(
         body="same body",
         updated_timestamp=first_update,
     )
-    text = text.replace("4 hours ago", "less than a minute ago")
+    expected_at = datetime.fromtimestamp(first_update).astimezone().strftime(
+        "%Y.%m.%d %H:%M"
+    )
+    text = text.replace(
+        f"updated: {expected_at}",
+        f"updated: {expected_at}, stale relative value",
+    )
 
     refreshed, changed = refresh_dynamic_blocks(
         text=text,
@@ -229,10 +235,8 @@ def test_refresh_preserves_update_time_when_rendered_body_is_unchanged(
     )
 
     assert changed == 1
-    expected_at = datetime.fromtimestamp(first_update).astimezone().strftime(
-        "%Y.%m.%d %H:%M"
-    )
-    assert f"updated: {expected_at}, 4 hours ago\n" in refreshed
+    assert f"updated: {expected_at}\n" in refreshed
+    assert "ago" not in refreshed
     block = parse_dynamic_blocks(refreshed)[0]
     assert block.body == "same body\n"
     assert block.updated_timestamp == first_update
@@ -254,7 +258,7 @@ def test_refresh_sets_update_time_when_rendered_body_changes(tmp_path: Path) -> 
     )
 
     assert changed == 1
-    assert "less than a minute ago\n" in refreshed
+    assert "ago" not in refreshed
     assert parse_dynamic_blocks(refreshed)[0].body == "new body\n"
 
 

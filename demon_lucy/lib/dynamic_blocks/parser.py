@@ -260,10 +260,7 @@ def format_dynamic_block(
     now_timestamp = time.time()
     if updated_timestamp is None:
         updated_timestamp = now_timestamp
-    updated_line = metadata.format_updated_line(
-        updated_timestamp,
-        now_timestamp=now_timestamp,
-    )
+    updated_line = metadata.format_updated_line(updated_timestamp)
     prefix = newline.join(lines) + newline * 2 + updated_line + newline * 2
     normalized_body = normalize_newlines(body, newline).rstrip("\r\n")
     body_text = normalized_body + newline if normalized_body else ""
