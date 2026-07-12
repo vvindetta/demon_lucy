@@ -97,6 +97,10 @@ def _find_body(
     closing_fence: re.Pattern[str] | None = None
     while index < len(lines):
         content = _without_newline(lines[index])
+        end_match = _END_RE.fullmatch(content)
+        if end_match is not None and end_match.group("arg") == arg:
+            break
+
         if closing_fence is not None:
             if closing_fence.fullmatch(content):
                 closing_fence = None
@@ -116,7 +120,6 @@ def _find_body(
                 f"line {index + 1}: nested block '{nested.group('arg')}' is not allowed"
             )
 
-        end_match = _END_RE.fullmatch(content)
         if end_match is not None:
             if end_match.group("arg") != arg:
                 raise ValueError(

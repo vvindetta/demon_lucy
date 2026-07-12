@@ -241,6 +241,37 @@ def test_refresh_normalizes_compact_legacy_metadata_and_empty_body() -> None:
     ]
 
 
+def test_refresh_recovers_body_with_unclosed_code_fence() -> None:
+    text = (
+        "--- graph begin ---\n"
+        "- updated: 2026.07.12 16:48\n"
+        "- source: log.md\n"
+        "- pattern: www\n"
+        "- period: year\n"
+        "- view: ascii\n"
+        "\n"
+        "2026-12      0  |\n"
+        "```\n"
+        "\n"
+        "--- graph end ---\n"
+    )
+
+    refreshed, changed = refresh_dynamic_blocks(
+        text=text,
+        target_path="graph.md",
+        renderers={
+            "graph": lambda _block, _path: format_fenced_body(
+                "restored graph",
+                info="text",
+            )
+        },
+    )
+
+    assert changed == 1
+    block = parse_dynamic_blocks(refreshed)[0]
+    assert block.body == "```text\nrestored graph\n```\n"
+
+
 def test_refresh_updates_same_arg_blocks_independently(tmp_path: Path) -> None:
     text = format_dynamic_block(
         arg="graph",
