@@ -4,8 +4,14 @@ import logging
 from collections.abc import Iterable
 from typing import List
 
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.parser import (
+    ArgTemplate,
+    StrEnum,
+    Template,
+    parse_enum_value,
+)
 from demon_lucy.lib.logfmt import log_record
+from demon_lucy.lib.notifications import NotificationProvider
 from demon_lucy.migrations import MIGRATIONS, Migration
 from demon_lucy.modules.abstract_module import AbstractModule
 from demon_lucy.modules.alias import Alias
@@ -26,6 +32,15 @@ from demon_lucy.modules.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
+
+class LogLevel(StrEnum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+
+
 DEMON_LUCY_STARTUP_TEMPLATE: Template = [
     ArgTemplate(
         name="--sys-config-path",
@@ -36,8 +51,8 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
     ),
     ArgTemplate(
         name="--sys-log-level",
-        value_type=str,
-        default="warning",
+        value_type=LogLevel,
+        default=LogLevel.WARNING,
         description="Logging level: debug, info, warning, error, critical. Info shows Lucy event decisions; debug can include low-level library logs. Default: warning.",
         required=False,
     ),
@@ -78,8 +93,8 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
     ),
     ArgTemplate(
         name="--sys-notification-provider",
-        value_type=str,
-        default="auto",
+        value_type=NotificationProvider,
+        default=NotificationProvider.AUTO,
         description="Notification provider. Supported: auto, termuxapi, desktop, disable. "
         "Default: auto (termuxapi when available, otherwise desktop).",
         required=False,
@@ -206,21 +221,16 @@ def run_config_migrations(config_path: str) -> list[Migration]:
 
 
 def configure_logging(config: dict) -> None:
-    raw_level = config["sys_log_level"]
-    normalized = str(raw_level).strip().lower()
+    level = parse_enum_value(LogLevel, config["sys_log_level"])
     by_name = {
-        "debug": logging.DEBUG,
-        "info": logging.INFO,
-        "warning": logging.WARNING,
-        "warn": logging.WARNING,
-        "error": logging.ERROR,
-        "critical": logging.CRITICAL,
+        LogLevel.DEBUG: logging.DEBUG,
+        LogLevel.INFO: logging.INFO,
+        LogLevel.WARNING: logging.WARNING,
+        LogLevel.ERROR: logging.ERROR,
+        LogLevel.CRITICAL: logging.CRITICAL,
     }
-    if normalized not in by_name:
-        allowed = ", ".join(["debug", "info", "warning", "error", "critical"])
-        raise ValueError(f"Unsupported --sys-log-level '{raw_level}'. Use: {allowed}.")
     logging.basicConfig(
-        level=by_name[normalized],
+        level=by_name[level],
         format=config["sys_log_format"],
         datefmt="%Y-%m-%d %H:%M:%S",
         force=True,

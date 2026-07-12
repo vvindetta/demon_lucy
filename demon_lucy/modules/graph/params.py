@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import Enum
 from typing import cast
 
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
+    StrEnum,
     Template,
     normalize_template_params,
     template_allowed_values,
@@ -18,14 +18,14 @@ GRAPH_ARG_REGEX = {
 }
 
 
-class GraphPeriod(str, Enum):
+class GraphPeriod(StrEnum):
     WEEK = "week"
     MONTH = "month"
     YEAR = "year"
     ALL = "all"
 
 
-class GraphView(str, Enum):
+class GraphView(StrEnum):
     ASCII = "ascii"
     MARKDOWN = "markdown"
     MARKDOWN_CODE = "markdown-code"

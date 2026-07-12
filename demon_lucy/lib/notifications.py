@@ -9,6 +9,7 @@ import time
 from collections import deque
 from typing import Any, Dict, Mapping
 
+from demon_lucy.lib.args.parser import StrEnum, parse_enum_value
 from demon_lucy.lib.logfmt import log_record
 
 logger = logging.getLogger(__name__)
@@ -23,18 +24,30 @@ DEFAULT_NOTIFICATION_ICON_PATH = os.path.abspath(
 )
 
 
+class NotificationProvider(StrEnum):
+    AUTO = "auto"
+    TERMUX_API = "termuxapi"
+    DESKTOP = "desktop"
+    DISABLE = "disable"
+
+
 def _prune_error_notify_history(now: float, window_seconds: float) -> None:
     while _ERROR_NOTIFY_HISTORY and (now - _ERROR_NOTIFY_HISTORY[0]) >= window_seconds:
         _ERROR_NOTIFY_HISTORY.popleft()
 
 
-def _resolve_notification_provider(config: Mapping[str, Any]) -> str:
-    provider = config["sys_notification_provider"]
-    if provider != "auto":
+def _resolve_notification_provider(
+    config: Mapping[str, Any],
+) -> NotificationProvider:
+    provider = parse_enum_value(
+        NotificationProvider,
+        config["sys_notification_provider"],
+    )
+    if provider is not NotificationProvider.AUTO:
         return provider
     if shutil.which("termux-notification"):
-        return "termuxapi"
-    return "desktop"
+        return NotificationProvider.TERMUX_API
+    return NotificationProvider.DESKTOP
 
 
 def _notify_termux(message: str, title: str) -> bool:
@@ -145,16 +158,26 @@ def notify(
     Send a notification via configured provider.
     Returns whether the backend accepted it and logs failed delivery attempts.
     """
-    provider = _resolve_notification_provider(config)
+    try:
+        provider = _resolve_notification_provider(config)
+    except ValueError:
+        logger.error(
+            log_record(
+                "notification.failed",
+                provider=config["sys_notification_provider"],
+                reason="unsupported_provider",
+            )
+        )
+        return False
 
     try:
-        if provider == "desktop":
+        if provider is NotificationProvider.DESKTOP:
             delivered = _notify_desktop(
                 message=message, title=title, icon_path=icon_path
             )
-        elif provider == "termuxapi":
+        elif provider is NotificationProvider.TERMUX_API:
             delivered = _notify_termux(message=message, title=title)
-        elif provider == "disable":
+        elif provider is NotificationProvider.DISABLE:
             return False
         else:
             logger.error(

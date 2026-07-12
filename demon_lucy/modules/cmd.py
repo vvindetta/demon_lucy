@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import ArgTemplate
+from demon_lucy.lib.args.parser import ArgTemplate, StrEnum
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -19,6 +19,13 @@ from demon_lucy.modules.abstract_module import (
 class CmdRun:
     lineno_1based: int
     cmd_tokens: List[str]
+
+
+class CmdStream(StrEnum):
+    BOTH = "both"
+    STDOUT = "stdout"
+    STDERR = "stderr"
+    NONE = "none"
 
 
 class Cmd(AbstractModule):
@@ -68,8 +75,8 @@ class Cmd(AbstractModule):
         ),
         ArgTemplate(
             name="--cmd-stream",
-            value_type=str,
-            default="both",
+            value_type=CmdStream,
+            default=CmdStream.BOTH,
             description="Output streams to include: both, stdout, stderr, none.",
             required=False,
         ),
@@ -177,15 +184,16 @@ class Cmd(AbstractModule):
         return out
 
     @staticmethod
-    def _stream_flags(raw_stream: object) -> tuple[bool, bool]:
-        stream = str(raw_stream or "both").strip().lower()
-        if stream == "stdout":
+    def _stream_flags(stream: CmdStream) -> tuple[bool, bool]:
+        if stream is CmdStream.STDOUT:
             return True, False
-        if stream == "stderr":
+        if stream is CmdStream.STDERR:
             return False, True
-        if stream == "none":
+        if stream is CmdStream.NONE:
             return False, False
-        return True, True
+        if stream is CmdStream.BOTH:
+            return True, True
+        raise ValueError(f"unsupported command stream: {stream}")
 
     # Apply (replace lines)
     def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:

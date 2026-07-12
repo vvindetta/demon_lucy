@@ -5,11 +5,13 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from enum import StrEnum
+from typing import Any, Dict, List, Tuple, TypeVar
 
 from demon_lucy.lib.logfmt import log_record
 
 logger = logging.getLogger(__name__)
+EnumType = TypeVar("EnumType", bound=Enum)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -42,6 +44,30 @@ def template_allowed_values(template: ArgTemplate) -> tuple[str, ...]:
     return tuple(enum_value_text(member) for member in template.value_type)
 
 
+def parse_enum_value(enum_type: type[EnumType], value: object) -> EnumType:
+    if isinstance(value, enum_type):
+        return value
+    value_text = enum_value_text(value).strip().casefold()
+    for member in enum_type:
+        if enum_value_text(member).casefold() == value_text:
+            return member
+    allowed = "|".join(enum_value_text(member) for member in enum_type)
+    raise ValueError(f"unsupported {enum_type.__name__} value: {value}; use {allowed}")
+
+
+def _argparse_value_type(template: ArgTemplate):
+    if not template_allowed_values(template):
+        return template.value_type
+
+    def parse_value(value: str) -> Enum:
+        try:
+            return parse_enum_value(template.value_type, value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(str(exc)) from exc
+
+    return parse_value
+
+
 def normalize_template_params(
     values: Mapping[str, object],
     params: tuple[ArgTemplate, ...],
@@ -66,16 +92,15 @@ def normalize_template_params(
 
         allowed_values = template_allowed_values(param)
         if allowed_values:
-            members_by_value = {
-                enum_value_text(member).casefold(): member
-                for member in param.value_type
-            }
-            member = members_by_value.get(value_text.casefold())
-            if member is None:
+            try:
+                normalized[param.name] = parse_enum_value(
+                    param.value_type,
+                    value_text,
+                )
+            except ValueError as exc:
                 raise ValueError(
                     f"unsupported argument parameter {param.name}: {value_text}"
-                )
-            normalized[param.name] = member
+                ) from exc
             continue
 
         if param.value_type is str:
@@ -129,7 +154,7 @@ def parse_args(
             parser.add_argument(
                 item.name,
                 dest=dest,
-                type=item.value_type,
+                type=_argparse_value_type(item),
                 nargs="*",
                 default=(list(item.default) if include_defaults else argparse.SUPPRESS),
             )
@@ -137,7 +162,7 @@ def parse_args(
             parser.add_argument(
                 item.name,
                 dest=dest,
-                type=item.value_type,
+                type=_argparse_value_type(item),
                 default=arg_default,
             )
 
