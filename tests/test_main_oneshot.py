@@ -5,6 +5,14 @@ from pathlib import Path
 import pytest
 
 import main_oneshot as oneshot_mod
+from demon_lucy.lib.args.parser import parse_args
+
+
+def test_oneshot_event_default_is_typed_enum() -> None:
+    config, unknown = parse_args(args=[], template=oneshot_mod.ONESHOT_STARTUP_TEMPLATE)
+
+    assert unknown == []
+    assert config["oneshot_event"] is oneshot_mod.OneShotEvent.MODIFIED
 
 
 def _base_config(tmp_path: Path) -> dict:

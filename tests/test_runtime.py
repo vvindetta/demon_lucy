@@ -4,9 +4,11 @@ import logging
 
 from demon_lucy.runtime import (
     DEMON_LUCY_STARTUP_TEMPLATE,
+    LogLevel,
     select_demon_lucy_modules,
 )
 from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.notifications import NotificationProvider
 
 
 def _module_names(modules) -> list[str]:
@@ -73,6 +75,13 @@ def test_sys_modules_default_is_defined_in_startup_template():
     assert "workspace" in known_args["sys_modules"]
     assert "graph" in known_args["sys_modules"]
     assert "status" in known_args["sys_modules"]
+
+
+def test_fixed_system_string_domains_use_enums():
+    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+
+    assert known_args["sys_log_level"] is LogLevel.WARNING
+    assert known_args["sys_notification_provider"] is NotificationProvider.AUTO
 
 
 def test_startup_template_system_flags_use_sys_prefix():

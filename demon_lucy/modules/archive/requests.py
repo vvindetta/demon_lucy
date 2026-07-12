@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 
+from demon_lucy.lib.args.parser import parse_enum_value
 from demon_lucy.modules.abstract_module import Context
 from demon_lucy.modules.archive import notify
-from demon_lucy.modules.archive.constants import OUTPUT_MODES
-from demon_lucy.modules.archive.types import ArchiveRequest
+from demon_lucy.modules.archive.types import ArchiveOutputMode, ArchiveRequest
 
 
 def config_values(ctx: Context, key: str, flag: str) -> list[str]:
@@ -44,10 +44,17 @@ def local_archive_exists(ctx: Context) -> bool:
     return os.path.isdir(archive_dir) and not os.path.islink(archive_dir)
 
 
-def default_output_mode(ctx: Context) -> str | None:
-    raw_mode = str(ctx.config["archive_default_mode"]).strip().lower()
-    if raw_mode in OUTPUT_MODES:
-        return raw_mode
+def _output_mode(value: object) -> ArchiveOutputMode | None:
+    try:
+        return parse_enum_value(ArchiveOutputMode, value)
+    except ValueError:
+        return None
+
+
+def default_output_mode(ctx: Context) -> ArchiveOutputMode | None:
+    output_mode = _output_mode(ctx.config["archive_default_mode"])
+    if output_mode is not None:
+        return output_mode
     notify.invalid_rule(
         ctx,
         flag="--archive-default-mode",
@@ -75,12 +82,14 @@ def route_mode_from_config_values(
     *,
     flag: str,
     values: list[str],
-    fallback_mode: str | None,
-) -> str | None:
+    fallback_mode: ArchiveOutputMode | None,
+) -> ArchiveOutputMode | None:
     if not values:
         return fallback_mode
-    if len(values) == 1 and values[0].strip().lower() in OUTPUT_MODES:
-        return values[0].strip().lower()
+    if len(values) == 1:
+        output_mode = _output_mode(values[0])
+        if output_mode is not None:
+            return output_mode
     notify.invalid_rule(
         ctx,
         flag=flag,
@@ -96,15 +105,15 @@ def idle_and_mode_from_tail_values(
     flag: str,
     values: list[str],
     fallback_idle_hours: float | None,
-    fallback_mode: str | None,
-) -> tuple[float, str] | None:
+    fallback_mode: ArchiveOutputMode | None,
+) -> tuple[float, ArchiveOutputMode] | None:
     idle_hours = fallback_idle_hours
     output_mode = fallback_mode
 
     for token in values:
-        normalized = token.strip().lower()
-        if normalized in OUTPUT_MODES:
-            output_mode = normalized
+        parsed_mode = _output_mode(token)
+        if parsed_mode is not None:
+            output_mode = parsed_mode
             continue
         try:
             idle_hours = float(token)

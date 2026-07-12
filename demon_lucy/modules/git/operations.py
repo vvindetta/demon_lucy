@@ -12,6 +12,7 @@ from demon_lucy.modules.git.executor import GitExecutor, combined_output
 from demon_lucy.modules.git.helpers import union_resolve_text
 from demon_lucy.modules.git.helpers import failure_looks_like_network_issue
 from demon_lucy.modules.git.ops import command_ops, conflict_ops, network_ops
+from demon_lucy.modules.git.types import MergeAutoresolveMode
 
 logger = logging.getLogger(__name__)
 _MIN_STALE_INDEX_LOCK_AGE_SECONDS = 60.0
@@ -302,7 +303,7 @@ def auto_resolve_merge_conflicts(
     repo_root: str,
     environment: Dict[str, str],
     timeout_seconds: float,
-    autoresolve_mode: str,
+    autoresolve_mode: MergeAutoresolveMode,
 ) -> bool:
     return conflict_ops.auto_resolve_merge_conflicts(
         self_obj=self,
@@ -321,7 +322,7 @@ def resolve_merge_conflicts_with_fallback(
     repo_root: str,
     environment: Dict[str, str],
     timeout_seconds: float,
-    autoresolve_mode: str,
+    autoresolve_mode: MergeAutoresolveMode,
 ) -> bool:
     return conflict_ops.resolve_merge_conflicts_with_fallback(
         self_obj=self,
@@ -487,7 +488,7 @@ def _handle_pull_failure(
     repo_root: str,
     environment: Dict[str, str],
     operation_timeout_seconds: float,
-    autoresolve_mode: str,
+    autoresolve_mode: MergeAutoresolveMode,
     pull_result: subprocess.CompletedProcess[str],
     pull_offline_error_markers: list[str] | None,
     config: Mapping[str, Any],
@@ -564,7 +565,7 @@ def safe_pull_merge(
     environment: Dict[str, str],
     pull_timeout_seconds: float,
     operation_timeout_seconds: float,
-    autoresolve_mode: str,
+    autoresolve_mode: MergeAutoresolveMode,
     config: Mapping[str, Any],
     auto_set_upstream: bool = True,
     network_probe_timeout_seconds: float = 0.0,

@@ -5,6 +5,7 @@ import subprocess
 from typing import Callable, Dict
 
 from demon_lucy.lib.logfmt import log_record
+from demon_lucy.modules.git.types import MergeAutoresolveMode
 
 
 def abort_merge_safely(
@@ -94,16 +95,12 @@ def auto_resolve_merge_conflicts(
     repo_root: str,
     environment: Dict[str, str],
     timeout_seconds: float,
-    autoresolve_mode: str,
+    autoresolve_mode: MergeAutoresolveMode,
     *,
     run_git_fn: Callable,
     union_resolve_text_fn: Callable[[str], str | None],
     logger,
 ) -> bool:
-    normalized_mode = (autoresolve_mode or "none").strip().lower()
-    if normalized_mode not in {"none", "ours", "theirs", "union", "markers"}:
-        normalized_mode = "none"
-
     conflicted_paths = conflicted_files(
         self_obj,
         repo_root,
@@ -111,14 +108,21 @@ def auto_resolve_merge_conflicts(
         timeout_seconds,
         run_git_fn=run_git_fn,
     )
-    if not conflicted_paths or normalized_mode == "none":
+    if not conflicted_paths or autoresolve_mode is MergeAutoresolveMode.NONE:
         return False
 
     for relative_path in conflicted_paths:
         absolute_path = os.path.join(repo_root, relative_path)
 
-        if normalized_mode in {"ours", "theirs"}:
-            side_argument = "--ours" if normalized_mode == "ours" else "--theirs"
+        if autoresolve_mode in {
+            MergeAutoresolveMode.OURS,
+            MergeAutoresolveMode.THEIRS,
+        }:
+            side_argument = (
+                "--ours"
+                if autoresolve_mode is MergeAutoresolveMode.OURS
+                else "--theirs"
+            )
             checkout_result = run_git_fn(
                 self_obj,
                 repo_root,
@@ -133,7 +137,7 @@ def auto_resolve_merge_conflicts(
                         stage="checkout",
                         repo=repo_root,
                         file=relative_path,
-                        mode=normalized_mode,
+                        mode=autoresolve_mode,
                         error=(checkout_result.stderr or checkout_result.stdout or "")[
                             :1200
                         ],
@@ -141,7 +145,7 @@ def auto_resolve_merge_conflicts(
                 )
                 return False
 
-        elif normalized_mode == "union":
+        elif autoresolve_mode is MergeAutoresolveMode.UNION:
             try:
                 if os.path.isfile(absolute_path):
                     with open(
@@ -194,7 +198,7 @@ def auto_resolve_merge_conflicts(
                 )
                 return False
 
-        elif normalized_mode == "markers":
+        elif autoresolve_mode is MergeAutoresolveMode.MARKERS:
             logger.warning(
                 log_record(
                     "git.autoresolve_markers",
@@ -239,7 +243,7 @@ def auto_resolve_merge_conflicts(
                 error=(commit_result.stderr or commit_result.stdout or "")[:1200],
             )
         )
-    elif normalized_mode == "markers":
+    elif autoresolve_mode is MergeAutoresolveMode.MARKERS:
         logger.warning(
             log_record(
                 "git.autoresolve_markers_committed",
@@ -255,23 +259,25 @@ def resolve_merge_conflicts_with_fallback(
     repo_root: str,
     environment: Dict[str, str],
     timeout_seconds: float,
-    autoresolve_mode: str,
+    autoresolve_mode: MergeAutoresolveMode,
     *,
     auto_resolve_fn: Callable,
     logger,
 ) -> bool:
-    normalized_mode = (autoresolve_mode or "none").strip().lower()
     resolved = auto_resolve_fn(
         self_obj,
         repo_root,
         environment,
         timeout_seconds,
-        autoresolve_mode=normalized_mode,
+        autoresolve_mode=autoresolve_mode,
     )
     if resolved:
         return True
 
-    if normalized_mode in {"none", "markers"}:
+    if autoresolve_mode in {
+        MergeAutoresolveMode.NONE,
+        MergeAutoresolveMode.MARKERS,
+    }:
         return False
 
     logger.warning(
@@ -279,7 +285,7 @@ def resolve_merge_conflicts_with_fallback(
             "git.autoresolve_retry",
             reason="fallback_to_markers",
             repo=repo_root,
-            mode=normalized_mode,
+            mode=autoresolve_mode,
         )
     )
     return auto_resolve_fn(
@@ -287,5 +293,5 @@ def resolve_merge_conflicts_with_fallback(
         repo_root,
         environment,
         timeout_seconds,
-        autoresolve_mode="markers",
+        autoresolve_mode=MergeAutoresolveMode.MARKERS,
     )

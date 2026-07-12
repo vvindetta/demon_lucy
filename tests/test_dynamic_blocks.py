@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from enum import Enum
 from pathlib import Path
 
 import pytest
 
-from demon_lucy.lib.args.parser import ArgTemplate, normalize_template_params
+from demon_lucy.lib.args.parser import (
+    ArgTemplate,
+    StringEnum,
+    normalize_template_params,
+)
 from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
     format_fenced_body,
@@ -14,7 +17,7 @@ from demon_lucy.lib.dynamic_blocks.parser import (
 from demon_lucy.lib.dynamic_blocks.refresh import refresh_dynamic_blocks
 
 
-class _Period(str, Enum):
+class _Period(StringEnum):
     WEEK = "week"
     MONTH = "month"
     YEAR = "year"

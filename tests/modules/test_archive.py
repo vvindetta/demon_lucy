@@ -10,11 +10,21 @@ import pytest
 from watchdog.events import FileModifiedEvent
 
 from demon_lucy.lib import file_time
+from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.archive import Archive
 from demon_lucy.modules.archive import clock as archive_clock
 from demon_lucy.modules.archive import notify as archive_notify
 from demon_lucy.modules.archive import storage as archive_storage
+from demon_lucy.modules.archive.constants import ARCHIVE_TEMPLATE
+from demon_lucy.modules.archive.types import ArchiveOutputMode
+
+
+def test_archive_default_mode_is_typed_enum() -> None:
+    config, unknown = parse_args(args=[], template=ARCHIVE_TEMPLATE)
+
+    assert unknown == []
+    assert config["archive_default_mode"] is ArchiveOutputMode.TEXT
 
 
 def _ctx_for(

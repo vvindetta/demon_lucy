@@ -17,11 +17,13 @@ import demon_lucy.modules.git.operations as git_ops
 import demon_lucy.modules.git.worker as git_worker
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.git import Git, _RepoBatch
+from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.git_state import read_sync_success_timestamp
+from demon_lucy.modules.git.config import GIT_TEMPLATE
 from demon_lucy.modules.git.types import (
+    GitCommitMessageStyle,
     GitPolicy,
     MergeAutoresolveMode,
-    parse_merge_autoresolve_mode,
 )
 
 _NOTIFY_CFG = {
@@ -32,6 +34,14 @@ _NOTIFY_CFG = {
     "sys_notification_error_burst_limit": 3,
     "sys_notification_error_burst_window_seconds": 600.0,
 }
+
+
+def test_git_fixed_string_domains_use_enums() -> None:
+    config, unknown = parse_args(args=[], template=GIT_TEMPLATE)
+
+    assert unknown == []
+    assert config["git_commit_message_style"] is GitCommitMessageStyle.DETAILED
+    assert config["git_merge_autoresolve"] is MergeAutoresolveMode.UNION
 
 
 @pytest.fixture
@@ -62,7 +72,7 @@ def _mk_batch(**overrides) -> _RepoBatch:
     if "autoresolve_mode" in overrides:
         policy = replace(
             policy,
-            autoresolve_mode=parse_merge_autoresolve_mode(
+            autoresolve_mode=MergeAutoresolveMode(
                 str(overrides.pop("autoresolve_mode"))
             ),
         )
@@ -88,7 +98,7 @@ def _mk_batch(**overrides) -> _RepoBatch:
         "base_message": "Auto",
         "add_timestamp_to_message": False,
         "timestamp_format": "%Y",
-        "commit_message_style": "detailed",
+        "commit_message_style": GitCommitMessageStyle.DETAILED,
         "commit_message_max_subject_files": 3,
         "commit_message_max_body_files": 30,
         "environment": {},
@@ -189,7 +199,7 @@ def test_auto_resolve_markers_stages_conflicts_and_commits(git_module, monkeypat
         repo_root="/repo",
         environment={},
         timeout_seconds=5.0,
-        autoresolve_mode="markers",
+        autoresolve_mode=MergeAutoresolveMode.MARKERS,
     )
 
     assert resolved is True
@@ -265,12 +275,10 @@ def test_build_commit_message_sanitizes_git_escaped_file_names(git_module):
 def test_changes_from_staged_diff_handles_actions_rename_and_binary():
     changes = git_commit_message.changes_from_staged_diff(
         name_status_z=(
-            "M\x00todo.md\x00" "A\x00media/photo.jpg\x00" "R100\x00old.md\x00new.md\x00"
+            "M\x00todo.md\x00A\x00media/photo.jpg\x00R100\x00old.md\x00new.md\x00"
         ),
         numstat_z=(
-            "8\t3\ttodo.md\x00"
-            "-\t-\tmedia/photo.jpg\x00"
-            "1\t1\t\x00old.md\x00new.md\x00"
+            "8\t3\ttodo.md\x00-\t-\tmedia/photo.jpg\x001\t1\t\x00old.md\x00new.md\x00"
         ),
         repo_root="/repo",
     )
@@ -568,7 +576,7 @@ def test_safe_pull_merge_waits_for_network_without_notification(
         environment={},
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
-        autoresolve_mode="union",
+        autoresolve_mode=MergeAutoresolveMode.UNION,
         config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
@@ -605,7 +613,7 @@ def test_safe_pull_merge_skips_remote_branch_lookup_without_notification_when_of
         environment={},
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
-        autoresolve_mode="union",
+        autoresolve_mode=MergeAutoresolveMode.UNION,
         config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
@@ -645,7 +653,7 @@ def test_safe_pull_merge_timeout_while_offline_does_not_notify(git_module, monke
         environment={},
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
-        autoresolve_mode="union",
+        autoresolve_mode=MergeAutoresolveMode.UNION,
         config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
@@ -682,7 +690,7 @@ def test_safe_pull_merge_offline_marker_does_not_notify(git_module, monkeypatch)
         environment={},
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
-        autoresolve_mode="union",
+        autoresolve_mode=MergeAutoresolveMode.UNION,
         config=_NOTIFY_CFG,
         auto_set_upstream=True,
         pull_offline_error_markers=["connection timed out"],
@@ -884,7 +892,7 @@ def test_safe_pull_merge_conflict_abort_timeout_does_not_raise(git_module, monke
         environment={},
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
-        autoresolve_mode="union",
+        autoresolve_mode=MergeAutoresolveMode.UNION,
         config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
@@ -895,7 +903,7 @@ def test_safe_pull_merge_conflict_abort_timeout_does_not_raise(git_module, monke
 
 def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkeypatch):
     notifications: list[dict] = []
-    resolve_modes: list[str] = []
+    resolve_modes: list[MergeAutoresolveMode] = []
 
     monkeypatch.setattr(
         git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
@@ -915,7 +923,7 @@ def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkey
         autoresolve_mode,
     ):
         resolve_modes.append(autoresolve_mode)
-        return autoresolve_mode == "markers"
+        return autoresolve_mode is MergeAutoresolveMode.MARKERS
 
     monkeypatch.setattr(
         git_ops, "auto_resolve_merge_conflicts", _auto_resolve_merge_conflicts
@@ -949,13 +957,16 @@ def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkey
         environment={},
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
-        autoresolve_mode="union",
+        autoresolve_mode=MergeAutoresolveMode.UNION,
         config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
 
     assert pulled is True
-    assert resolve_modes == ["union", "markers"]
+    assert resolve_modes == [
+        MergeAutoresolveMode.UNION,
+        MergeAutoresolveMode.MARKERS,
+    ]
     assert not any(item["name"] == "pull-conflict:/repo" for item in notifications)
 
 
@@ -1014,7 +1025,7 @@ def test_safe_pull_merge_conflict_markers_mode_commits_and_returns_true(
         environment={},
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
-        autoresolve_mode="markers",
+        autoresolve_mode=MergeAutoresolveMode.MARKERS,
         config=_NOTIFY_CFG,
         auto_set_upstream=True,
     )
@@ -1059,7 +1070,7 @@ def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkey
         repo_root="/repo",
         environment={},
         git_timeout_seconds=5.0,
-        autoresolve_mode="union",
+        autoresolve_mode=MergeAutoresolveMode.UNION,
         config=_NOTIFY_CFG,
     )
 
@@ -1534,7 +1545,7 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
             "git_commit_message": "Auto",
             "git_commit_message_timestamp": False,
             "git_commit_message_timestamp_format": "%Y",
-            "git_commit_message_style": "detailed",
+            "git_commit_message_style": GitCommitMessageStyle.DETAILED,
             "git_commit_message_max_subject_files": 3,
             "git_commit_message_max_body_files": 30,
             "git_command_timeout_seconds": 5.0,
@@ -1556,7 +1567,7 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
             "sys_notification_error_burst_window_seconds": 600.0,
             "git_push_auto_merge": True,
             "git_upstream_auto_set": True,
-            "git_merge_autoresolve": "union",
+            "git_merge_autoresolve": MergeAutoresolveMode.UNION,
         },
         runtime_platform="posix",
         run_in_background=False,
@@ -1613,7 +1624,7 @@ def test_merge_cleanup_retries_abort_after_index_recovery(git_module, monkeypatc
         repo_root="/repo",
         environment={},
         git_timeout_seconds=5.0,
-        autoresolve_mode="union",
+        autoresolve_mode=MergeAutoresolveMode.UNION,
         config=_NOTIFY_CFG,
     )
 
@@ -1983,15 +1994,9 @@ def test_commit_dirty_tree_returns_busy_when_repo_lock_is_busy(git_module, monke
     monkeypatch.setattr(
         git_worker,
         "_with_repo_process_lock_status",
-        lambda _repo_root,
-        _run_fn,
-        *,
-        wait_timeout_seconds,
-        retry_sleep_seconds,
-        stale_seconds,
-        runtime_platform,
-        on_busy_fn,
-        on_invalid_repo_fn: on_busy_fn(),
+        lambda _repo_root, _run_fn, *, wait_timeout_seconds, retry_sleep_seconds, stale_seconds, runtime_platform, on_busy_fn, on_invalid_repo_fn: (
+            on_busy_fn()
+        ),
     )
 
     result = git_worker.commit_dirty_tree(
@@ -2022,15 +2027,9 @@ def test_build_patch_packet_returns_busy_when_repo_lock_is_busy(
     monkeypatch.setattr(
         git_worker,
         "_with_repo_process_lock_status",
-        lambda _repo_root,
-        _run_fn,
-        *,
-        wait_timeout_seconds,
-        retry_sleep_seconds,
-        stale_seconds,
-        runtime_platform,
-        on_busy_fn,
-        on_invalid_repo_fn: on_busy_fn(),
+        lambda _repo_root, _run_fn, *, wait_timeout_seconds, retry_sleep_seconds, stale_seconds, runtime_platform, on_busy_fn, on_invalid_repo_fn: (
+            on_busy_fn()
+        ),
     )
 
     result = git_worker.build_patch_packet(

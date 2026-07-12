@@ -178,10 +178,10 @@ use positional arguments.
 ## Hard Rules
 
 - Do not add subcommands like `--git pull hours 2`.
-- One flag must have one concrete type: `bool`, `str`, `int`, `float`, or a real
-  `str[]`.
-- Nested `ArgTemplate.params` may use `str`-backed `Enum` types for fixed
-  domain values. Do not use Enum as the top-level type of a CLI/config flag.
+- One flag must have one concrete type: `bool`, `str`, `int`, `float`, a
+  `StringEnum`, or a real `str[]`. Use `StringEnum` for fixed string domains and
+  carry the Enum member through module logic instead of converting it back to
+  an untyped string.
 - Do not shorten words just to save a few letters: write `hours`.
 - `src` and `dest` may be kept for move/source/destination paths.
 - `bool` currently works as `store_true`; `true`/`false` values after the flag are not supported.

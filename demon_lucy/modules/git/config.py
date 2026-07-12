@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.modules.git.types import (
+    GitCommitMessageStyle,
+    MergeAutoresolveMode,
+)
 
 GIT_TEMPLATE: Template = [
     ArgTemplate(
@@ -26,8 +30,8 @@ GIT_TEMPLATE: Template = [
     ),
     ArgTemplate(
         name="--git-commit-message-style",
-        value_type=str,
-        default="detailed",
+        value_type=GitCommitMessageStyle,
+        default=GitCommitMessageStyle.DETAILED,
         description="Commit message style: detailed or compact. Detailed adds a commit body with staged file actions.",
         required=False,
     ),
@@ -68,8 +72,8 @@ GIT_TEMPLATE: Template = [
     ),
     ArgTemplate(
         name="--git-merge-autoresolve",
-        value_type=str,
-        default="union",
+        value_type=MergeAutoresolveMode,
+        default=MergeAutoresolveMode.UNION,
         description="How to auto-resolve merge conflicts during auto-merge: "
         "'none' (do not resolve), 'ours' (keep local), 'theirs' (keep remote), "
         "'union' (keep both sides, remove markers), 'markers' (keep conflict markers and commit merge).",

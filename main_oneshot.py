@@ -16,8 +16,11 @@ from watchdog.events import (
 
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
+    StringEnum,
     Template,
+    enum_value_text,
     parse_args,
+    parse_enum_value,
     setup_config_and_cli_args,
 )
 from demon_lucy.lib.logfmt import (
@@ -32,16 +35,24 @@ from demon_lucy.runtime import (
     DEMON_LUCY_STARTUP_TEMPLATE,
     configure_logging,
     log_startup_message,
-    normalize_name_list,
     run_config_migrations,
     select_demon_lucy_modules,
 )
 
+
+class OneShotEvent(StringEnum):
+    CREATED = "created"
+    MODIFIED = "modified"
+    MOVED = "moved"
+    DELETED = "deleted"
+    OPENED = "opened"
+
+
 ONESHOT_STARTUP_TEMPLATE: Template = DEMON_LUCY_STARTUP_TEMPLATE + [
     ArgTemplate(
         name="--oneshot-event",
-        value_type=str,
-        default="modified",
+        value_type=OneShotEvent,
+        default=OneShotEvent.MODIFIED,
         description=(
             "Single event to trigger once. Allowed: created modified moved "
             "deleted opened."
@@ -67,41 +78,36 @@ ONESHOT_STARTUP_TEMPLATE: Template = DEMON_LUCY_STARTUP_TEMPLATE + [
     ),
 ]
 
-_ALLOWED_EVENTS = {"created", "modified", "moved", "deleted", "opened"}
-
 
 def _build_event(
-    event_name: str, src_path: str, dest_path: str = ""
+    event_name: OneShotEvent,
+    src_path: str,
+    dest_path: str = "",
 ) -> FileSystemEvent:
-    factories: dict[str, type[FileSystemEvent]] = {
-        "created": FileCreatedEvent,
-        "modified": FileModifiedEvent,
-        "deleted": FileDeletedEvent,
-        "opened": FileOpenedEvent,
+    factories: dict[OneShotEvent, type[FileSystemEvent]] = {
+        OneShotEvent.CREATED: FileCreatedEvent,
+        OneShotEvent.MODIFIED: FileModifiedEvent,
+        OneShotEvent.DELETED: FileDeletedEvent,
+        OneShotEvent.OPENED: FileOpenedEvent,
     }
-    if event_name == "moved":
+    if event_name is OneShotEvent.MOVED:
         return FileMovedEvent(src_path=src_path, dest_path=dest_path, is_synthetic=True)
     return factories[event_name](src_path=src_path, is_synthetic=True)
 
 
 def _build_event_plan(config: dict) -> list[tuple[str, FileSystemEvent]]:
-    raw_event = config.get("oneshot_event", "modified")
-    event_values = normalize_name_list([raw_event])
-    if not event_values:
-        event_values = ["modified"]
-    if len(event_values) != 1:
+    raw_event = config.get("oneshot_event", OneShotEvent.MODIFIED)
+    if "," in enum_value_text(raw_event):
         raise ValueError(
             "Only one --oneshot-event is supported. Use one of: created modified moved deleted opened."
         )
-    event_name = event_values[0]
-    if event_name not in _ALLOWED_EVENTS:
-        raise ValueError(f"Unsupported --oneshot-event value: {event_name}")
+    event_name = parse_enum_value(OneShotEvent, raw_event)
 
     target_paths = [abs_expand_path(path_item) for path_item in config["oneshot_paths"]]
     moved_src = str(config["oneshot_move_src_path"]).strip()
     moved_dest = str(config["oneshot_move_dest_path"]).strip()
 
-    if event_name == "moved":
+    if event_name is OneShotEvent.MOVED:
         if not moved_src or not moved_dest:
             raise ValueError(
                 "Moved event requires both --oneshot-move-src-path and --oneshot-move-dest-path."
@@ -112,7 +118,7 @@ def _build_event_plan(config: dict) -> list[tuple[str, FileSystemEvent]]:
             (
                 moved_dest_abs,
                 _build_event(
-                    event_name="moved",
+                    event_name=OneShotEvent.MOVED,
                     src_path=moved_src_abs,
                     dest_path=moved_dest_abs,
                 ),

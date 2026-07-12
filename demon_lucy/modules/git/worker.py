@@ -39,7 +39,7 @@ from demon_lucy.modules.git.operations import (
     run_git,
     safe_pull_merge,
 )
-from demon_lucy.modules.git.types import _RepoBatch
+from demon_lucy.modules.git.types import MergeAutoresolveMode, _RepoBatch
 
 logger = logging.getLogger(__name__)
 
@@ -452,7 +452,7 @@ def _ensure_merge_state_clean(
     repo_root: str,
     environment: dict[str, str],
     git_timeout_seconds: float,
-    autoresolve_mode: str,
+    autoresolve_mode: MergeAutoresolveMode,
     config: dict[str, Any],
 ) -> bool:
     if not merge_in_progress(self, repo_root, environment, git_timeout_seconds):
@@ -818,7 +818,7 @@ def _attempt_push_with_retry(
             environment,
             pull_timeout_seconds=pull_timeout_seconds,
             operation_timeout_seconds=git_timeout_seconds,
-            autoresolve_mode=batch.policy.autoresolve_mode.value,
+            autoresolve_mode=batch.policy.autoresolve_mode,
             config=config,
             auto_set_upstream=batch.policy.auto_set_upstream,
             network_probe_timeout_seconds=batch.policy.network_probe_timeout_seconds,
@@ -887,7 +887,7 @@ def _process_batch_unlocked(
         repo_root=repo_root,
         environment=environment,
         git_timeout_seconds=git_timeout_seconds,
-        autoresolve_mode=batch.policy.autoresolve_mode.value,
+        autoresolve_mode=batch.policy.autoresolve_mode,
         config=config_snapshot,
     ):
         return False
@@ -1026,7 +1026,7 @@ def commit_dirty_tree(
             repo_root=repo_root,
             environment=batch.environment,
             git_timeout_seconds=batch.git_timeout_seconds,
-            autoresolve_mode=batch.policy.autoresolve_mode.value,
+            autoresolve_mode=batch.policy.autoresolve_mode,
             config=config_snapshot,
         ):
             return DirtyTreeCommitResult(

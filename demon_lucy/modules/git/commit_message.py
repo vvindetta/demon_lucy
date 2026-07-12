@@ -8,7 +8,7 @@ from typing import Optional
 
 from demon_lucy.lib.path import path_is_inside
 from demon_lucy.modules.git.helpers import format_path_for_commit_message
-from demon_lucy.modules.git.types import _RepoBatch
+from demon_lucy.modules.git.types import GitCommitMessageStyle, _RepoBatch
 
 _ACTION_ORDER = ("modified", "added", "deleted", "renamed", "copied", "type_changed")
 _ACTION_VERBS = {
@@ -307,8 +307,7 @@ def _event_context_line(batch: _RepoBatch, max_paths: int) -> str:
 
 
 def _body_for_changes(batch: _RepoBatch, changes: list[GitChange]) -> str:
-    style = str(batch.commit_message_style).strip().lower()
-    if style == "compact":
+    if batch.commit_message_style is GitCommitMessageStyle.COMPACT:
         return ""
 
     max_body_files = max(1, int(batch.commit_message_max_body_files))

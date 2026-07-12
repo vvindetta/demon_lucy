@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from demon_lucy.lib.args.parser import parse_enum_value
 from demon_lucy.modules.git.types import (
+    GitCommitMessageStyle,
     GitPolicy,
-    parse_merge_autoresolve_mode,
+    MergeAutoresolveMode,
     _RepoBatch,
 )
 
@@ -23,8 +25,9 @@ def _repo_batch_kwargs(
     policy = GitPolicy(
         auto_merge_on_push=bool(config_snapshot["git_push_auto_merge"]),
         auto_set_upstream=bool(config_snapshot["git_upstream_auto_set"]),
-        autoresolve_mode=parse_merge_autoresolve_mode(
-            str(config_snapshot["git_merge_autoresolve"])
+        autoresolve_mode=parse_enum_value(
+            MergeAutoresolveMode,
+            config_snapshot["git_merge_autoresolve"],
         ),
         network_probe_timeout_seconds=float(
             config_snapshot["git_network_probe_timeout_seconds"]
@@ -40,7 +43,10 @@ def _repo_batch_kwargs(
         "base_message": config_snapshot["git_commit_message"],
         "add_timestamp_to_message": config_snapshot["git_commit_message_timestamp"],
         "timestamp_format": config_snapshot["git_commit_message_timestamp_format"],
-        "commit_message_style": config_snapshot["git_commit_message_style"],
+        "commit_message_style": parse_enum_value(
+            GitCommitMessageStyle,
+            config_snapshot["git_commit_message_style"],
+        ),
         "commit_message_max_subject_files": config_snapshot[
             "git_commit_message_max_subject_files"
         ],

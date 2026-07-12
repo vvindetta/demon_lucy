@@ -15,8 +15,9 @@ from demon_lucy.modules.abstract_module import (
 )
 
 from demon_lucy.modules.archive import clock, notify, paths, requests, storage
-from demon_lucy.modules.archive.constants import ARCHIVE_TEMPLATE, FILE_MODE, TEXT_MODE
+from demon_lucy.modules.archive.constants import ARCHIVE_TEMPLATE
 from demon_lucy.modules.archive.types import ArchiveRequest
+from demon_lucy.modules.archive.types import ArchiveOutputMode
 
 
 class Archive(AbstractModule):
@@ -201,7 +202,7 @@ class Archive(AbstractModule):
             return None
 
         timestamp = clock.archive_entry_timestamp(ctx, src_path)
-        if request.output_mode == TEXT_MODE:
+        if request.output_mode is ArchiveOutputMode.TEXT:
             return self._archive_text(
                 ctx,
                 request,
@@ -212,7 +213,7 @@ class Archive(AbstractModule):
                 allowed_root=allowed_root,
             )
 
-        if request.output_mode == FILE_MODE:
+        if request.output_mode is ArchiveOutputMode.FILE:
             return self._archive_file(
                 ctx,
                 request,

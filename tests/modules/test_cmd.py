@@ -5,8 +5,16 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
+from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.modules.abstract_module import Context, System
-from demon_lucy.modules.cmd import Cmd
+from demon_lucy.modules.cmd import Cmd, CmdStream
+
+
+def test_cmd_stream_default_is_typed_enum() -> None:
+    config, unknown = parse_args(args=[], template=Cmd.template)
+
+    assert unknown == []
+    assert config["cmd_stream"] is CmdStream.BOTH
 
 
 @pytest.mark.parametrize(
@@ -37,13 +45,13 @@ def test_collect_runs_groups_tokens_by_line(
 @pytest.mark.parametrize(
     ("raw_stream", "expected"),
     [
-        ("both", (True, True)),
-        ("stdout", (True, False)),
-        ("stderr", (False, True)),
-        ("none", (False, False)),
+        (CmdStream.BOTH, (True, True)),
+        (CmdStream.STDOUT, (True, False)),
+        (CmdStream.STDERR, (False, True)),
+        (CmdStream.NONE, (False, False)),
     ],
 )
-def test_stream_flags(raw_stream: str, expected: tuple[bool, bool]):
+def test_stream_flags(raw_stream: CmdStream, expected: tuple[bool, bool]):
     assert Cmd._stream_flags(raw_stream) == expected
 
 
@@ -60,7 +68,7 @@ def test_apply_replaces_command_line_with_output_block(tmp_path: Path, monkeypat
             "cmd": ["echo", "hello"],
             "cmd_timeout_seconds": 5,
             "cmd_output_max_bytes": 1000,
-            "cmd_stream": "both",
+            "cmd_stream": CmdStream.BOTH,
         },
         arg_lines={"cmd": [1, 1]},
     )

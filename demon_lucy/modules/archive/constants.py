@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 from demon_lucy.lib.args.parser import ArgTemplate, Template
-
-TEXT_MODE = "text"
-FILE_MODE = "file"
-OUTPUT_MODES = {TEXT_MODE, FILE_MODE}
+from demon_lucy.modules.archive.types import ArchiveOutputMode
 
 ARCHIVE_TEMPLATE: Template = [
     ArgTemplate(
@@ -63,8 +60,8 @@ ARCHIVE_TEMPLATE: Template = [
     ),
     ArgTemplate(
         name="--archive-default-mode",
-        value_type=str,
-        default=TEXT_MODE,
+        value_type=ArchiveOutputMode,
+        default=ArchiveOutputMode.TEXT,
         description="Default archive output mode for rules without explicit mode: text or file.",
         required=False,
     ),

@@ -8,6 +8,7 @@ import pytest
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
+    StringEnum,
     get_args_from_file,
     get_config_args,
     is_valid_flag_token,
@@ -15,6 +16,11 @@ from demon_lucy.lib.args.parser import (
     parse_args,
     setup_config_and_cli_args,
 )
+
+
+class _Mode(StringEnum):
+    FIRST = "first"
+    SECOND = "second"
 
 
 def test_parse_args_handles_bool_and_nargs():
@@ -94,6 +100,24 @@ def test_parse_args_supports_required_field_in_template_item():
     )
 
     assert known["required_path"] == "/tmp/a.md"
+    assert unknown == []
+
+
+def test_parse_args_returns_enum_members_for_fixed_string_domains():
+    template = [
+        ArgTemplate(
+            name="--mode",
+            value_type=_Mode,
+            default=_Mode.FIRST,
+        )
+    ]
+
+    defaults, default_unknown = parse_args(args=[], template=template)
+    parsed, unknown = parse_args(args=["--mode", "SECOND"], template=template)
+
+    assert defaults["mode"] is _Mode.FIRST
+    assert default_unknown == []
+    assert parsed["mode"] is _Mode.SECOND
     assert unknown == []
 
 
