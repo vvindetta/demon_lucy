@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping
 
 from demon_lucy.lib.logfmt import log_record
-from demon_lucy.lib.text_file import detect_newline, normalize_newlines
+from demon_lucy.lib.dynamic_blocks import metadata
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlockRenderer
 from demon_lucy.lib.dynamic_blocks.parser import parse_dynamic_blocks
+from demon_lucy.lib.text_file import detect_newline, normalize_newlines
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +16,20 @@ logger = logging.getLogger(__name__)
 def _normalize_body(body: str, newline: str) -> str:
     normalized = normalize_newlines(body, newline).rstrip("\r\n")
     return normalized + newline if normalized else ""
+
+
+def _format_content(
+    body: str,
+    *,
+    updated_timestamp: float,
+    now_timestamp: float,
+    newline: str,
+) -> str:
+    updated_line = metadata.format_updated_line(
+        updated_timestamp,
+        now_timestamp=now_timestamp,
+    )
+    return updated_line + newline * 2 + _normalize_body(body, newline)
 
 
 def refresh_dynamic_blocks(
@@ -28,6 +44,7 @@ def refresh_dynamic_blocks(
 
     blocks = parse_dynamic_blocks(text)
     newline = detect_newline(text)
+    now_timestamp = time.time()
     replacements: list[tuple[int, int, str]] = []
 
     for block in blocks:
@@ -74,10 +91,23 @@ def refresh_dynamic_blocks(
             )
             continue
 
-        replacement = _normalize_body(rendered, newline)
-        if replacement == text[block.body_start : block.body_end]:
+        normalized_body = _normalize_body(rendered, newline)
+        existing_body = _normalize_body(block.body, newline)
+        content_changed = normalized_body != existing_body
+        updated_timestamp = (
+            now_timestamp
+            if content_changed or block.updated_timestamp is None
+            else block.updated_timestamp
+        )
+        replacement = _format_content(
+            normalized_body,
+            updated_timestamp=updated_timestamp,
+            now_timestamp=now_timestamp,
+            newline=newline,
+        )
+        if replacement == text[block.content_start : block.body_end]:
             continue
-        replacements.append((block.body_start, block.body_end, replacement))
+        replacements.append((block.content_start, block.body_end, replacement))
 
     refreshed = text
     for start, end, replacement in reversed(replacements):

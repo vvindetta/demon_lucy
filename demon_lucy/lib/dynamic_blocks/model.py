@@ -10,6 +10,8 @@ class DynamicBlock:
     arg: str
     params: Mapping[str, str]
     body: str
+    updated_timestamp: float | None
+    content_start: int
     body_start: int
     body_end: int
     line: int

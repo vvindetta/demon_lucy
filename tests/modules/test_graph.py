@@ -15,7 +15,6 @@ from demon_lucy.lib.dynamic_blocks.parser import (
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.graph import Graph
-from demon_lucy.modules.graph import dynamic_block as graph_dynamic_block
 from demon_lucy.modules.graph.params import (
     GraphPeriod,
     GraphView,
@@ -23,25 +22,6 @@ from demon_lucy.modules.graph.params import (
     graph_params_from_command,
     normalize_graph_params,
 )
-
-
-@pytest.fixture(autouse=True)
-def _fixed_source_age(monkeypatch) -> None:
-    monkeypatch.setattr(
-        graph_dynamic_block,
-        "content_change_timestamp",
-        lambda _path: 100.0,
-    )
-    monkeypatch.setattr(
-        graph_dynamic_block,
-        "format_local_timestamp",
-        lambda _timestamp: "2026-07-12 14:35",
-    )
-    monkeypatch.setattr(
-        graph_dynamic_block,
-        "format_timestamp_age",
-        lambda _timestamp: "12 minutes ago",
-    )
 
 
 def _ctx_for(path: Path, *, hide_allowed_values: bool = False) -> Context:
@@ -82,12 +62,7 @@ def _run_graph(
 
 
 def _text_body(rows: list[str]) -> str:
-    return (
-        "last updated: 2026-07-12 14:35\n"
-        "updated ago: 12 minutes ago\n"
-        "\n"
-        "time        count  graph\n" + "".join(rows)
-    )
+    return "time        count  graph\n" + "".join(rows)
 
 
 def _manager() -> ModuleManager:
@@ -173,13 +148,13 @@ def test_graph_literal_command_creates_dynamic_text_block(tmp_path: Path) -> Non
         body=format_fenced_body(
             _text_body(
                 [
-                    "2026-07-01      1  [##][##][##][##][##][##]\n",
+                    "2026-07-01      1  [######][######]\n",
                     "2026-07-02      0  |\n",
-                    "2026-07-03      2  [###][###][###][###][###][###]\n",
+                    "2026-07-03      2  [######][######][######]\n",
                     "2026-07-04      0  |\n",
                     "2026-07-05      4  [######][######][######][######][######][######]\n",
-                    "2026-07-06      1  [##][##][##][##][##][##]\n",
-                    "2026-07-07      3  [####][####][####][####][####][####]\n",
+                    "2026-07-06      1  [######][######]\n",
+                    "2026-07-07      3  [######][######][######][######]\n",
                 ]
             ),
             info="text",
@@ -241,7 +216,10 @@ def test_graph_date_sections_allow_comments_and_ranges(tmp_path: Path) -> None:
         "2026-01-10      2  [######][######][######][######][######][######]\n"
     ) in text
     assert "2026-01-11      0  |\n" in text
-    assert "2026-01-14      1  [###][###][###][###][###][###]\n" in text
+    assert (
+        "2026-01-14      1  [######][######][######]\n"
+        in text
+    )
 
 
 def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
@@ -269,10 +247,15 @@ def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
         "- source: tasks.md\n"
         "- pattern: #work\n"
         "- period [week|month|year|all]: year\n"
-        "- view [ascii|markdown|markdown-code]: ascii\n"
+        "- view [ascii|markdown|code]: ascii\n"
     )
     assert text.endswith("--- graph-regex end ---\n")
-    assert "2026-01      2  [####][####][####][####][####][####]\n" in text
+    assert "updated:" in text
+    assert "less than a minute ago\n" in text
+    assert (
+        "2026-01      2  [######][######][######][######]\n"
+        in text
+    )
     assert (
         "2026-04      3  [######][######][######][######][######][######]\n"
     ) in text
@@ -331,7 +314,7 @@ def test_multiple_graph_commands_create_independent_blocks(tmp_path: Path) -> No
     [
         ("ascii", "time        count  graph\n", "```text\n"),
         ("markdown", "| time | count | graph |\n", None),
-        ("markdown-code", "| time | count | graph |\n", "```markdown\n"),
+        ("code", "| time | count | graph |\n", "```markdown\n"),
     ],
 )
 def test_existing_block_renders_by_selected_format(
@@ -499,7 +482,10 @@ def test_graph_falls_back_to_git_history_added_lines(tmp_path: Path) -> None:
     assert changed == {str(note): 1}
     block = parse_dynamic_blocks(note.read_text(encoding="utf-8"))[0]
     assert block.arg == "graph-regex"
-    assert "2026-01-01      1  [###][###][###][###][###][###]\n" in block.body
+    assert (
+        "2026-01-01      1  [######][######][######]\n"
+        in block.body
+    )
     assert "2026-01-02      0  |\n" in block.body
     assert (
         "2026-01-03      2  [######][######][######][######][######][######]\n"

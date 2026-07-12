@@ -186,7 +186,7 @@ Example:
 
 Commands become dynamic `--- graph begin ---` / `--- graph-regex begin ---`
 blocks. Set `view` inside a block to `ascii` (default), `markdown`, or
-`markdown-code` to change its generated body. Allowed values are shown beside
+`code` to change its generated body. Allowed values are shown beside
 Enum fields by default; `--sys-dynamic-block-hide-allowed-values` hides them in
 newly created blocks.
 

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import cast
 
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
-    StrEnum,
     Template,
     normalize_template_params,
     template_allowed_values,
@@ -28,7 +28,7 @@ class GraphPeriod(StrEnum):
 class GraphView(StrEnum):
     ASCII = "ascii"
     MARKDOWN = "markdown"
-    MARKDOWN_CODE = "markdown-code"
+    CODE = "code"
 
 
 GRAPH_PARAMS = (

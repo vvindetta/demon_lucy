@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import time
+from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 
 import pytest
 
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
-    StringEnum,
     normalize_template_params,
 )
 from demon_lucy.lib.dynamic_blocks.parser import (
@@ -17,7 +19,7 @@ from demon_lucy.lib.dynamic_blocks.parser import (
 from demon_lucy.lib.dynamic_blocks.refresh import refresh_dynamic_blocks
 
 
-class _Period(StringEnum):
+class _Period(StrEnum):
     WEEK = "week"
     MONTH = "month"
     YEAR = "year"
@@ -84,6 +86,8 @@ def test_format_block_shows_and_hides_enum_values() -> None:
 
     assert "- period [week|month|year|all]: year\n" in shown
     assert "- period: year\n" in hidden
+    assert "updated:" in shown
+    assert "less than a minute ago\n" in shown
     assert parse_dynamic_blocks(shown)[0].params == {"period": "year"}
 
 
@@ -204,6 +208,54 @@ def test_refresh_updates_same_arg_blocks_independently(tmp_path: Path) -> None:
     assert "new sleep\n" in refreshed
     assert "new work\n" in refreshed
     assert "```text" not in refreshed
+
+
+def test_refresh_preserves_update_time_when_rendered_body_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    first_update = int(time.time() // 60) * 60 - 4 * 60 * 60
+    text = format_dynamic_block(
+        arg="example",
+        params={},
+        body="same body",
+        updated_timestamp=first_update,
+    )
+    text = text.replace("4 hours ago", "less than a minute ago")
+
+    refreshed, changed = refresh_dynamic_blocks(
+        text=text,
+        target_path=str(tmp_path / "note.md"),
+        renderers={"example": lambda _block, _path: "same body"},
+    )
+
+    assert changed == 1
+    expected_at = datetime.fromtimestamp(first_update).astimezone().strftime(
+        "%Y.%m.%d %H:%M"
+    )
+    assert f"updated: {expected_at}, 4 hours ago\n" in refreshed
+    block = parse_dynamic_blocks(refreshed)[0]
+    assert block.body == "same body\n"
+    assert block.updated_timestamp == first_update
+
+
+def test_refresh_sets_update_time_when_rendered_body_changes(tmp_path: Path) -> None:
+    previous_update = time.time() - 4 * 60 * 60
+    text = format_dynamic_block(
+        arg="example",
+        params={},
+        body="old body",
+        updated_timestamp=previous_update,
+    )
+
+    refreshed, changed = refresh_dynamic_blocks(
+        text=text,
+        target_path=str(tmp_path / "note.md"),
+        renderers={"example": lambda _block, _path: "new body"},
+    )
+
+    assert changed == 1
+    assert "less than a minute ago\n" in refreshed
+    assert parse_dynamic_blocks(refreshed)[0].body == "new body\n"
 
 
 def test_refresh_preserves_failed_unknown_and_successful_blocks(

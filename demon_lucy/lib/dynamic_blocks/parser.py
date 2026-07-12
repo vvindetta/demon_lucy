@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Mapping
 
 from demon_lucy.lib.args.parser import (
@@ -8,8 +9,9 @@ from demon_lucy.lib.args.parser import (
     enum_value_text,
     template_allowed_values,
 )
-from demon_lucy.lib.text_file import normalize_newlines
+from demon_lucy.lib.dynamic_blocks import metadata
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlock
+from demon_lucy.lib.text_file import normalize_newlines
 
 
 _ARG_PATTERN = r"[a-z][a-z0-9-]*"
@@ -117,6 +119,27 @@ def _find_body(
     return text[body_start:body_end], body_start, body_end, index
 
 
+def _parse_updated_metadata(
+    lines: list[str],
+    *,
+    start: int,
+    block_line: int,
+) -> tuple[float | None, int]:
+    if start >= len(lines):
+        return None, start
+
+    updated_timestamp = metadata.parse_updated_timestamp(
+        _without_newline(lines[start])
+    )
+    if updated_timestamp is None:
+        return None, start
+    if start + 1 >= len(lines) or _without_newline(lines[start + 1]):
+        raise ValueError(
+            f"line {block_line}: expected a blank line after updated metadata"
+        )
+    return updated_timestamp, start + 2
+
+
 def parse_dynamic_blocks(text: str) -> list[DynamicBlock]:
     lines = text.splitlines(keepends=True)
     offsets = _line_offsets(lines)
@@ -144,6 +167,12 @@ def parse_dynamic_blocks(text: str) -> list[DynamicBlock]:
         if body_line >= len(lines):
             raise ValueError(f"line {block_line}: missing body and end marker")
 
+        content_start = offsets[body_line]
+        updated_timestamp, body_line = _parse_updated_metadata(
+            lines,
+            start=body_line,
+            block_line=block_line,
+        )
         body, body_start, body_end, end_index = _find_body(
             text,
             lines,
@@ -158,6 +187,8 @@ def parse_dynamic_blocks(text: str) -> list[DynamicBlock]:
                 arg=arg,
                 params=params,
                 body=body,
+                updated_timestamp=updated_timestamp,
+                content_start=content_start,
                 body_start=body_start,
                 body_end=body_end,
                 line=block_line,
@@ -198,6 +229,7 @@ def format_dynamic_block(
     arg_template: ArgTemplate | None = None,
     show_allowed_values: bool = True,
     newline: str = "\n",
+    updated_timestamp: float | None = None,
 ) -> str:
     if re.fullmatch(_ARG_PATTERN, arg) is None:
         raise ValueError(f"invalid dynamic block arg: {arg}")
@@ -225,7 +257,14 @@ def format_dynamic_block(
             label += f" [{'|'.join(allowed_values)}]"
         lines.append(f"- {label}: {value}")
 
-    prefix = newline.join(lines) + newline * 2
+    now_timestamp = time.time()
+    if updated_timestamp is None:
+        updated_timestamp = now_timestamp
+    updated_line = metadata.format_updated_line(
+        updated_timestamp,
+        now_timestamp=now_timestamp,
+    )
+    prefix = newline.join(lines) + newline * 2 + updated_line + newline * 2
     normalized_body = normalize_newlines(body, newline).rstrip("\r\n")
     body_text = normalized_body + newline if normalized_body else ""
     return prefix + body_text + newline + f"--- {arg} end ---" + newline

@@ -3,11 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from demon_lucy.lib.file_time import (
-    content_change_timestamp,
-    format_local_timestamp,
-    format_timestamp_age,
-)
 from demon_lucy.lib.path import (
     canonical_path,
     find_parent_git_repo,
@@ -69,28 +64,14 @@ def render_graph(
     if series is None:
         raise ValueError("no graph dates found")
 
-    timestamp = content_change_timestamp(source_path)
-    if timestamp is None:
-        raise OSError(f"cannot read graph source timestamp: {source_path}")
-    updated_at = format_local_timestamp(timestamp)
-    updated_ago = format_timestamp_age(timestamp)
-
     if params.view is GraphView.ASCII:
-        text_graph = render_text_graph(
-            series=series,
-            updated_at=updated_at,
-            updated_ago=updated_ago,
-        )
+        text_graph = render_text_graph(series=series)
         return format_fenced_body(text_graph, info="text")
 
-    markdown_graph = render_markdown_graph(
-        series=series,
-        updated_at=updated_at,
-        updated_ago=updated_ago,
-    )
+    markdown_graph = render_markdown_graph(series=series)
     if params.view is GraphView.MARKDOWN:
         return markdown_graph
-    if params.view is GraphView.MARKDOWN_CODE:
+    if params.view is GraphView.CODE:
         return format_fenced_body(markdown_graph, info="markdown")
     raise ValueError(f"unsupported graph view: {params.view.value}")
 
