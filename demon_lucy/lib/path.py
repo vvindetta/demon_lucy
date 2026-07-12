@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Optional
 
 
@@ -102,3 +103,19 @@ def find_parent_git_repo(path_value: str) -> Optional[str]:
         if parent_path == current_path:
             return None
         current_path = parent_path
+
+
+def resolve_file_source_path(*, source: str, target_path: str) -> str:
+    if source.startswith("~"):
+        raise ValueError("source path must not use '~'")
+
+    target = canonical_path(target_path)
+    target_dir = os.path.dirname(target)
+    allowed_root = find_parent_git_repo(target) or target_dir
+    source_path = Path(source)
+    if not source_path.is_absolute():
+        source_path = Path(target_dir) / source_path
+    resolved = canonical_path(str(source_path))
+    if not path_is_inside(resolved, allowed_root):
+        raise ValueError("source path is outside the allowed root")
+    return resolved

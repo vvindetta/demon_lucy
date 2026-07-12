@@ -1,13 +1,6 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
-from demon_lucy.lib.path import (
-    canonical_path,
-    find_parent_git_repo,
-    path_is_inside,
-)
+from demon_lucy.lib.path import resolve_file_source_path
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlock
 from demon_lucy.lib.dynamic_blocks.parser import format_fenced_body
 from demon_lucy.modules.graph.data import compile_search_pattern, load_graph_data
@@ -23,28 +16,12 @@ from demon_lucy.modules.graph.render import (
 )
 
 
-def resolve_graph_source_path(*, source: str, target_path: str) -> str:
-    if source.startswith("~"):
-        raise ValueError("graph source must not use '~'")
-
-    target_dir = os.path.dirname(canonical_path(target_path))
-    repo_root = find_parent_git_repo(target_path)
-    allowed_root = repo_root or target_dir
-    source_path = Path(source)
-    if not source_path.is_absolute():
-        source_path = Path(target_dir) / source_path
-    resolved = canonical_path(str(source_path))
-    if not path_is_inside(resolved, allowed_root):
-        raise ValueError("graph source is outside the allowed root")
-    return resolved
-
-
 def render_graph(
     params: GraphParams,
     *,
     target_path: str,
 ) -> str:
-    source_path = resolve_graph_source_path(
+    source_path = resolve_file_source_path(
         source=params.source,
         target_path=target_path,
     )
