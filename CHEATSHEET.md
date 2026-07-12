@@ -190,6 +190,16 @@ blocks. Set `view` inside a block to `ascii` (default), `markdown`, or
 Enum fields by default; `--sys-dynamic-block-hide-allowed-values` hides them in
 newly created blocks.
 
+## Include
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--include` | `str[]` | Render a complete file inside an indented dynamic block: `file`. |
+
+```text
+--include shared/project.md
+```
+
 ## Archive
 
 | Arg | Type | Meaning |

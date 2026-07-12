@@ -125,6 +125,7 @@ def test_main_schedules_observer_and_modules(
         "dropdir",
         "formatter",
         "graph",
+        "include",
         "archive",
         "sys",
         "kdeconnect_sync",

@@ -19,6 +19,7 @@ from demon_lucy.modules.banner import Banner
 from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.formatter import Formatter
 from demon_lucy.modules.graph import Graph
+from demon_lucy.modules.include import Include
 from demon_lucy.modules.git import Git
 from demon_lucy.modules.kdeconnect_sync import KdeconnectSync
 from demon_lucy.modules.linker import Linker
@@ -180,6 +181,7 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
             "linker",
             "formatter",
             "graph",
+            "include",
             "archive",
             "status",
             "sys",
@@ -292,6 +294,7 @@ def select_demon_lucy_modules(
         DropDir,
         Formatter,
         Graph,
+        Include,
         Archive,
         Sys,
         KdeconnectSync,
