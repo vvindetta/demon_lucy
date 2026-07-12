@@ -35,34 +35,53 @@ def _line_offsets(lines: list[str]) -> list[int]:
     return offsets
 
 
-def _parse_params(
+def _parse_header(
     lines: list[str],
     *,
     start: int,
     block_line: int,
-) -> tuple[dict[str, str], int]:
+) -> tuple[dict[str, str], tuple[str, ...], float | None, int]:
     params: dict[str, str] = {}
+    raw_params: list[str] = []
+    updated_timestamp: float | None = None
     index = start
     while index < len(lines):
         content = _without_newline(lines[index])
         if not content:
-            return params, index + 1
+            index += 1
+            continue
+
+        if _END_RE.fullmatch(content) is not None:
+            return params, tuple(raw_params), updated_timestamp, index
 
         match = _PARAM_RE.fullmatch(content)
         if match is None:
-            raise ValueError(
-                f"line {index + 1}: expected '- key: value' or a blank line "
-                f"for block starting at line {block_line}"
-            )
+            legacy_prefix = "updated:"
+            if content.startswith(legacy_prefix):
+                if updated_timestamp is not None:
+                    raise ValueError(f"line {index + 1}: duplicate updated metadata")
+                updated_timestamp = metadata.parse_updated_timestamp(
+                    content[len(legacy_prefix) :].strip()
+                )
+                index += 1
+                continue
+            return params, tuple(raw_params), updated_timestamp, index
 
         key = match.group("key")
+        value = match.group("value").strip()
+        if key == "updated":
+            if updated_timestamp is not None:
+                raise ValueError(f"line {index + 1}: duplicate updated metadata")
+            updated_timestamp = metadata.parse_updated_timestamp(value)
+            index += 1
+            continue
         if key in params:
             raise ValueError(f"line {index + 1}: duplicate parameter '{key}'")
-        value = match.group("value").strip()
         params[key] = value
+        raw_params.append(content)
         index += 1
 
-    raise ValueError(f"line {block_line}: missing blank line after block parameters")
+    raise ValueError(f"line {block_line}: missing end marker")
 
 
 def _find_body(
@@ -111,33 +130,12 @@ def _find_body(
         if closing_fence is not None:
             raise ValueError(f"line {block_line}: unclosed code fence")
         raise ValueError(f"line {block_line}: missing end marker")
-    if index == start or _without_newline(lines[index - 1]):
-        raise ValueError(f"line {index + 1}: expected a blank line before end marker")
-
+    body_end_index = index
+    while body_end_index > start and not _without_newline(lines[body_end_index - 1]):
+        body_end_index -= 1
     body_start = offsets[start]
-    body_end = offsets[index - 1]
+    body_end = offsets[body_end_index]
     return text[body_start:body_end], body_start, body_end, index
-
-
-def _parse_updated_metadata(
-    lines: list[str],
-    *,
-    start: int,
-    block_line: int,
-) -> tuple[float | None, int]:
-    if start >= len(lines):
-        return None, start
-
-    updated_timestamp = metadata.parse_updated_timestamp(
-        _without_newline(lines[start])
-    )
-    if updated_timestamp is None:
-        return None, start
-    if start + 1 >= len(lines) or _without_newline(lines[start + 1]):
-        raise ValueError(
-            f"line {block_line}: expected a blank line after updated metadata"
-        )
-    return updated_timestamp, start + 2
 
 
 def parse_dynamic_blocks(text: str) -> list[DynamicBlock]:
@@ -159,18 +157,10 @@ def parse_dynamic_blocks(text: str) -> list[DynamicBlock]:
 
         arg = begin.group("arg")
         block_line = index + 1
-        params, body_line = _parse_params(
+        content_start = offsets[index + 1]
+        params, raw_params, updated_timestamp, body_line = _parse_header(
             lines,
             start=index + 1,
-            block_line=block_line,
-        )
-        if body_line >= len(lines):
-            raise ValueError(f"line {block_line}: missing body and end marker")
-
-        content_start = offsets[body_line]
-        updated_timestamp, body_line = _parse_updated_metadata(
-            lines,
-            start=body_line,
             block_line=block_line,
         )
         body, body_start, body_end, end_index = _find_body(
@@ -186,9 +176,11 @@ def parse_dynamic_blocks(text: str) -> list[DynamicBlock]:
             DynamicBlock(
                 arg=arg,
                 params=params,
+                raw_params=raw_params,
                 body=body,
                 updated_timestamp=updated_timestamp,
                 content_start=content_start,
+                content_end=offsets[end_index],
                 body_start=body_start,
                 body_end=body_end,
                 line=block_line,
@@ -221,6 +213,22 @@ def format_fenced_body(
     return ticks + info + newline + body_text + ticks + newline
 
 
+def format_dynamic_block_section(
+    *,
+    raw_params: tuple[str, ...],
+    body: str,
+    updated_timestamp: float,
+    newline: str,
+) -> str:
+    header = (
+        f"- updated: {metadata.format_updated_value(updated_timestamp)}",
+        *raw_params,
+    )
+    normalized_body = normalize_newlines(body, newline).rstrip("\r\n")
+    body_text = normalized_body + newline if normalized_body else ""
+    return newline.join(header) + newline * 2 + body_text + newline
+
+
 def format_dynamic_block(
     *,
     arg: str,
@@ -233,10 +241,12 @@ def format_dynamic_block(
 ) -> str:
     if re.fullmatch(_ARG_PATTERN, arg) is None:
         raise ValueError(f"invalid dynamic block arg: {arg}")
-    lines = [f"--- {arg} begin ---"]
+    raw_params: list[str] = []
     for key, raw_value in params.items():
         if re.fullmatch(r"[a-z][a-z0-9-]*", key) is None:
             raise ValueError(f"invalid dynamic block parameter: {key}")
+        if key == "updated":
+            raise ValueError("dynamic block parameter 'updated' is reserved")
         value = enum_value_text(raw_value)
         if "\n" in value or "\r" in value:
             raise ValueError(f"multiline dynamic block parameter: {key}")
@@ -255,13 +265,19 @@ def format_dynamic_block(
             ):
                 raise ValueError(f"invalid dynamic block allowed values: {key}")
             label += f" [{'|'.join(allowed_values)}]"
-        lines.append(f"- {label}: {value}")
+        raw_params.append(f"- {label}: {value}")
 
     now_timestamp = time.time()
     if updated_timestamp is None:
         updated_timestamp = now_timestamp
-    updated_line = metadata.format_updated_line(updated_timestamp)
-    prefix = newline.join(lines) + newline * 2 + updated_line + newline * 2
-    normalized_body = normalize_newlines(body, newline).rstrip("\r\n")
-    body_text = normalized_body + newline if normalized_body else ""
-    return prefix + body_text + newline + f"--- {arg} end ---" + newline
+    section = format_dynamic_block_section(
+        raw_params=tuple(raw_params),
+        body=body,
+        updated_timestamp=updated_timestamp,
+        newline=newline,
+    )
+    return (
+        f"--- {arg} begin ---{newline}"
+        + section
+        + f"--- {arg} end ---{newline}"
+    )

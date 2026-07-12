@@ -9,9 +9,11 @@ from typing import TypeAlias
 class DynamicBlock:
     arg: str
     params: Mapping[str, str]
+    raw_params: tuple[str, ...]
     body: str
     updated_timestamp: float | None
     content_start: int
+    content_end: int
     body_start: int
     body_end: int
     line: int

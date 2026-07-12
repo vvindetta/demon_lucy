@@ -244,10 +244,14 @@ def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
     text = note.read_text(encoding="utf-8")
     assert text.startswith(
         "--- graph-regex begin ---\n"
+        "- updated: "
+    )
+    assert (
         "- source: tasks.md\n"
         "- pattern: #work\n"
         "- period [week|month|year|all]: year\n"
         "- view [ascii|markdown|code]: ascii\n"
+        in text
     )
     assert text.endswith("--- graph-regex end ---\n")
     assert "updated:" in text

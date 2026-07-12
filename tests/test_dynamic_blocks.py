@@ -86,6 +86,7 @@ def test_format_block_shows_and_hides_enum_values() -> None:
 
     assert "- period [week|month|year|all]: year\n" in shown
     assert "- period: year\n" in hidden
+    assert shown.startswith("--- graph begin ---\n- updated: ")
     assert "updated:" in shown
     assert "ago" not in shown
     assert parse_dynamic_blocks(shown)[0].params == {"period": "year"}
@@ -171,7 +172,6 @@ def test_format_and_parse_preserve_crlf() -> None:
     "text",
     [
         "--- graph begin ---\n- source: one\n- source: two\n\n\n--- graph end ---\n",
-        "--- graph begin ---\nsource: one\n\n\n--- graph end ---\n",
         "--- graph begin ---\n- source: one\n\nbody\n\n--- other end ---\n",
         "--- graph end ---\n",
         (
@@ -184,6 +184,61 @@ def test_format_and_parse_preserve_crlf() -> None:
 def test_parse_rejects_ambiguous_structure(text: str) -> None:
     with pytest.raises(ValueError):
         parse_dynamic_blocks(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        (
+            "--- include begin ---\n"
+            "- updated: 2026.07.12 16:35\n"
+            "- source: test.md\n"
+            "--- include end ---\n"
+        ),
+        (
+            "--- include begin ---\n"
+            "\n"
+            "- updated: 2026.07.12 16:35\n"
+            "\n"
+            "- source: test.md\n"
+            "\n\n\n"
+            "--- include end ---\n"
+        ),
+    ],
+)
+def test_parse_accepts_empty_body_with_any_header_spacing(text: str) -> None:
+    block = parse_dynamic_blocks(text)[0]
+
+    assert block.params == {"source": "test.md"}
+    assert block.body == ""
+    assert block.updated_timestamp is not None
+
+
+def test_refresh_normalizes_compact_legacy_metadata_and_empty_body() -> None:
+    text = (
+        "--- include begin ---\n"
+        "- source: test.md\n"
+        "updated: 2026.07.12 16:35\n"
+        "--- include end ---\n"
+    )
+
+    refreshed, changed = refresh_dynamic_blocks(
+        text=text,
+        target_path="note.md",
+        renderers={"include": lambda _block, _path: "\tcontent"},
+    )
+
+    assert changed == 1
+    lines = refreshed.splitlines()
+    assert lines[0] == "--- include begin ---"
+    assert lines[1].startswith("- updated: ")
+    assert lines[2:] == [
+        "- source: test.md",
+        "",
+        "\tcontent",
+        "",
+        "--- include end ---",
+    ]
 
 
 def test_refresh_updates_same_arg_blocks_independently(tmp_path: Path) -> None:

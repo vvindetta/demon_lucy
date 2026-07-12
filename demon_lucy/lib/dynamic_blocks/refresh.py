@@ -5,9 +5,11 @@ import time
 from collections.abc import Mapping
 
 from demon_lucy.lib.logfmt import log_record
-from demon_lucy.lib.dynamic_blocks import metadata
-from demon_lucy.lib.dynamic_blocks.model import DynamicBlockRenderer
-from demon_lucy.lib.dynamic_blocks.parser import parse_dynamic_blocks
+from demon_lucy.lib.dynamic_blocks.model import DynamicBlock, DynamicBlockRenderer
+from demon_lucy.lib.dynamic_blocks.parser import (
+    format_dynamic_block_section,
+    parse_dynamic_blocks,
+)
 from demon_lucy.lib.text_file import detect_newline, normalize_newlines
 
 logger = logging.getLogger(__name__)
@@ -19,13 +21,18 @@ def _normalize_body(body: str, newline: str) -> str:
 
 
 def _format_content(
+    block: DynamicBlock,
     body: str,
     *,
     updated_timestamp: float,
     newline: str,
 ) -> str:
-    updated_line = metadata.format_updated_line(updated_timestamp)
-    return updated_line + newline * 2 + _normalize_body(body, newline)
+    return format_dynamic_block_section(
+        raw_params=block.raw_params,
+        body=body,
+        updated_timestamp=updated_timestamp,
+        newline=newline,
+    )
 
 
 def refresh_dynamic_blocks(
@@ -96,13 +103,14 @@ def refresh_dynamic_blocks(
             else block.updated_timestamp
         )
         replacement = _format_content(
+            block,
             normalized_body,
             updated_timestamp=updated_timestamp,
             newline=newline,
         )
-        if replacement == text[block.content_start : block.body_end]:
+        if replacement == text[block.content_start : block.content_end]:
             continue
-        replacements.append((block.content_start, block.body_end, replacement))
+        replacements.append((block.content_start, block.content_end, replacement))
 
     refreshed = text
     for start, end, replacement in reversed(replacements):
