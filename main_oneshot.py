@@ -14,7 +14,12 @@ from watchdog.events import (
     FileSystemEvent,
 )
 
-from demon_lucy.lib.args.parser import Template, parse_args, setup_config_and_cli_args
+from demon_lucy.lib.args.parser import (
+    ArgTemplate,
+    Template,
+    parse_args,
+    setup_config_and_cli_args,
+)
 from demon_lucy.lib.logfmt import (
     event_paths,
     ignore_summary,
@@ -33,33 +38,32 @@ from demon_lucy.runtime import (
 )
 
 ONESHOT_STARTUP_TEMPLATE: Template = DEMON_LUCY_STARTUP_TEMPLATE + [
-    (
-        "--oneshot-event",
-        str,
-        "modified",
-        "Single event to trigger once. Allowed: created modified moved deleted opened.",
-        False,
+    ArgTemplate(
+        name="--oneshot-event",
+        value_type=str,
+        default="modified",
+        description=(
+            "Single event to trigger once. Allowed: created modified moved "
+            "deleted opened."
+        ),
     ),
-    (
-        "--oneshot-paths",
-        str,
-        [],
-        "One or more file or directory paths to process in one-shot mode.",
-        False,
+    ArgTemplate(
+        name="--oneshot-paths",
+        value_type=str,
+        default=[],
+        description="One or more file or directory paths to process in one-shot mode.",
     ),
-    (
-        "--oneshot-move-src-path",
-        str,
-        "",
-        "Source path for moved event.",
-        False,
+    ArgTemplate(
+        name="--oneshot-move-src-path",
+        value_type=str,
+        default="",
+        description="Source path for moved event.",
     ),
-    (
-        "--oneshot-move-dest-path",
-        str,
-        "",
-        "Destination path for moved event.",
-        False,
+    ArgTemplate(
+        name="--oneshot-move-dest-path",
+        value_type=str,
+        default="",
+        description="Destination path for moved event.",
     ),
 ]
 

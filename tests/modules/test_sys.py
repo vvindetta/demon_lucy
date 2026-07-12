@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
+from demon_lucy.lib.args.parser import ArgTemplate, Template
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.graph import Graph
 from demon_lucy.modules.sys import Sys
@@ -14,8 +15,15 @@ from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 class _StatusLikeModule:
     name = "status"
     template = [
-        ("--status", str, [], "status args", False),
-        ("--status-banner", str, "", "status banner", False),
+        ArgTemplate(
+            name="--status", value_type=str, default=[], description="status args"
+        ),
+        ArgTemplate(
+            name="--status-banner",
+            value_type=str,
+            default="",
+            description="status banner",
+        ),
     ]
 
 
@@ -41,8 +49,15 @@ def test_man_lines_specific_name_and_flag():
     system = System(
         event=FileModifiedEvent("/tmp/x"),
         global_template=[
-            ("--mods", bool, False, "mods help", False),
-            ("--formatter-todo", bool, False, "formatter todo help", False),
+            ArgTemplate(
+                name="--mods", value_type=bool, default=False, description="mods help"
+            ),
+            ArgTemplate(
+                name="--formatter-todo",
+                value_type=bool,
+                default=False,
+                description="formatter todo help",
+            ),
         ],
         modules=[],
     )
@@ -59,9 +74,18 @@ def test_man_lines_module_name_expands_to_module_flags():
     system = System(
         event=FileModifiedEvent("/tmp/x"),
         global_template=[
-            ("--status", str, [], "status args", False),
-            ("--status-banner", str, "", "status banner", False),
-            ("--mods", bool, False, "mods help", False),
+            ArgTemplate(
+                name="--status", value_type=str, default=[], description="status args"
+            ),
+            ArgTemplate(
+                name="--status-banner",
+                value_type=str,
+                default="",
+                description="status banner",
+            ),
+            ArgTemplate(
+                name="--mods", value_type=bool, default=False, description="mods help"
+            ),
         ],
         modules=[_StatusLikeModule()],
     )
@@ -78,8 +102,15 @@ def test_man_lines_sys_keyword_expands_to_system_flags():
     system = System(
         event=FileModifiedEvent("/tmp/x"),
         global_template=[
-            ("--mods", bool, False, "mods help", False),
-            ("--sys-modules-priority", str, [], "module priority help", False),
+            ArgTemplate(
+                name="--mods", value_type=bool, default=False, description="mods help"
+            ),
+            ArgTemplate(
+                name="--sys-modules-priority",
+                value_type=str,
+                default=[],
+                description="module priority help",
+            ),
         ],
         modules=[module],
     )
@@ -141,7 +172,10 @@ def test_man_lines_sys_uses_startup_template_defaults():
             "--mods --help\nbody\n",
             {"mods": True, "help": True},
             {"mods": [1], "help": [1]},
-            [("--mods", bool, False, "", False), ("--help", bool, False, "", False)],
+            [
+                ArgTemplate(name="--mods", value_type=bool, default=False),
+                ArgTemplate(name="--help", value_type=bool, default=False),
+            ],
             [
                 "--- mods+help ---\n",
                 "* --mods: print loaded modules and their priorities\n",
@@ -151,7 +185,14 @@ def test_man_lines_sys_uses_startup_template_defaults():
             "--ping\n",
             {"ping": True},
             {"ping": [1]},
-            [("--ping", bool, False, "Health-check command: prints pong.", False)],
+            [
+                ArgTemplate(
+                    name="--ping",
+                    value_type=bool,
+                    default=False,
+                    description="Health-check command: prints pong.",
+                )
+            ],
             ["++pong!\n"],
         ),
     ],
@@ -161,7 +202,7 @@ def test_apply_inserts_block_for_first_line_flags(
     first_line: str,
     config_patch: dict[str, object],
     arg_lines: dict[str, list[int]],
-    global_template: list[tuple[str, type, object, str, bool]],
+    global_template: Template,
     expected_lines: list[str],
 ):
     note = tmp_path / "note.md"
@@ -203,7 +244,7 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
     )
     system = System(
         event=FileModifiedEvent(str(note)),
-        global_template=[("--man", str, None, "manual", False)],
+        global_template=[ArgTemplate(name="--man", description="manual")],
         modules=[],
     )
 

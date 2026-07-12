@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.parser import ArgTemplate, Template
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
@@ -22,21 +22,21 @@ from demon_lucy.modules.dropdir.actions import (
 )
 
 DROPDIR_TEMPLATE: Template = [
-    (
-        "--dropdir-action",
-        str,
-        [],
-        "Run temporary Lucy flags when a file is moved into a matching drop directory. "
+    ArgTemplate(
+        name="--dropdir-action",
+        value_type=str,
+        default=[],
+        description="Run temporary Lucy flags when a file is moved into a matching drop directory. "
         "Format: selector=flags. Example: --dropdir-action 'cleanup=--archive-pair'",
-        False,
+        required=False,
     ),
-    (
-        "--dropdir-action-delay-milliseconds",
-        int,
-        0,
-        "Delay before running dropdir action after instant move-back (milliseconds). "
+    ArgTemplate(
+        name="--dropdir-action-delay-milliseconds",
+        value_type=int,
+        default=0,
+        description="Delay before running dropdir action after instant move-back (milliseconds). "
         "Example: --dropdir-action-delay-milliseconds 1200",
-        False,
+        required=False,
     ),
 ]
 

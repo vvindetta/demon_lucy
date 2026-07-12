@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
+from demon_lucy.lib.args.parser import ArgTemplate
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -44,33 +45,33 @@ class Cmd(AbstractModule):
     priority: int = 50
 
     template = [
-        (
-            "--cmd",
-            str,
-            [],
-            "Command tokens to execute (nargs='+'). Example: --cmd ls -la",
-            False,
+        ArgTemplate(
+            name="--cmd",
+            value_type=str,
+            default=[],
+            description="Command tokens to execute (nargs='+'). Example: --cmd ls -la",
+            required=False,
         ),
-        (
-            "--cmd-timeout-seconds",
-            int,
-            5,
-            "Timeout in seconds for each command run.",
-            False,
+        ArgTemplate(
+            name="--cmd-timeout-seconds",
+            value_type=int,
+            default=5,
+            description="Timeout in seconds for each command run.",
+            required=False,
         ),
-        (
-            "--cmd-output-max-bytes",
-            int,
-            20000,
-            "Maximum bytes of stdout/stderr written into the file (output is clipped).",
-            False,
+        ArgTemplate(
+            name="--cmd-output-max-bytes",
+            value_type=int,
+            default=20000,
+            description="Maximum bytes of stdout/stderr written into the file (output is clipped).",
+            required=False,
         ),
-        (
-            "--cmd-stream",
-            str,
-            "both",
-            "Output streams to include: both, stdout, stderr, none.",
-            False,
+        ArgTemplate(
+            name="--cmd-stream",
+            value_type=str,
+            default="both",
+            description="Output streams to include: both, stdout, stderr, none.",
+            required=False,
         ),
     ]
 

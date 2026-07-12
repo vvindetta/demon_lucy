@@ -2,6 +2,9 @@ import argparse
 import logging
 import shlex
 import sys
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, List, Tuple
 
 from demon_lucy.lib.logfmt import log_record
@@ -9,24 +12,82 @@ from demon_lucy.lib.logfmt import log_record
 logger = logging.getLogger(__name__)
 
 
-"""
-Template example:
-    [
-        ("--rename", str, None, "Will rename file", False),
-        ("--banner", str, "date", "Draws ASCII banner", False),
-        ("--tags", str, [], "Multi-value argument", False),
-        ("--required", str, None, "Required value", True),
-    ]
-"""
-TemplateItem = Tuple[str, type, Any, str, bool]
-Template = List[TemplateItem]
+@dataclass(frozen=True, kw_only=True)
+class ArgTemplate:
+    name: str
+    value_type: type = str
+    default: Any = None
+    description: str = ""
+    required: bool = False
+    params: tuple["ArgTemplate", ...] = ()
+
+
+Template = List[ArgTemplate]
 
 ArgLines = Dict[str, List[int]]
 
 
-def parse_template_item(item: TemplateItem) -> tuple[str, type, Any, str, bool]:
-    flag, typ, default, desc, required = item
-    return flag, typ, default, desc, bool(required)
+def enum_value_text(value: object) -> str:
+    if isinstance(value, Enum):
+        return str(value.value)
+    return str(value)
+
+
+def template_allowed_values(template: ArgTemplate) -> tuple[str, ...]:
+    try:
+        if not issubclass(template.value_type, Enum):
+            return ()
+    except TypeError:
+        return ()
+    return tuple(enum_value_text(member) for member in template.value_type)
+
+
+def normalize_template_params(
+    values: Mapping[str, object],
+    params: tuple[ArgTemplate, ...],
+) -> dict[str, object]:
+    params_by_name = {param.name: param for param in params}
+    unknown = sorted(set(values) - set(params_by_name))
+    if unknown:
+        raise ValueError(f"unknown argument parameter: {unknown[0]}")
+
+    normalized: dict[str, object] = {}
+    for param in params:
+        raw_value = values.get(param.name, "")
+        value_text = enum_value_text(raw_value).strip()
+        if not value_text:
+            if param.default is not None:
+                raw_value = param.default
+                value_text = enum_value_text(raw_value).strip()
+            elif param.required:
+                raise ValueError(f"missing argument parameter: {param.name}")
+            else:
+                continue
+
+        allowed_values = template_allowed_values(param)
+        if allowed_values:
+            members_by_value = {
+                enum_value_text(member).casefold(): member
+                for member in param.value_type
+            }
+            member = members_by_value.get(value_text.casefold())
+            if member is None:
+                raise ValueError(
+                    f"unsupported argument parameter {param.name}: {value_text}"
+                )
+            normalized[param.name] = member
+            continue
+
+        if param.value_type is str:
+            normalized[param.name] = value_text
+            continue
+        try:
+            normalized[param.name] = param.value_type(value_text)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"invalid argument parameter {param.name}: {value_text}"
+            ) from exc
+    return normalized
 
 
 def flag_to_dest(flag: str) -> str:
@@ -54,30 +115,29 @@ def parse_args(
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
 
     for item in template:
-        flag, typ, default, _desc, _required = parse_template_item(item)
-        dest = flag_to_dest(flag)
-        arg_default = default if include_defaults else argparse.SUPPRESS
+        dest = flag_to_dest(item.name)
+        arg_default = item.default if include_defaults else argparse.SUPPRESS
 
-        if typ is bool:
+        if item.value_type is bool:
             parser.add_argument(
-                flag,
+                item.name,
                 dest=dest,
                 action="store_true",  # --flag -> True
                 default=arg_default,  # missing -> default (usually False)
             )
-        elif isinstance(default, list):
+        elif isinstance(item.default, list):
             parser.add_argument(
-                flag,
+                item.name,
                 dest=dest,
-                type=typ,
+                type=item.value_type,
                 nargs="*",
-                default=list(default) if include_defaults else argparse.SUPPRESS,
+                default=(list(item.default) if include_defaults else argparse.SUPPRESS),
             )
         else:
             parser.add_argument(
-                flag,
+                item.name,
                 dest=dest,
-                type=typ,
+                type=item.value_type,
                 default=arg_default,
             )
 
@@ -160,8 +220,7 @@ def setup_config_and_cli_args(
         return known_startup_args, unknown_startup_args
     defaults_by_key: Dict[str, Any] = {}
     for item in template:
-        flag, _typ, default, _desc, _required = parse_template_item(item)
-        defaults_by_key[flag_to_dest(flag)] = default
+        defaults_by_key[flag_to_dest(item.name)] = item.default
 
     # 2. Parse config-file args
     try:

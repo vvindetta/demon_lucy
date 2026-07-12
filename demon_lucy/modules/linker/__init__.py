@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.parser import ArgTemplate, Template
 from demon_lucy.lib.path import find_parent_with
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
@@ -23,33 +23,33 @@ class Linker(AbstractModule):
     priority: int = 22
 
     template: Template = [
-        (
-            "--linker-root",
-            bool,
-            False,
-            "Create symlink in repository root with the same filename as current note.",
-            False,
+        ArgTemplate(
+            name="--linker-root",
+            value_type=bool,
+            default=False,
+            description="Create symlink in repository root with the same filename as current note.",
+            required=False,
         ),
-        (
-            "--linker-auto-clean-root-links",
-            bool,
-            False,
-            "If enabled and --linker-root is not set, delete all symlinks from repository root.",
-            False,
+        ArgTemplate(
+            name="--linker-auto-clean-root-links",
+            value_type=bool,
+            default=False,
+            description="If enabled and --linker-root is not set, delete all symlinks from repository root.",
+            required=False,
         ),
-        (
-            "--linker-ignore",
-            str,
-            [],
-            "Ignore files/links for linker actions. Supports basename or absolute/repo-relative path.",
-            False,
+        ArgTemplate(
+            name="--linker-ignore",
+            value_type=str,
+            default=[],
+            description="Ignore files/links for linker actions. Supports basename or absolute/repo-relative path.",
+            required=False,
         ),
-        (
-            "--linker-auto-update-md-links",
-            bool,
-            False,
-            "If enabled, keep markdown links and target files in sync both ways: moved files update links, edited links move target files.",
-            False,
+        ArgTemplate(
+            name="--linker-auto-update-md-links",
+            value_type=bool,
+            default=False,
+            description="If enabled, keep markdown links and target files in sync both ways: moved files update links, edited links move target files.",
+            required=False,
         ),
     ]
 

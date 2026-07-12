@@ -6,7 +6,12 @@ import shlex
 from typing import Optional
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import Template, is_valid_flag_token, parse_args
+from demon_lucy.lib.args.parser import (
+    ArgTemplate,
+    Template,
+    is_valid_flag_token,
+    parse_args,
+)
 from demon_lucy.lib.date_sections import complete_partial_date_section_headers
 from demon_lucy.lib.text_file import detect_newline
 from demon_lucy.lib.dynamic_blocks.parser import parse_dynamic_blocks
@@ -25,26 +30,26 @@ class Formatter(AbstractModule):
     _todo_pattern = re.compile(r"^(\s*)-\s+(?!\[[ xX]\])(.+)$")
 
     template: Template = [
-        (
-            "--formatter-todo",
-            bool,
-            False,
-            "Enable TODO formatting: converts list items like '- task' into unchecked checkboxes '- [ ] task' in the current file.",
-            False,
+        ArgTemplate(
+            name="--formatter-todo",
+            value_type=bool,
+            default=False,
+            description="Enable TODO formatting: converts list items like '- task' into unchecked checkboxes '- [ ] task' in the current file.",
+            required=False,
         ),
-        (
-            "--formatter-blank",
-            str,
-            [],
-            "Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
-            False,
+        ArgTemplate(
+            name="--formatter-blank",
+            value_type=str,
+            default=[],
+            description="Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
+            required=False,
         ),
-        (
-            "--formatter-date",
-            bool,
-            False,
-            "Complete consecutive archive date headers written as '--- day' from the previous full date.",
-            False,
+        ArgTemplate(
+            name="--formatter-date",
+            value_type=bool,
+            default=False,
+            description="Complete consecutive archive date headers written as '--- day' from the previous full date.",
+            required=False,
         ),
     ]
 

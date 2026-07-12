@@ -4,7 +4,7 @@ import logging
 import shlex
 from typing import Optional
 
-from demon_lucy.lib.args.parser import Template, is_valid_flag_token
+from demon_lucy.lib.args.parser import is_valid_flag_token
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.text_file import detect_newline, write_text_atomic
@@ -15,8 +15,15 @@ from demon_lucy.modules.abstract_module import (
     IgnoreMap,
     System,
 )
-from demon_lucy.modules.graph.params import graph_params_from_command
-from demon_lucy.modules.graph.dynamic_block import render_graph, render_graph_dynamic_block
+from demon_lucy.modules.graph.params import (
+    GRAPH_TEMPLATE,
+    graph_arg_template,
+    graph_params_from_command,
+)
+from demon_lucy.modules.graph.dynamic_block import (
+    render_graph,
+    render_graph_dynamic_block,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,22 +38,7 @@ class Graph(AbstractModule):
         "graph-regex": render_graph_dynamic_block,
     }
 
-    template: Template = [
-        (
-            "--graph",
-            str,
-            [],
-            "Build a text graph for a literal search in a file. Format: --graph file pattern [week|month|year|all]. Default period: year.",
-            False,
-        ),
-        (
-            "--graph-regex",
-            str,
-            [],
-            "Build a text graph for a regular expression search in a file. Format: --graph-regex file regex [week|month|year|all]. Default period: year.",
-            False,
-        ),
-    ]
+    template = GRAPH_TEMPLATE
 
     @staticmethod
     def _commands_from_line(line: str) -> list[GraphCommand]:
@@ -90,6 +82,7 @@ class Graph(AbstractModule):
         *,
         line: str,
         target_path: str,
+        show_allowed_values: bool,
         newline: str,
     ) -> list[str]:
         commands = self._commands_from_line(line)
@@ -107,6 +100,8 @@ class Graph(AbstractModule):
                         "view": params.view,
                     },
                     body=body,
+                    arg_template=graph_arg_template(params.arg),
+                    show_allowed_values=show_allowed_values,
                     newline=newline,
                 )
             )
@@ -136,6 +131,7 @@ class Graph(AbstractModule):
 
         lines = original_text.splitlines(keepends=True)
         newline = detect_newline(original_text)
+        show_allowed_values = not ctx.config["sys_dynamic_block_hide_allowed_values"]
         rendered_commands = 0
         for line_number in candidate_lines:
             index = line_number - 1
@@ -145,6 +141,7 @@ class Graph(AbstractModule):
                 blocks = self._blocks_from_line(
                     line=lines[index],
                     target_path=ctx.path,
+                    show_allowed_values=show_allowed_values,
                     newline=newline,
                 )
             except (OSError, ValueError) as exc:

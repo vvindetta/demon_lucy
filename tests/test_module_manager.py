@@ -6,6 +6,7 @@ import pytest
 from watchdog.events import FileModifiedEvent, FileOpenedEvent
 
 import demon_lucy.module_manager as module_manager_mod
+from demon_lucy.lib.args.parser import ArgTemplate
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.lib.dynamic_blocks.parser import format_dynamic_block
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
@@ -53,7 +54,13 @@ class _ModC(AbstractModule):
 class _RequiredMod(AbstractModule):
     name = "required_mod"
     priority = 50
-    template = [("--required-path", str, None, "required value", True)]
+    template = [
+        ArgTemplate(
+            name="--required-path",
+            description="required value",
+            required=True,
+        )
+    ]
 
     def __init__(self):
         self.calls = 0
@@ -66,7 +73,9 @@ class _RequiredMod(AbstractModule):
 class _ListMod(AbstractModule):
     name = "list_mod"
     priority = 60
-    template = [("--items", str, [], "items", False)]
+    template = [
+        ArgTemplate(name="--items", value_type=str, default=[], description="items")
+    ]
 
     def __init__(self):
         self.seen_config = None
@@ -120,7 +129,7 @@ def test_module_manager_priority_flag_uses_sys_prefix():
         args=[],
         system_config=_SYSTEM_CONFIG,
     )
-    flags = [item[0] for item in manager.template]
+    flags = [item.name for item in manager.template]
 
     assert "--sys-modules-priority" in flags
     assert "--modules-priority" not in flags
@@ -134,7 +143,7 @@ def test_module_manager_includes_startup_template_flags():
         args=[],
         system_config=_SYSTEM_CONFIG,
     )
-    flags = [item[0] for item in manager.template]
+    flags = [item.name for item in manager.template]
 
     assert "--sys-notification-provider" in flags
     assert "--sys-opened-event-cooldown-seconds" in flags
@@ -301,9 +310,7 @@ def test_run_refreshes_dynamic_blocks_after_module_pipeline(tmp_path: Path):
     )
 
     assert ignore == {str(note.resolve()): 1}
-    assert "rendered one\n\n--- example end ---" in note.read_text(
-        encoding="utf-8"
-    )
+    assert "rendered one\n\n--- example end ---" in note.read_text(encoding="utf-8")
 
 
 def test_run_does_not_refresh_dynamic_blocks_on_opened(tmp_path: Path):

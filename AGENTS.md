@@ -24,8 +24,9 @@ watchdog file events.
 
 ## Core Helpers
 
-- `demon_lucy/lib/args/parser.py`: typed flag templates, argparse setup,
-  config-file parsing, per-note flag parsing, and config/CLI merge helpers.
+- `demon_lucy/lib/args/parser.py`: recursive `ArgTemplate` definitions,
+  argparse setup, nested parameter normalization, config-file parsing,
+  per-note flag parsing, and config/CLI merge helpers.
 - `demon_lucy/lib/args/line_edit.py`: reusable arg-segment helpers and flag
   deletion from note lines.
 - `demon_lucy/lib/path.py`: path normalization, safe `path_is_inside`
@@ -41,8 +42,9 @@ watchdog file events.
   timestamp formatting, and relative age text.
 - `demon_lucy/lib/text_file.py`: newline detection/normalization and atomic
   UTF-8 text replacement with mode preservation.
-- `demon_lucy/lib/dynamic_blocks/`: parsing, serialization, and pure-text refresh of
-  `--- <arg> begin ---` generated blocks.
+- `demon_lucy/lib/dynamic_blocks/`: parsing, serialization, and pure-text
+  refresh of `--- <arg> begin ---` generated blocks; parameter schemas come
+  from the owning module's main `ArgTemplate`.
 - `demon_lucy/migrations/`: class-based config migration modules. `__init__.py`
   owns the sync `Migration` interface, config-file migration methods using
   `lib.args.line_edit` arg-segment helpers, and the `MIGRATIONS` registry.
@@ -89,9 +91,10 @@ watchdog file events.
 - `modules/formatter.py`: TODO checkbox formatting, archive date completion,
   and top/bottom blank padding; dynamic blocks are left untouched.
 - `modules/graph/`: dynamic text/Markdown graph blocks for word/regex frequency.
-  `__init__.py` owns command-to-block conversion; `params.py` owns shared
-  command/block normalization; `dynamic_block.py` owns source safety and renderer
-  registration; `data.py` collects dated/Git data; `render.py` builds output.
+  `__init__.py` owns command-to-block conversion; `params.py` owns the main
+  recursive Graph template and shared command/block normalization;
+  `dynamic_block.py` owns source safety and renderer registration; `data.py`
+  collects dated/Git data; `render.py` builds output.
 - `modules/archive/`: archives stale or forced source note content through
   pair/local/global routes. `module.py` owns orchestration and event handlers,
   `requests.py` builds `ArchiveRequest` objects from already-parsed config/note
@@ -168,11 +171,17 @@ watchdog file events.
 
 # Args
 
+`ArgTemplate` is keyword-only. Always initialize it with full field names such
+as `name=`, `value_type=`, `default=`, `description=`, and `required=`; never
+use positional arguments.
+
 ## Hard Rules
 
 - Do not add subcommands like `--git pull hours 2`.
 - One flag must have one concrete type: `bool`, `str`, `int`, `float`, or a real
   `str[]`.
+- Nested `ArgTemplate.params` may use `str`-backed `Enum` types for fixed
+  domain values. Do not use Enum as the top-level type of a CLI/config flag.
 - Do not shorten words just to save a few letters: write `hours`.
 - `src` and `dest` may be kept for move/source/destination paths.
 - `bool` currently works as `store_true`; `true`/`false` values after the flag are not supported.

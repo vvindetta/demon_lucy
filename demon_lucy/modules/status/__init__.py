@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.parser import ArgTemplate, Template
 from demon_lucy.lib.git_state import (
     read_sync_success_timestamp,
     repo_process_lock_is_active,
@@ -57,89 +57,89 @@ class Status(
     _SECONDS_TICK_INTERVAL_SECONDS = 1.0
 
     template: Template = [
-        (
-            "--status",
-            str,
-            [],
-            "Filename status tokens. Examples: --status date OR --status time date OR --status time-with-seconds OR --status git OR --status git update",
-            False,
+        ArgTemplate(
+            name="--status",
+            value_type=str,
+            default=[],
+            description="Filename status tokens. Examples: --status date OR --status time date OR --status time-with-seconds OR --status git OR --status git update",
+            required=False,
         ),
-        (
-            "--status-banner",
-            str,
-            "",
-            'Animated filename banner text. Example: --status-banner "Work sentence"',
-            False,
+        ArgTemplate(
+            name="--status-banner",
+            value_type=str,
+            default="",
+            description='Animated filename banner text. Example: --status-banner "Work sentence"',
+            required=False,
         ),
-        (
-            "--status-banner-speed-milliseconds",
-            int,
-            500,
-            "Animated banner speed in milliseconds per step. Default: 500",
-            False,
+        ArgTemplate(
+            name="--status-banner-speed-milliseconds",
+            value_type=int,
+            default=500,
+            description="Animated banner speed in milliseconds per step. Default: 500",
+            required=False,
         ),
-        (
-            "--status-banner-max-characters",
-            int,
-            0,
-            "Max visible banner width. 0 = unlimited. Default: 0",
-            False,
+        ArgTemplate(
+            name="--status-banner-max-characters",
+            value_type=int,
+            default=0,
+            description="Max visible banner width. 0 = unlimited. Default: 0",
+            required=False,
         ),
-        (
-            "--status-prefix",
-            str,
-            "",
-            "Prefix text inserted at the very beginning of the filename status. Example: --status-prefix 'Inbox: '",
-            False,
+        ArgTemplate(
+            name="--status-prefix",
+            value_type=str,
+            default="",
+            description="Prefix text inserted at the very beginning of the filename status. Example: --status-prefix 'Inbox: '",
+            required=False,
         ),
-        (
-            "--status-animation",
-            str,
-            [],
-            'Animation frames for filename status. Example: --status-animation "loading" "loading." "loading.."',
-            False,
+        ArgTemplate(
+            name="--status-animation",
+            value_type=str,
+            default=[],
+            description='Animation frames for filename status. Example: --status-animation "loading" "loading." "loading.."',
+            required=False,
         ),
-        (
-            "--status-animation-speed-milliseconds",
-            int,
-            500,
-            "Animation frame switch speed in milliseconds. Default: 500",
-            False,
+        ArgTemplate(
+            name="--status-animation-speed-milliseconds",
+            value_type=int,
+            default=500,
+            description="Animation frame switch speed in milliseconds. Default: 500",
+            required=False,
         ),
-        (
-            "--status-tick-interval-seconds",
-            float,
-            60.0,
-            "Base ticker interval for status updates in seconds. Default: 60.0",
-            False,
+        ArgTemplate(
+            name="--status-tick-interval-seconds",
+            value_type=float,
+            default=60.0,
+            description="Base ticker interval for status updates in seconds. Default: 60.0",
+            required=False,
         ),
-        (
-            "--status-git-fast-tick-interval-seconds",
-            float,
-            0.5,
-            "Fast ticker interval for --status git update in seconds. Default: 0.5",
-            False,
+        ArgTemplate(
+            name="--status-git-fast-tick-interval-seconds",
+            value_type=float,
+            default=0.5,
+            description="Fast ticker interval for --status git update in seconds. Default: 0.5",
+            required=False,
         ),
-        (
-            "--status-git-fast-tick-window-seconds",
-            float,
-            120.0,
-            "Duration of fast ticker mode after git update activity in seconds. Default: 120.0",
-            False,
+        ArgTemplate(
+            name="--status-git-fast-tick-window-seconds",
+            value_type=float,
+            default=120.0,
+            description="Duration of fast ticker mode after git update activity in seconds. Default: 120.0",
+            required=False,
         ),
-        (
-            "--status-git-sync-prefix-cycle-pause-seconds",
-            float,
-            1.0,
-            "Pause between git-sync prefix animation cycles in seconds. Default: 1.0",
-            False,
+        ArgTemplate(
+            name="--status-git-sync-prefix-cycle-pause-seconds",
+            value_type=float,
+            default=1.0,
+            description="Pause between git-sync prefix animation cycles in seconds. Default: 1.0",
+            required=False,
         ),
-        (
-            "--status-opened-events",
-            bool,
-            False,
-            "Enable status updates for opened events.",
-            False,
+        ArgTemplate(
+            name="--status-opened-events",
+            value_type=bool,
+            default=False,
+            description="Enable status updates for opened events.",
+            required=False,
         ),
     ]
 

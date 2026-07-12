@@ -17,6 +17,9 @@ from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.graph import Graph
 from demon_lucy.modules.graph import dynamic_block as graph_dynamic_block
 from demon_lucy.modules.graph.params import (
+    GraphPeriod,
+    GraphView,
+    graph_arg_template,
     graph_params_from_command,
     normalize_graph_params,
 )
@@ -41,12 +44,13 @@ def _fixed_source_age(monkeypatch) -> None:
     )
 
 
-def _ctx_for(path: Path) -> Context:
+def _ctx_for(path: Path, *, hide_allowed_values: bool = False) -> Context:
     return Context(
         path=str(path),
         config={
             "graph": [],
             "graph_regex": [],
+            "sys_dynamic_block_hide_allowed_values": hide_allowed_values,
         },
         arg_lines={},
     )
@@ -66,9 +70,10 @@ def _run_graph(
     *,
     graph_lines: list[int] | None = None,
     regex_lines: list[int] | None = None,
+    hide_allowed_values: bool = False,
 ) -> dict[str, int] | None:
     module = Graph()
-    ctx = _ctx_for(note)
+    ctx = _ctx_for(note, hide_allowed_values=hide_allowed_values)
     if graph_lines:
         ctx.arg_lines["graph"] = graph_lines
     if regex_lines:
@@ -81,8 +86,7 @@ def _text_body(rows: list[str]) -> str:
         "last updated: 2026-07-12 14:35\n"
         "updated ago: 12 minutes ago\n"
         "\n"
-        "time        count  graph\n"
-        + "".join(rows)
+        "time        count  graph\n" + "".join(rows)
     )
 
 
@@ -113,7 +117,7 @@ def test_graph_command_and_block_use_the_same_normalized_params() -> None:
     )
 
     assert from_command == from_block
-    assert from_command.view == "ascii"
+    assert from_command.view is GraphView.ASCII
 
 
 def test_graph_command_and_block_default_to_year() -> None:
@@ -129,8 +133,8 @@ def test_graph_command_and_block_default_to_year() -> None:
         },
     )
 
-    assert from_command.period == "year"
-    assert from_block.period == "year"
+    assert from_command.period is GraphPeriod.YEAR
+    assert from_block.period is GraphPeriod.YEAR
 
 
 def test_graph_literal_command_creates_dynamic_text_block(tmp_path: Path) -> None:
@@ -180,7 +184,23 @@ def test_graph_literal_command_creates_dynamic_text_block(tmp_path: Path) -> Non
             ),
             info="text",
         ),
+        arg_template=graph_arg_template("graph"),
     )
+
+
+def test_graph_command_can_hide_parameter_allowed_values(tmp_path: Path) -> None:
+    archive = tmp_path / "past.md"
+    archive.write_text("--- 01.01.2026\nsleep\n", encoding="utf-8")
+    note = tmp_path / "graph.md"
+    note.write_text("--graph past.md sleep all\n", encoding="utf-8")
+
+    changed = _run_graph(note, graph_lines=[1], hide_allowed_values=True)
+
+    assert changed == {str(note): 1}
+    text = note.read_text(encoding="utf-8")
+    assert "- period: all\n" in text
+    assert "- view: ascii\n" in text
+    assert "[week|month|year|all]" not in text
 
 
 def test_manager_initial_graph_command_writes_once(tmp_path: Path) -> None:
@@ -218,8 +238,7 @@ def test_graph_date_sections_allow_comments_and_ranges(tmp_path: Path) -> None:
     assert "--- graph begin ---\n" in text
     assert "2026-01-02      0  |\n" in text
     assert (
-        "2026-01-10      2  "
-        "[######][######][######][######][######][######]\n"
+        "2026-01-10      2  [######][######][######][######][######][######]\n"
     ) in text
     assert "2026-01-11      0  |\n" in text
     assert "2026-01-14      1  [###][###][###][###][###][###]\n" in text
@@ -249,13 +268,13 @@ def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
         "--- graph-regex begin ---\n"
         "- source: tasks.md\n"
         "- pattern: #work\n"
-        "- period: year\n"
+        "- period [week|month|year|all]: year\n"
+        "- view [ascii|markdown|markdown-code]: ascii\n"
     )
     assert text.endswith("--- graph-regex end ---\n")
     assert "2026-01      2  [####][####][####][####][####][####]\n" in text
     assert (
-        "2026-04      3  "
-        "[######][######][######][######][######][######]\n"
+        "2026-04      3  [######][######][######][######][######][######]\n"
     ) in text
 
 
@@ -288,16 +307,12 @@ def test_graph_failed_initial_render_keeps_command(
 def test_multiple_graph_commands_create_independent_blocks(tmp_path: Path) -> None:
     archive = tmp_path / "past.md"
     archive.write_text(
-        "--- 01.01.2026\n"
-        "sleep work work\n"
-        "--- 02.01.2026\n"
-        "sleep\n",
+        "--- 01.01.2026\nsleep work work\n--- 02.01.2026\nsleep\n",
         encoding="utf-8",
     )
     note = tmp_path / "graphs.md"
     note.write_text(
-        "--graph past.md sleep all\n"
-        "--graph past.md work all\n",
+        "--graph past.md sleep all\n--graph past.md work all\n",
         encoding="utf-8",
     )
 
@@ -487,6 +502,5 @@ def test_graph_falls_back_to_git_history_added_lines(tmp_path: Path) -> None:
     assert "2026-01-01      1  [###][###][###][###][###][###]\n" in block.body
     assert "2026-01-02      0  |\n" in block.body
     assert (
-        "2026-01-03      2  "
-        "[######][######][######][######][######][######]\n"
+        "2026-01-03      2  [######][######][######][######][######][######]\n"
     ) in block.body

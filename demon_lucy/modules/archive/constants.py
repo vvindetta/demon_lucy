@@ -1,111 +1,111 @@
 from __future__ import annotations
 
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.parser import ArgTemplate, Template
 
 TEXT_MODE = "text"
 FILE_MODE = "file"
 OUTPUT_MODES = {TEXT_MODE, FILE_MODE}
 
 ARCHIVE_TEMPLATE: Template = [
-    (
-        "--archive",
-        bool,
-        False,
-        "Force archive using the first available route: configured pair, local .archive, then global destination.",
-        False,
+    ArgTemplate(
+        name="--archive",
+        value_type=bool,
+        default=False,
+        description="Force archive using the first available route: configured pair, local .archive, then global destination.",
+        required=False,
     ),
-    (
-        "--archive-pair",
-        str,
-        [],
-        "Force archive through the configured --archive-auto-pair rule. "
+    ArgTemplate(
+        name="--archive-pair",
+        value_type=str,
+        default=[],
+        description="Force archive through the configured --archive-auto-pair rule. "
         "Optional value: text or file.",
-        False,
+        required=False,
     ),
-    (
-        "--archive-local",
-        str,
-        [],
-        "Force archive the current file beside itself. Optional value: text or file.",
-        False,
+    ArgTemplate(
+        name="--archive-local",
+        value_type=str,
+        default=[],
+        description="Force archive the current file beside itself. Optional value: text or file.",
+        required=False,
     ),
-    (
-        "--archive-global",
-        str,
-        [],
-        "Force archive the current file into the global archive destination. "
+    ArgTemplate(
+        name="--archive-global",
+        value_type=str,
+        default=[],
+        description="Force archive the current file into the global archive destination. "
         "Optional value: text or file.",
-        False,
+        required=False,
     ),
-    (
-        "--archive-auto-pair",
-        str,
-        [],
-        "Automatic pair archive rule: <src> <dest> [idle_hours] [text|file]. "
+    ArgTemplate(
+        name="--archive-auto-pair",
+        value_type=str,
+        default=[],
+        description="Automatic pair archive rule: <src> <dest> [idle_hours] [text|file]. "
         "In text mode dest is an archive file; in file mode dest is a directory.",
-        False,
+        required=False,
     ),
-    (
-        "--archive-auto-local",
-        str,
-        [],
-        "Automatic local archive rule: <src> [idle_hours] [text|file]. "
+    ArgTemplate(
+        name="--archive-auto-local",
+        value_type=str,
+        default=[],
+        description="Automatic local archive rule: <src> [idle_hours] [text|file]. "
         "Text mode appends beside the source; file mode writes into .archive/.",
-        False,
+        required=False,
     ),
-    (
-        "--archive-auto-global",
-        str,
-        [],
-        "Automatic global archive rule: <src> [idle_hours] [text|file]. "
+    ArgTemplate(
+        name="--archive-auto-global",
+        value_type=str,
+        default=[],
+        description="Automatic global archive rule: <src> [idle_hours] [text|file]. "
         "Uses --archive-global-dest-path, or the Git repo root fallback.",
-        False,
+        required=False,
     ),
-    (
-        "--archive-default-mode",
-        str,
-        TEXT_MODE,
-        "Default archive output mode for rules without explicit mode: text or file.",
-        False,
+    ArgTemplate(
+        name="--archive-default-mode",
+        value_type=str,
+        default=TEXT_MODE,
+        description="Default archive output mode for rules without explicit mode: text or file.",
+        required=False,
     ),
-    (
-        "--archive-global-dest-path",
-        str,
-        "",
-        "Global archive destination. In text mode this is a file path; in file "
+    ArgTemplate(
+        name="--archive-global-dest-path",
+        value_type=str,
+        default="",
+        description="Global archive destination. In text mode this is a file path; in file "
         "mode this is a directory path. If empty, text mode uses archive.md at "
         "the Git repo root, and file mode uses .archive/ at the Git repo root.",
-        False,
+        required=False,
     ),
-    (
-        "--archive-idle-hours",
-        float,
-        12.0,
-        "Archive source file when its last modification age is >= this many hours. Default: 12",
-        False,
+    ArgTemplate(
+        name="--archive-idle-hours",
+        value_type=float,
+        default=12.0,
+        description="Archive source file when its last modification age is >= this many hours. Default: 12",
+        required=False,
     ),
-    (
-        "--archive-date-prefix",
-        str,
-        "--- ",
-        "Text inserted before archive date in text-mode history header. The date "
+    ArgTemplate(
+        name="--archive-date-prefix",
+        value_type=str,
+        default="--- ",
+        description="Text inserted before archive date in text-mode history header. The date "
         "uses the source file's latest Git commit when available, otherwise "
         "today's date. Default: '--- '.",
-        False,
+        required=False,
     ),
-    (
-        "--archive-date-suffix",
-        str,
-        "",
-        "Text appended right after archive date in text-mode history header.",
-        False,
+    ArgTemplate(
+        name="--archive-date-suffix",
+        value_type=str,
+        default="",
+        description="Text appended right after archive date in text-mode history header.",
+        required=False,
     ),
-    (
-        "--archive-force-filesystem-mtime",
-        bool,
-        False,
-        "Force OS filesystem mtime checks even inside Git repositories.",
-        False,
+    ArgTemplate(
+        name="--archive-force-filesystem-mtime",
+        value_type=bool,
+        default=False,
+        description="Force OS filesystem mtime checks even inside Git repositories.",
+        required=False,
     ),
 ]
 

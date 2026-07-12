@@ -5,8 +5,8 @@ from typing import Any, List, Optional
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.parser import (
+    ArgTemplate,
     flag_to_dest,
-    parse_template_item,
 )
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.modules.abstract_module import (
@@ -22,36 +22,46 @@ class Sys(AbstractModule):
     priority: int = 2
 
     template = [
-        ("--mods", bool, False, "Print loaded modules and their priorities.", False),
-        (
-            "--ping",
-            bool,
-            False,
-            "Health-check: sends notification and writes pong.",
-            False,
+        ArgTemplate(
+            name="--mods",
+            value_type=bool,
+            default=False,
+            description="Print loaded modules and their priorities.",
         ),
-        (
-            "--config",
-            bool,
-            False,
-            "Print config values that differ from defaults (and where they were set).",
-            False,
+        ArgTemplate(
+            name="--ping",
+            value_type=bool,
+            default=False,
+            description="Health-check: sends notification and writes pong.",
+            required=False,
         ),
-        (
-            "--man",
-            str,
-            [],
-            "Print one argument with description (example: --man mods or --man --mods).",
-            False,
+        ArgTemplate(
+            name="--config",
+            value_type=bool,
+            default=False,
+            description="Print config values that differ from defaults (and where they were set).",
+            required=False,
         ),
-        (
-            "--help",
-            bool,
-            False,
-            "Print SysInfo commands help: --mods, --man, --config.",
-            False,
+        ArgTemplate(
+            name="--man",
+            value_type=str,
+            default=[],
+            description="Print one argument with description (example: --man mods or --man --mods).",
+            required=False,
         ),
-        ("--event", bool, False, "Print current filesystem event details.", False),
+        ArgTemplate(
+            name="--help",
+            value_type=bool,
+            default=False,
+            description="Print SysInfo commands help: --mods, --man, --config.",
+            required=False,
+        ),
+        ArgTemplate(
+            name="--event",
+            value_type=bool,
+            default=False,
+            description="Print current filesystem event details.",
+        ),
     ]
 
     @staticmethod
@@ -61,8 +71,7 @@ class Sys(AbstractModule):
     def _defaults_map(self, system: System) -> dict[str, Any]:
         defaults: dict[str, Any] = {}
         for item in system.global_template:
-            flag, _typ, default, _desc, _required = parse_template_item(item)
-            defaults[flag_to_dest(flag)] = default
+            defaults[flag_to_dest(item.name)] = item.default
         return defaults
 
     @staticmethod
@@ -140,11 +149,12 @@ class Sys(AbstractModule):
             module_flags: set[str] = set()
 
             for template_item in getattr(module, "template", []) or []:
-                flag, _typ, _default, _desc, _required = parse_template_item(
-                    template_item
+                module_flags.add(
+                    self._normalize_arg_name(template_item.name.lstrip("-"))
                 )
-                module_flags.add(self._normalize_arg_name(flag.lstrip("-")))
-                module_flags.add(self._normalize_arg_name(flag_to_dest(flag)))
+                module_flags.add(
+                    self._normalize_arg_name(flag_to_dest(template_item.name))
+                )
 
             for key in module_keys:
                 mapping.setdefault(key, set()).update(module_flags)
@@ -162,12 +172,11 @@ class Sys(AbstractModule):
     ) -> set[str]:
         flags: set[str] = set()
         for template_item in system.global_template:
-            flag, _typ, _default, _desc, _required = parse_template_item(template_item)
-            normalized_flag = self._normalize_arg_name(flag.lstrip("-"))
+            normalized_flag = self._normalize_arg_name(template_item.name.lstrip("-"))
             if not normalized_flag.startswith("sys-"):
                 continue
             flags.add(normalized_flag)
-            flags.add(self._normalize_arg_name(flag_to_dest(flag)))
+            flags.add(self._normalize_arg_name(flag_to_dest(template_item.name)))
         for key in sorted((config or {}).keys()):
             if not key.startswith("sys_"):
                 continue
@@ -179,16 +188,15 @@ class Sys(AbstractModule):
         self,
         system: System,
         config: dict[str, Any] | None = None,
-    ) -> list[tuple[str, type, Any, str, bool]]:
-        items: list[tuple[str, type, Any, str, bool]] = []
+    ) -> list[ArgTemplate]:
+        items: list[ArgTemplate] = []
         seen_destinations: set[str] = set()
         for template_item in system.global_template:
-            flag, typ, default, desc, required = parse_template_item(template_item)
-            destination = flag_to_dest(flag)
+            destination = flag_to_dest(template_item.name)
             if destination in seen_destinations:
                 continue
             seen_destinations.add(destination)
-            items.append((flag, typ, default, desc, required))
+            items.append(template_item)
         for key, value in sorted((config or {}).items()):
             if not key.startswith("sys_"):
                 continue
@@ -196,12 +204,11 @@ class Sys(AbstractModule):
                 continue
             seen_destinations.add(key)
             items.append(
-                (
-                    self._flag_from_config_key(key),
-                    self._type_from_config_value(value),
-                    None,
-                    "System arg from runtime config.",
-                    False,
+                ArgTemplate(
+                    name=self._flag_from_config_key(key),
+                    value_type=self._type_from_config_value(value),
+                    default=None,
+                    description="System arg from runtime config.",
                 )
             )
         return items
@@ -222,16 +229,15 @@ class Sys(AbstractModule):
             requested_set.update(module_flags_map.get(request_name, set()))
         matched: List[str] = []
 
-        for flag, typ, default, desc, _required in self._manual_template_items(
-            system, config
-        ):
-            flag_name = flag.lstrip("-").lower()
-            dest_name = flag_to_dest(flag).lower()
+        for item in self._manual_template_items(system, config):
+            flag_name = item.name.lstrip("-").lower()
+            dest_name = flag_to_dest(item.name).lower()
             if flag_name in requested_set or dest_name in requested_set:
-                type_name = self._type_name(typ)
-                description = (desc or "").strip()
+                type_name = self._type_name(item.value_type)
+                description = (item.description or "").strip()
                 matched.append(
-                    f"* {flag}: {description} (type={type_name}, default={default})\n"
+                    f"* {item.name}: {description} "
+                    f"(type={type_name}, default={item.default})\n"
                 )
 
         if matched:

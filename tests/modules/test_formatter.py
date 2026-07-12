@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileMovedEvent
 
+from demon_lucy.lib.args.parser import ArgTemplate
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.formatter import Formatter
 from demon_lucy.lib.dynamic_blocks.parser import (
@@ -332,7 +333,8 @@ def test_blank_up_keeps_first_line_with_flags_in_place(tmp_path: Path):
             "formatter_blank": ["up"],
         },
         arg_lines={},
-        global_template=module.template + [("--archive-pair", str, [], "", False)],
+        global_template=module.template
+        + [ArgTemplate(name="--archive-pair", value_type=str, default=[])],
     )
 
     assert changed == {str(note.resolve()): 1}
@@ -361,7 +363,8 @@ def test_apply_removes_formatter_flags_and_preserves_other_flags(tmp_path: Path)
             "formatter_blank": [1, 1],
             "formatter_todo": [1],
         },
-        global_template=module.template + [("--archive-pair", str, [], "", False)],
+        global_template=module.template
+        + [ArgTemplate(name="--archive-pair", value_type=str, default=[])],
     )
 
     assert changed == {str(note.resolve()): 1}

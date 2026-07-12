@@ -75,10 +75,23 @@ class AbstractModule(ABC):
 
     - example:
         [
-            ("--flag", type, "default value", "manual string", False),
-            ("--rename", str, None, "Will rename file", False),
-            ("--banner", str, "date", "Draws ASCII banner", False),
-            ("--tags", str, [], "Multi-value argument", False),
+            ArgTemplate(
+                name="--rename",
+                value_type=str,
+                description="Will rename file",
+            ),
+            ArgTemplate(
+                name="--banner",
+                value_type=str,
+                default="date",
+                description="Draws ASCII banner",
+            ),
+            ArgTemplate(
+                name="--tags",
+                value_type=str,
+                default=[],
+                description="Multi-value argument",
+            ),
         ]
     """
 

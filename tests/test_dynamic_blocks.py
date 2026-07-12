@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 
 import pytest
 
+from demon_lucy.lib.args.parser import ArgTemplate, normalize_template_params
 from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
     format_fenced_body,
@@ -12,13 +14,20 @@ from demon_lucy.lib.dynamic_blocks.parser import (
 from demon_lucy.lib.dynamic_blocks.refresh import refresh_dynamic_blocks
 
 
+class _Period(str, Enum):
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+    ALL = "all"
+
+
 def test_parse_fenced_block_uses_arg_params_and_body_offsets() -> None:
     text = (
         "before\n"
         "--- graph begin ---\n"
         "- source: past.md\n"
         "- pattern: sleep:deep\n"
-        "- period: week\n"
+        "- period [week|month|year|all]: week\n"
         "\n"
         "```text\n"
         "old body\n"
@@ -42,6 +51,63 @@ def test_parse_fenced_block_uses_arg_params_and_body_offsets() -> None:
     assert text[block.body_start : block.body_end] == block.body
     assert block.line == 2
     assert block.end_line == 11
+
+
+def test_format_block_shows_and_hides_enum_values() -> None:
+    arg_template = ArgTemplate(
+        name="--graph",
+        params=(
+            ArgTemplate(
+                name="period",
+                value_type=_Period,
+                default=_Period.YEAR,
+            ),
+        ),
+    )
+
+    shown = format_dynamic_block(
+        arg="graph",
+        params={"period": "year"},
+        body="body",
+        arg_template=arg_template,
+    )
+    hidden = format_dynamic_block(
+        arg="graph",
+        params={"period": "year"},
+        body="body",
+        arg_template=arg_template,
+        show_allowed_values=False,
+    )
+
+    assert "- period [week|month|year|all]: year\n" in shown
+    assert "- period: year\n" in hidden
+    assert parse_dynamic_blocks(shown)[0].params == {"period": "year"}
+
+
+def test_arg_template_normalizes_enum_values_and_defaults() -> None:
+    params = (
+        ArgTemplate(name="source", required=True),
+        ArgTemplate(
+            name="period",
+            value_type=_Period,
+            default=_Period.YEAR,
+        ),
+    )
+
+    assert normalize_template_params(
+        {"source": " past.md ", "period": "WEEK"},
+        params,
+    ) == {"source": "past.md", "period": _Period.WEEK}
+    assert normalize_template_params(
+        {"source": "past.md"},
+        params,
+    ) == {"source": "past.md", "period": _Period.YEAR}
+
+    with pytest.raises(ValueError, match="unsupported.*period"):
+        normalize_template_params(
+            {"source": "past.md", "period": "day"},
+            params,
+        )
 
 
 def test_parse_raw_markdown_and_multiple_same_arg_blocks() -> None:

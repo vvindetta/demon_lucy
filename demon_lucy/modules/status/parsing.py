@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from demon_lucy.lib.args.parser import flag_to_dest, parse_template_item
+from demon_lucy.lib.args.parser import flag_to_dest
 
 
 class _StatusParsingHost(Protocol):
@@ -17,11 +17,10 @@ class StatusParsingMixin:
     def _template_defaults(cls: type[_StatusParsingHost]) -> dict[str, Any]:
         defaults: dict[str, Any] = {}
         for item in cls.template:
-            flag, _typ, default, _desc, _required = parse_template_item(item)
-            if isinstance(default, list):
-                defaults[flag_to_dest(flag)] = list(default)
+            if isinstance(item.default, list):
+                defaults[flag_to_dest(item.name)] = list(item.default)
             else:
-                defaults[flag_to_dest(flag)] = default
+                defaults[flag_to_dest(item.name)] = item.default
         return defaults
 
     @staticmethod

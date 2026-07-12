@@ -76,7 +76,7 @@ def test_sys_modules_default_is_defined_in_startup_template():
 
 
 def test_startup_template_system_flags_use_sys_prefix():
-    flags = [item[0] for item in DEMON_LUCY_STARTUP_TEMPLATE]
+    flags = [item.name for item in DEMON_LUCY_STARTUP_TEMPLATE]
 
     assert flags
     assert all(flag.startswith("--sys-") for flag in flags)
@@ -94,6 +94,12 @@ def test_voice_module_is_available_only_when_requested():
 def test_sys_ignore_move_paths_default_is_defined_in_startup_template():
     known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
     assert known_args["sys_ignore_move_paths"] == [".status"]
+
+
+def test_dynamic_block_allowed_values_are_visible_by_default():
+    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+
+    assert known_args["sys_dynamic_block_hide_allowed_values"] is False
 
 
 def test_sys_git_repo_lock_defaults_are_defined_in_startup_template():

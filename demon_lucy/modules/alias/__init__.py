@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from demon_lucy.lib.args.parser import ArgTemplate
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.text_file import write_text_atomic
@@ -23,21 +24,21 @@ class Alias(AbstractModule):
     priority: int = 0
 
     template = [
-        (
-            "--alias",
-            str,
-            [],
-            "Alias for note flags. Format: name=expansion. "
+        ArgTemplate(
+            name="--alias",
+            value_type=str,
+            default=[],
+            description="Alias for note flags. Format: name=expansion. "
             "Example: --alias 'b=--banner {args}' 'todo=--formatter-todo' 'rn=--rename {args}'. "
             "System flags (--sys-*) and --cmd are not rewritten.",
-            False,
+            required=False,
         ),
-        (
-            "--alias-dry-run",
-            bool,
-            False,
-            "Log alias rewrites without changing files.",
-            False,
+        ArgTemplate(
+            name="--alias-dry-run",
+            value_type=bool,
+            default=False,
+            description="Log alias rewrites without changing files.",
+            required=False,
         ),
     ]
 

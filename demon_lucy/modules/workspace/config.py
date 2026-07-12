@@ -3,7 +3,7 @@ from __future__ import annotations
 import shlex
 from typing import Any
 
-from demon_lucy.lib.args.parser import flag_to_dest, parse_template_item
+from demon_lucy.lib.args.parser import ArgTemplate, flag_to_dest
 from demon_lucy.modules.abstract_module import Context, System
 
 
@@ -22,8 +22,10 @@ class WorkspaceConfig:
     def defaults_by_destination(system: System) -> dict[str, Any]:
         defaults: dict[str, Any] = {}
         for template_item in system.global_template:
-            flag, _typ, default, _desc, _required = parse_template_item(template_item)
-            defaults.setdefault(flag_to_dest(flag), default)
+            defaults.setdefault(
+                flag_to_dest(template_item.name),
+                template_item.default,
+            )
         return defaults
 
     @staticmethod
@@ -86,16 +88,15 @@ class WorkspaceConfig:
         self,
         ctx: Context,
         system: System,
-    ) -> list[tuple[str, type, Any, str, bool]]:
-        items: list[tuple[str, type, Any, str, bool]] = []
+    ) -> list[ArgTemplate]:
+        items: list[ArgTemplate] = []
         seen_destinations: set[str] = set()
         for template_item in system.global_template:
-            flag, typ, default, desc, required = parse_template_item(template_item)
-            destination = flag_to_dest(flag)
+            destination = flag_to_dest(template_item.name)
             if destination in seen_destinations:
                 continue
             seen_destinations.add(destination)
-            items.append((flag, typ, default, desc, required))
+            items.append(template_item)
         for key, value in sorted(ctx.config.items()):
             if not key.startswith("sys_"):
                 continue
@@ -103,12 +104,10 @@ class WorkspaceConfig:
                 continue
             seen_destinations.add(key)
             items.append(
-                (
-                    self.flag_from_config_key(key),
-                    type(value),
-                    self.default_for_config_value(value),
-                    "",
-                    False,
+                ArgTemplate(
+                    name=self.flag_from_config_key(key),
+                    value_type=type(value),
+                    default=self.default_for_config_value(value),
                 )
             )
         return items
@@ -148,21 +147,21 @@ class WorkspaceConfig:
         }
         lines: list[str] = []
 
-        for flag, _typ, default, _desc, _required in self.template_items(ctx, system):
-            destination = flag_to_dest(flag)
+        for item in self.template_items(ctx, system):
+            destination = flag_to_dest(item.name)
             if destination in forced_destinations:
                 continue
             if destination in ctx.arg_lines:
                 continue
-            if flag.startswith("--oneshot-"):
+            if item.name.startswith("--oneshot-"):
                 continue
             if destination not in ctx.config:
                 continue
 
             line = self.render_line(
-                flag=flag,
+                flag=item.name,
                 value=ctx.config[destination],
-                default=default,
+                default=item.default,
             )
             if line is not None:
                 lines.append(line)

@@ -4,6 +4,7 @@ import logging
 import os
 from typing import Optional
 
+from demon_lucy.lib.args.parser import ArgTemplate
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path
@@ -26,40 +27,40 @@ class Voice(AbstractModule):
     priority: int = 45
 
     template = [
-        (
-            "--voice",
-            bool,
-            False,
-            "Record one voice snippet and replace --voice inline with recognized text.",
-            False,
+        ArgTemplate(
+            name="--voice",
+            value_type=bool,
+            default=False,
+            description="Record one voice snippet and replace --voice inline with recognized text.",
+            required=False,
         ),
-        (
-            "--voice-offline-vosk-model-path",
-            str,
-            "",
-            "Path to a local Vosk model directory.",
-            False,
+        ArgTemplate(
+            name="--voice-offline-vosk-model-path",
+            value_type=str,
+            default="",
+            description="Path to a local Vosk model directory.",
+            required=False,
         ),
-        (
-            "--voice-timeout-seconds",
-            int,
-            60,
-            "Safety timeout for one inline --voice listen. Default: 60.",
-            False,
+        ArgTemplate(
+            name="--voice-timeout-seconds",
+            value_type=int,
+            default=60,
+            description="Safety timeout for one inline --voice listen. Default: 60.",
+            required=False,
         ),
-        (
-            "--voice-recorder-path",
-            str,
-            "arecord",
-            "Recorder executable that writes raw mono PCM16 audio to stdout. Default: arecord.",
-            False,
+        ArgTemplate(
+            name="--voice-recorder-path",
+            value_type=str,
+            default="arecord",
+            description="Recorder executable that writes raw mono PCM16 audio to stdout. Default: arecord.",
+            required=False,
         ),
-        (
-            "--voice-sample-rate",
-            int,
-            16000,
-            "Recorder and Vosk sample rate. Default: 16000.",
-            False,
+        ArgTemplate(
+            name="--voice-sample-rate",
+            value_type=int,
+            default=16000,
+            description="Recorder and Vosk sample rate. Default: 16000.",
+            required=False,
         ),
     ]
 

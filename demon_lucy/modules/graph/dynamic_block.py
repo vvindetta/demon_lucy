@@ -16,7 +16,11 @@ from demon_lucy.lib.path import (
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlock
 from demon_lucy.lib.dynamic_blocks.parser import format_fenced_body
 from demon_lucy.modules.graph.data import compile_search_pattern, load_graph_data
-from demon_lucy.modules.graph.params import GraphParams, normalize_graph_params
+from demon_lucy.modules.graph.params import (
+    GraphParams,
+    GraphView,
+    normalize_graph_params,
+)
 from demon_lucy.modules.graph.render import (
     build_series,
     render_markdown_graph,
@@ -71,7 +75,7 @@ def render_graph(
     updated_at = format_local_timestamp(timestamp)
     updated_ago = format_timestamp_age(timestamp)
 
-    if params.view == "ascii":
+    if params.view is GraphView.ASCII:
         text_graph = render_text_graph(
             series=series,
             updated_at=updated_at,
@@ -84,11 +88,11 @@ def render_graph(
         updated_at=updated_at,
         updated_ago=updated_ago,
     )
-    if params.view == "markdown":
+    if params.view is GraphView.MARKDOWN:
         return markdown_graph
-    if params.view == "markdown-code":
+    if params.view is GraphView.MARKDOWN_CODE:
         return format_fenced_body(markdown_graph, info="markdown")
-    raise ValueError(f"unsupported graph view: {params.view}")
+    raise ValueError(f"unsupported graph view: {params.view.value}")
 
 
 def render_graph_dynamic_block(block: DynamicBlock, target_path: str) -> str:

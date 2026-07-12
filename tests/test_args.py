@@ -7,6 +7,7 @@ import pytest
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.parser import (
+    ArgTemplate,
     get_args_from_file,
     get_config_args,
     is_valid_flag_token,
@@ -18,10 +19,10 @@ from demon_lucy.lib.args.parser import (
 
 def test_parse_args_handles_bool_and_nargs():
     template = [
-        ("--formatter-todo", bool, False, "", False),
-        ("--formatter-blank", str, [], "", False),
-        ("--name", str, None, "", False),
-        ("--tags", str, [], "", False),
+        ArgTemplate(name="--formatter-todo", value_type=bool, default=False),
+        ArgTemplate(name="--formatter-blank", value_type=str, default=[]),
+        ArgTemplate(name="--name"),
+        ArgTemplate(name="--tags", value_type=str, default=[]),
     ]
 
     known, unknown = parse_args(
@@ -49,8 +50,8 @@ def test_parse_args_handles_bool_and_nargs():
 
 def test_parse_args_allows_empty_list_flag_value():
     template = [
-        ("--archive-local", str, [], "", False),
-        ("--name", str, None, "", False),
+        ArgTemplate(name="--archive-local", value_type=str, default=[]),
+        ArgTemplate(name="--name"),
     ]
 
     known, unknown = parse_args(
@@ -65,7 +66,7 @@ def test_parse_args_allows_empty_list_flag_value():
 
 def test_parse_args_repeated_list_flag_uses_last_value():
     template = [
-        ("--alias", str, [], "", False),
+        ArgTemplate(name="--alias", value_type=str, default=[]),
     ]
 
     known, unknown = parse_args(
@@ -84,7 +85,7 @@ def test_parse_args_repeated_list_flag_uses_last_value():
 
 def test_parse_args_supports_required_field_in_template_item():
     template = [
-        ("--required-path", str, None, "", True),
+        ArgTemplate(name="--required-path", required=True),
     ]
 
     known, unknown = parse_args(
@@ -120,8 +121,8 @@ def test_get_config_args_reads_lines_and_ignores_comments(tmp_path: Path):
         encoding="utf-8",
     )
     template = [
-        ("--name", str, None, "", False),
-        ("--count", int, 0, "", False),
+        ArgTemplate(name="--name"),
+        ArgTemplate(name="--count", value_type=int, default=0),
     ]
 
     known, unknown = get_config_args(str(cfg), template)
@@ -137,8 +138,8 @@ def test_get_config_args_skips_invalid_quote_line(tmp_path: Path):
         encoding="utf-8",
     )
     template = [
-        ("--name", str, None, "", False),
-        ("--count", int, 0, "", False),
+        ArgTemplate(name="--name"),
+        ArgTemplate(name="--count", value_type=int, default=0),
     ]
 
     known, unknown = get_config_args(str(cfg), template)
@@ -188,7 +189,7 @@ def test_get_args_from_file_skips_non_utf8_files(tmp_path: Path):
     path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
 
     template = [
-        ("--help", bool, False, "", False),
+        ArgTemplate(name="--help", value_type=bool, default=False),
     ]
 
     known, unknown, arg_lines = get_args_from_file(str(path), template)
@@ -207,9 +208,9 @@ def test_setup_config_and_cli_args_keeps_config_values_when_cli_uses_defaults(
     )
 
     template = [
-        ("--sys-config-path", str, "config.txt", "", False),
-        ("--sys-watch-paths", str, [], "", False),
-        ("--sys-log-level", str, "warning", "", False),
+        ArgTemplate(name="--sys-config-path", value_type=str, default="config.txt"),
+        ArgTemplate(name="--sys-watch-paths", value_type=str, default=[]),
+        ArgTemplate(name="--sys-log-level", value_type=str, default="warning"),
     ]
 
     monkeypatch.setattr(
@@ -229,8 +230,8 @@ def test_setup_config_and_cli_args_returns_empty_known_on_invalid_startup_value(
     monkeypatch,
 ):
     template = [
-        ("--sys-config-path", str, "config.txt", "", False),
-        ("--count", int, 0, "", False),
+        ArgTemplate(name="--sys-config-path", value_type=str, default="config.txt"),
+        ArgTemplate(name="--count", value_type=int, default=0),
     ]
 
     monkeypatch.setattr(

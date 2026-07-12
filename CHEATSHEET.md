@@ -24,6 +24,7 @@ these values from the resolved `config[...]`.
 | `--sys-watch-paths` | `str[]` | Directories watched recursively by the daemon. |
 | `--sys-opened-event-cooldown-seconds` | `int` | Per-file cooldown for `opened` filesystem events. |
 | `--sys-disable-opened-events` | `bool` | Ignore `opened` events completely. Useful on Termux. |
+| `--sys-dynamic-block-hide-allowed-values` | `bool` | Hide allowed parameter values in newly created dynamic blocks. |
 | `--sys-notification-provider` | `str` | Notification backend: `auto`, `termuxapi`, `desktop`, or `disable`. Failed delivery attempts are logged as `notification.failed`. |
 | `--sys-notification-min-interval-seconds` | `float` | Minimum interval before repeating the same notification. |
 | `--sys-notification-error-backoff-base-seconds` | `float` | Base interval for exponential backoff of error notifications. |
@@ -185,7 +186,9 @@ Example:
 
 Commands become dynamic `--- graph begin ---` / `--- graph-regex begin ---`
 blocks. Set `view` inside a block to `ascii` (default), `markdown`, or
-`markdown-code` to change its generated body.
+`markdown-code` to change its generated body. Allowed values are shown beside
+Enum fields by default; `--sys-dynamic-block-hide-allowed-values` hides them in
+newly created blocks.
 
 ## Archive
 

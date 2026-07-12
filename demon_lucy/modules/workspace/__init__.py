@@ -5,7 +5,7 @@ import os
 from typing import Optional
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.parser import ArgTemplate, Template
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path
@@ -29,12 +29,12 @@ class Workspace(AbstractModule):
     priority: int = 5
 
     template: Template = [
-        (
-            "--workspace-init",
-            str,
-            "",
-            "Initialize a Lucy workspace at the given directory path.",
-            False,
+        ArgTemplate(
+            name="--workspace-init",
+            value_type=str,
+            default="",
+            description="Initialize a Lucy workspace at the given directory path.",
+            required=False,
         ),
     ]
 

@@ -4,6 +4,8 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from demon_lucy.modules.graph.params import GraphPeriod
+
 BAR_SEGMENT_COUNT = 6
 BAR_SEGMENT_WIDTH = 6
 
@@ -121,25 +123,27 @@ def _monthly_all_series(counts_by_date: dict[date, int]) -> RenderSeries:
     )
 
 
-def build_series(counts_by_date: dict[date, int], period: str) -> RenderSeries | None:
+def build_series(
+    counts_by_date: dict[date, int],
+    period: GraphPeriod,
+) -> RenderSeries | None:
     if not counts_by_date:
         return None
 
-    normalized_period = period.strip().lower()
     latest = max(counts_by_date)
-    if normalized_period == "week":
+    if period is GraphPeriod.WEEK:
         return _day_series(
             counts_by_date,
             start=latest - timedelta(days=6),
             end=latest,
         )
-    if normalized_period == "month":
+    if period is GraphPeriod.MONTH:
         return _day_series(
             counts_by_date,
             start=latest - timedelta(days=29),
             end=latest,
         )
-    if normalized_period == "year":
+    if period is GraphPeriod.YEAR:
         return _year_series(counts_by_date, year=latest.year)
 
     earliest = min(counts_by_date)

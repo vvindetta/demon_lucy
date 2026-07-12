@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from watchdog.events import FileModifiedEvent
 
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.parser import ArgTemplate, Template
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 
 
@@ -33,7 +33,7 @@ def test_default_module_hooks_are_noops(hook_name: str):
 def test_context_and_system_dataclasses_keep_values():
     module = DemoModule()
     event = FileModifiedEvent("/tmp/file")
-    template: Template = [("--x", str, None, "", False)]
+    template: Template = [ArgTemplate(name="--x")]
     ctx = Context(path="/tmp/file", config={"x": ["1"]}, arg_lines={"x": [1]})
     system = System(event=event, global_template=template, modules=[module])
 

@@ -6,7 +6,7 @@ from typing import Optional
 import pyfiglet
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.parser import ArgTemplate, Template
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -20,21 +20,21 @@ class Banner(AbstractModule):
     priority: int = 10
 
     template: Template = [
-        (
-            "--banner",
-            str,
-            [],
-            "Insert an ASCII banner (pyfiglet) at the line where the flag appears. "
+        ArgTemplate(
+            name="--banner",
+            value_type=str,
+            default=[],
+            description="Insert an ASCII banner (pyfiglet) at the line where the flag appears. "
             "Use '--banner date' to insert today's date. Example: --banner LOL, --banner hello world, or --banner date.",
-            False,
+            required=False,
         ),
-        (
-            "--banner-separator",
-            str,
-            "---",
-            "Separator line inserted before the banner when the banner is placed at the top of the file. "
+        ArgTemplate(
+            name="--banner-separator",
+            value_type=str,
+            default="---",
+            description="Separator line inserted before the banner when the banner is placed at the top of the file. "
             "Example: --banner-separator '---' (default).",
-            False,
+            required=False,
         ),
     ]
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from watchdog.events import FileModifiedEvent
 
 import demon_lucy.modules.alias as alias_mod
-from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.args.parser import ArgTemplate, parse_args
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.alias import Alias
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
@@ -34,9 +34,14 @@ def _system(module: Alias, path: Path, global_template=None) -> System:
         global_template=global_template
         or Alias.template
         + [
-            ("--banner", str, None, "banner", False),
-            ("--formatter-todo", bool, False, "todo", False),
-            ("--rename", str, None, "rename", False),
+            ArgTemplate(name="--banner", description="banner"),
+            ArgTemplate(
+                name="--formatter-todo",
+                value_type=bool,
+                default=False,
+                description="todo",
+            ),
+            ArgTemplate(name="--rename", description="rename"),
         ],
         modules=[module],
         event_id="evt-test",
@@ -125,7 +130,14 @@ def test_alias_rejects_system_target_without_rewrite(
         module,
         note,
         global_template=Alias.template
-        + [("--sys-log-level", str, "warning", "log level", False)],
+        + [
+            ArgTemplate(
+                name="--sys-log-level",
+                value_type=str,
+                default="warning",
+                description="log level",
+            )
+        ],
     )
 
     changed = module.modified(ctx, system)
@@ -155,7 +167,8 @@ def test_alias_rejects_cmd_target_without_rewrite(tmp_path: Path, monkeypatch):
     system = _system(
         module,
         note,
-        global_template=Alias.template + [("--cmd", str, [], "cmd", False)],
+        global_template=Alias.template
+        + [ArgTemplate(name="--cmd", value_type=str, default=[], description="cmd")],
     )
 
     changed = module.modified(ctx, system)
@@ -169,7 +182,7 @@ def test_alias_rejects_cmd_target_without_rewrite(tmp_path: Path, monkeypatch):
 class _Recorder(AbstractModule):
     name = "recorder"
     priority = 10
-    template = [("--banner", str, None, "banner", False)]
+    template = [ArgTemplate(name="--banner", description="banner")]
 
     def __init__(self):
         self.banner_value = None

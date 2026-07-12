@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Optional
 
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.parser import ArgTemplate, Template
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -17,20 +17,25 @@ class Renamer(AbstractModule):
     priority: int = 20
 
     template: Template = [
-        ("--rename", str, None, "Rename file. Example: --rename new_name.md.", False),
-        (
-            "--rename-auto",
-            bool,
-            False,  # IMPORTANT: for your argparse bool handling, default is a bool, not [False]
-            "On create, add default extension to extensionless files and rename one-letter scratch filenames using --rename-auto-format.",
-            False,
+        ArgTemplate(
+            name="--rename",
+            value_type=str,
+            default=None,
+            description="Rename file. Example: --rename new_name.md.",
         ),
-        (
-            "--rename-auto-format",
-            str,
-            "md",
-            "Auto rename extension. Default: md. Examples: txt, md, org.",
-            False,
+        ArgTemplate(
+            name="--rename-auto",
+            value_type=bool,
+            default=False,  # IMPORTANT: for your argparse bool handling, default is a bool, not [False]
+            description="On create, add default extension to extensionless files and rename one-letter scratch filenames using --rename-auto-format.",
+            required=False,
+        ),
+        ArgTemplate(
+            name="--rename-auto-format",
+            value_type=str,
+            default="md",
+            description="Auto rename extension. Default: md. Examples: txt, md, org.",
+            required=False,
         ),
     ]
 

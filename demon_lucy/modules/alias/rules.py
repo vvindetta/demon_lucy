@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from demon_lucy.lib.args.parser import (
     is_valid_flag_token,
-    parse_template_item,
 )
 from demon_lucy.modules.abstract_module import System
 
@@ -36,8 +35,7 @@ def flag_head(token: str) -> str:
 def known_flags(system: System) -> set[str]:
     flags: set[str] = set()
     for item in system.global_template:
-        flag, _typ, _default, _desc, _required = parse_template_item(item)
-        flags.add(flag)
+        flags.add(item.name)
     return flags
 
 

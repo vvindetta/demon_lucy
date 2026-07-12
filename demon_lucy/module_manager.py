@@ -6,12 +6,12 @@ from typing import Dict, List
 from watchdog.events import FileSystemEvent
 
 from demon_lucy.lib.args.parser import (
+    ArgTemplate,
     Template,
     flag_to_dest,
     get_args_from_file,
     merge_known_args,
     parse_args,
-    parse_template_item,
 )
 from demon_lucy.lib.logfmt import ignore_summary, log_record, next_event_id
 from demon_lucy.lib.notifications import safe_notify
@@ -42,15 +42,17 @@ class ModuleManager:
         self.modules = modules
         self.run_mode: RunMode = run_mode
         self.runtime_platform: RuntimePlatform = detect_runtime_platform()
-        self.dynamic_block_renderers = self._collect_dynamic_block_renderers(self.modules)
+        self.dynamic_block_renderers = self._collect_dynamic_block_renderers(
+            self.modules
+        )
         self.template: Template = [
-            (
-                "--sys-modules-priority",
-                str,
-                [],
-                "Override module execution order (lower runs first). "
+            ArgTemplate(
+                name="--sys-modules-priority",
+                value_type=str,
+                default=[],
+                description="Override module execution order (lower runs first). "
                 "Format: name=int. Example: --sys-modules-priority banner=5 renamer=20 todo=30",
-                False,
+                required=False,
             ),
         ]
         self.template.extend(DEMON_LUCY_STARTUP_TEMPLATE)
@@ -189,19 +191,18 @@ class ModuleManager:
     ) -> list[str]:
         missing_flags: list[str] = []
         for item in module.template:
-            flag, _typ, _default, _desc, required = parse_template_item(item)
-            if not required:
+            if not item.required:
                 continue
-            dest = flag_to_dest(flag)
+            dest = flag_to_dest(item.name)
             value = config.get(dest)
             if value is None:
-                missing_flags.append(flag)
+                missing_flags.append(item.name)
                 continue
             if isinstance(value, str) and not value.strip():
-                missing_flags.append(flag)
+                missing_flags.append(item.name)
                 continue
             if isinstance(value, list) and len(value) == 0:
-                missing_flags.append(flag)
+                missing_flags.append(item.name)
         return missing_flags
 
     def _next_context_path(

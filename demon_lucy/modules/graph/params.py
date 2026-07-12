@@ -2,13 +2,80 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
+from typing import cast
+
+from demon_lucy.lib.args.parser import (
+    ArgTemplate,
+    Template,
+    normalize_template_params,
+    template_allowed_values,
+)
+
+GRAPH_ARG_REGEX = {
+    "graph": False,
+    "graph-regex": True,
+}
 
 
-GRAPH_ARGS = {"graph", "graph-regex"}
-GRAPH_PERIODS = {"week", "month", "year", "all"}
-DEFAULT_GRAPH_PERIOD = "year"
-DEFAULT_GRAPH_VIEW = "ascii"
-GRAPH_VIEWS = {"ascii", "markdown", "markdown-code"}
+class GraphPeriod(str, Enum):
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+    ALL = "all"
+
+
+class GraphView(str, Enum):
+    ASCII = "ascii"
+    MARKDOWN = "markdown"
+    MARKDOWN_CODE = "markdown-code"
+
+
+GRAPH_PARAMS = (
+    ArgTemplate(name="source", required=True),
+    ArgTemplate(name="pattern", required=True),
+    ArgTemplate(
+        name="period",
+        value_type=GraphPeriod,
+        default=GraphPeriod.YEAR,
+    ),
+    ArgTemplate(
+        name="view",
+        value_type=GraphView,
+        default=GraphView.ASCII,
+    ),
+)
+GRAPH_TEMPLATE: Template = [
+    ArgTemplate(
+        name="--graph",
+        value_type=str,
+        default=[],
+        description=(
+            "Build a text graph for a literal search in a file. Format: "
+            "--graph file pattern [week|month|year|all]. Default period: year."
+        ),
+        params=GRAPH_PARAMS,
+    ),
+    ArgTemplate(
+        name="--graph-regex",
+        value_type=str,
+        default=[],
+        description=(
+            "Build a text graph for a regular expression search in a file. "
+            "Format: --graph-regex file regex [week|month|year|all]. "
+            "Default period: year."
+        ),
+        params=GRAPH_PARAMS,
+    ),
+]
+
+
+def graph_arg_template(arg: str) -> ArgTemplate:
+    flag = f"--{arg}"
+    for item in GRAPH_TEMPLATE:
+        if item.name == flag:
+            return item
+    raise ValueError(f"unsupported graph arg: {arg}")
 
 
 @dataclass(frozen=True)
@@ -16,44 +83,29 @@ class GraphParams:
     arg: str
     source: str
     pattern: str
-    period: str
-    view: str
+    period: GraphPeriod
+    view: GraphView
 
     @property
     def is_regex(self) -> bool:
-        return self.arg == "graph-regex"
+        return GRAPH_ARG_REGEX[self.arg]
 
 
 def normalize_graph_params(
     arg: str,
     values: Mapping[str, str],
 ) -> GraphParams:
-    if arg not in GRAPH_ARGS:
+    if arg not in GRAPH_ARG_REGEX:
         raise ValueError(f"unsupported graph arg: {arg}")
 
-    unknown = sorted(set(values) - {"source", "pattern", "period", "view"})
-    if unknown:
-        raise ValueError(f"unknown graph parameter: {unknown[0]}")
-
-    source = str(values.get("source", "")).strip()
-    if not source:
-        raise ValueError("missing graph source")
-    pattern = str(values.get("pattern", "")).strip()
-    if not pattern:
-        raise ValueError("missing graph pattern")
-
-    period = str(values.get("period", DEFAULT_GRAPH_PERIOD)).strip().lower()
-    if period not in GRAPH_PERIODS:
-        raise ValueError(f"unsupported graph period: {period}")
-    view = str(values.get("view", DEFAULT_GRAPH_VIEW)).strip().lower()
-    if view not in GRAPH_VIEWS:
-        raise ValueError(f"unsupported graph view: {view}")
+    arg_template = graph_arg_template(arg)
+    normalized = normalize_template_params(values, arg_template.params)
     return GraphParams(
         arg=arg,
-        source=source,
-        pattern=pattern,
-        period=period,
-        view=view,
+        source=cast(str, normalized["source"]),
+        pattern=cast(str, normalized["pattern"]),
+        period=cast(GraphPeriod, normalized["period"]),
+        view=cast(GraphView, normalized["view"]),
     )
 
 
@@ -64,8 +116,13 @@ def graph_params_from_command(flag: str, values: list[str]) -> GraphParams:
 
     named_values = {"source": str(values[0])}
     pattern_values = values[1:]
+    arg_template = graph_arg_template(arg)
+    period_param = next(
+        param for param in arg_template.params if param.name == "period"
+    )
+    allowed_periods = template_allowed_values(period_param)
     maybe_period = str(values[-1]).strip().lower()
-    if len(values) >= 3 and maybe_period in GRAPH_PERIODS:
+    if len(values) >= 3 and maybe_period in allowed_periods:
         named_values["period"] = maybe_period
         pattern_values = values[1:-1]
     named_values["pattern"] = " ".join(pattern_values)
