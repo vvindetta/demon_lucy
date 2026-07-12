@@ -14,13 +14,13 @@ def parse_updated_timestamp(value: str) -> float:
     if match is None:
         raise ValueError("invalid dynamic block updated metadata")
     try:
-        value = datetime.strptime(
+        parsed_datetime = datetime.strptime(
             match.group("timestamp"),
             _UPDATED_TIMESTAMP_FORMAT,
         )
     except ValueError as exc:
         raise ValueError("invalid dynamic block updated timestamp") from exc
-    return value.astimezone().timestamp()
+    return parsed_datetime.astimezone().timestamp()
 
 
 def format_updated_value(updated_timestamp: float) -> str:
