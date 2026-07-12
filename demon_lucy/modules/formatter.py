@@ -5,6 +5,7 @@ import re
 import shlex
 from typing import Optional
 
+from demon_lucy.lib.args.completion import complete_flag_prefixes_in_line
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.parser import (
     ArgTemplate,
@@ -49,6 +50,13 @@ class Formatter(AbstractModule):
             value_type=bool,
             default=False,
             description="Complete consecutive archive date headers written as '--- day' from the previous full date.",
+            required=False,
+        ),
+        ArgTemplate(
+            name="--formatter-complete-args",
+            value_type=bool,
+            default=False,
+            description="Complete unique Demon Lucy argument prefixes in command lines.",
             required=False,
         ),
     ]
@@ -120,6 +128,7 @@ class Formatter(AbstractModule):
             ("formatter_todo", "--formatter-todo"),
             ("formatter_blank", "--formatter-blank"),
             ("formatter_date", "--formatter-date"),
+            ("formatter_complete_args", "--formatter-complete-args"),
         ):
             for raw_line in arg_lines.get(key) or []:
                 try:
@@ -246,6 +255,31 @@ class Formatter(AbstractModule):
 
         return new_lines, changed
 
+    @staticmethod
+    def _complete_arg_lines(
+        lines: list[str],
+        *,
+        protected_lines: set[int],
+        global_template: Template | None,
+    ) -> tuple[list[str], bool]:
+        if not global_template:
+            return lines, False
+
+        changed = False
+        completed_lines: list[str] = []
+        for line_number, line in enumerate(lines, start=1):
+            if line_number in protected_lines:
+                completed_lines.append(line)
+                continue
+
+            completed = complete_flag_prefixes_in_line(
+                line,
+                template=global_template,
+            )
+            completed_lines.append(completed)
+            changed = changed or completed != line
+        return completed_lines, changed
+
     def _apply(
         self,
         *,
@@ -256,12 +290,14 @@ class Formatter(AbstractModule):
     ) -> Optional[IgnoreMap]:
         use_formatter_todo = bool(config.get("formatter_todo"))
         use_formatter_date = bool(config.get("formatter_date"))
+        use_formatter_complete_args = bool(config.get("formatter_complete_args"))
         blank_modes, blank_lines_count = self._blank_config(config)
         use_down = "down" in blank_modes
         use_up = "up" in blank_modes
         if (
             not use_formatter_todo
             and not use_formatter_date
+            and not use_formatter_complete_args
             and not use_down
             and not use_up
         ):
@@ -296,6 +332,15 @@ class Formatter(AbstractModule):
                 for block in dynamic_blocks
                 for line_number in range(block.line, block.end_line + 1)
             }
+
+        if use_formatter_complete_args:
+            if protected_lines is not None:
+                new_lines, complete_args_changed = self._complete_arg_lines(
+                    new_lines,
+                    protected_lines=protected_lines,
+                    global_template=global_template,
+                )
+                changed = changed or complete_args_changed
 
         if use_formatter_todo:
             if protected_lines is not None:

@@ -234,12 +234,14 @@ an archive destination.
 | `--formatter-todo` | `bool` | Convert `- task` list items into `- [ ] task`. |
 | `--formatter-blank` | `str[]` | Add blank lines at top/bottom. Values: `up`, `down`, `both`, optional count. |
 | `--formatter-date` | `bool` | Complete the next archive date written as `--- day`. |
+| `--formatter-complete-args` | `bool` | Complete unique Demon Lucy argument prefixes in command lines. |
 
 Examples:
 
 ```text
 --formatter-todo
 --formatter-date
+--formatter-complete-args
 --formatter-blank up
 --formatter-blank down 20
 --formatter-blank both 12

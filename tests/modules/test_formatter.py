@@ -390,6 +390,61 @@ def test_apply_removes_formatter_only_command_line(tmp_path: Path):
     assert note.read_text(encoding="utf-8") == "- [ ] task\n"
 
 
+def test_apply_completes_unique_argument_prefixes(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text(
+        "--formatter-complete-args --formatter-t\n"
+        "--graph-r past.md www\n"
+        "--archive-pair now.md past.md\n",
+        encoding="utf-8",
+    )
+
+    module = Formatter()
+    changed = module._apply(
+        path=str(note),
+        config={
+            "formatter_todo": False,
+            "formatter_blank": [],
+            "formatter_complete_args": True,
+        },
+        arg_lines={"formatter_complete_args": [1]},
+        global_template=module.template
+        + [
+            ArgTemplate(name="--archive", value_type=bool, default=False),
+            ArgTemplate(name="--archive-pair", value_type=str, default=[]),
+            ArgTemplate(name="--graph", value_type=str, default=[]),
+            ArgTemplate(name="--graph-regex", value_type=str, default=[]),
+        ],
+    )
+
+    assert changed == {str(note.resolve()): 1}
+    assert note.read_text(encoding="utf-8") == (
+        "--formatter-todo\n"
+        "--graph-regex past.md www\n"
+        "--archive-pair now.md past.md\n"
+    )
+
+
+def test_apply_leaves_ambiguous_argument_prefixes_unchanged(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("--formatter-complete-args --formatter\n", encoding="utf-8")
+
+    module = Formatter()
+    changed = module._apply(
+        path=str(note),
+        config={
+            "formatter_todo": False,
+            "formatter_blank": [],
+            "formatter_complete_args": True,
+        },
+        arg_lines={"formatter_complete_args": [1]},
+        global_template=module.template,
+    )
+
+    assert changed == {str(note.resolve()): 1}
+    assert note.read_text(encoding="utf-8") == "--formatter\n"
+
+
 @pytest.mark.parametrize(
     ("method_name", "event_factory"),
     [
