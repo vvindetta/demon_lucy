@@ -4,6 +4,8 @@ import os
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.date_sections import parse_exact_date_section_header
+from demon_lucy.lib.file_open import open_file_no_follow
+from demon_lucy.lib.runtime_system import RuntimeSystem
 
 from demon_lucy.modules.archive.constants import STRIP_FLAGS
 
@@ -126,19 +128,22 @@ def has_multiple_hard_links(path_value: str) -> bool:
         return False
 
 
-def read_text_no_follow(path_value: str) -> str | None:
-    if os.path.islink(path_value):
-        return None
-    if has_multiple_hard_links(path_value):
-        return None
-
+def read_text_no_follow(
+    path_value: str,
+    *,
+    runtime_system: RuntimeSystem,
+) -> str | None:
     file_descriptor: int | None = None
-    open_flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        open_flags |= os.O_NOFOLLOW
-
     try:
-        file_descriptor = os.open(path_value, open_flags)
+        file_descriptor = open_file_no_follow(
+            path_value,
+            os.O_RDONLY,
+            runtime_system=runtime_system,
+        )
+        if os.fstat(file_descriptor).st_nlink > 1:
+            os.close(file_descriptor)
+            file_descriptor = None
+            return None
         with os.fdopen(file_descriptor, "r", encoding="utf-8") as src_handle:
             file_descriptor = None
             return src_handle.read()
@@ -151,17 +156,19 @@ def read_text_no_follow(path_value: str) -> str | None:
         return None
 
 
-def write_text_no_follow(path_value: str, content: str) -> bool:
-    if os.path.islink(path_value):
-        return False
-
+def write_text_no_follow(
+    path_value: str,
+    content: str,
+    *,
+    runtime_system: RuntimeSystem,
+) -> bool:
     file_descriptor: int | None = None
-    open_flags = os.O_WRONLY | os.O_CREAT
-    if hasattr(os, "O_NOFOLLOW"):
-        open_flags |= os.O_NOFOLLOW
-
     try:
-        file_descriptor = os.open(path_value, open_flags, 0o666)
+        file_descriptor = open_file_no_follow(
+            path_value,
+            os.O_WRONLY | os.O_CREAT,
+            runtime_system=runtime_system,
+        )
         if os.fstat(file_descriptor).st_nlink > 1:
             os.close(file_descriptor)
             file_descriptor = None
@@ -187,13 +194,14 @@ def write_text_archive_entry(
     body: str,
     prefix: str,
     suffix: str,
+    runtime_system: RuntimeSystem,
 ) -> tuple[bool, bool]:
-    if os.path.islink(dest_path):
-        return False, False
-
     old_content = ""
     if os.path.exists(dest_path):
-        old_content_value = read_text_no_follow(dest_path)
+        old_content_value = read_text_no_follow(
+            dest_path,
+            runtime_system=runtime_system,
+        )
         if old_content_value is None:
             return False, False
         old_content = old_content_value
@@ -208,25 +216,34 @@ def write_text_archive_entry(
     if not changed:
         return True, False
 
-    if not write_text_no_follow(dest_path, new_content):
+    if not write_text_no_follow(
+        dest_path,
+        new_content,
+        runtime_system=runtime_system,
+    ):
         return False, False
     return True, True
 
 
-def truncate_source_file(src_path: str) -> bool:
-    if os.path.islink(src_path):
-        return False
-    if has_multiple_hard_links(src_path):
-        return False
-
+def truncate_source_file(
+    src_path: str,
+    *,
+    runtime_system: RuntimeSystem,
+) -> bool:
     file_descriptor: int | None = None
-    open_flags = os.O_WRONLY | os.O_TRUNC
-    if hasattr(os, "O_NOFOLLOW"):
-        open_flags |= os.O_NOFOLLOW
-
     try:
-        file_descriptor = os.open(src_path, open_flags)
+        file_descriptor = open_file_no_follow(
+            src_path,
+            os.O_WRONLY,
+            runtime_system=runtime_system,
+        )
+        if os.fstat(file_descriptor).st_nlink > 1:
+            os.close(file_descriptor)
+            file_descriptor = None
+            return False
+        os.ftruncate(file_descriptor, 0)
         os.close(file_descriptor)
+        file_descriptor = None
         return True
     except OSError:
         if file_descriptor is not None:
@@ -260,17 +277,22 @@ def unique_file_archive_path(
     return None
 
 
-def write_new_archive_file(dest_path: str, body: str) -> bool:
+def write_new_archive_file(
+    dest_path: str,
+    body: str,
+    *,
+    runtime_system: RuntimeSystem,
+) -> bool:
     if os.path.lexists(dest_path):
         return False
 
     file_descriptor: int | None = None
-    open_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        open_flags |= os.O_NOFOLLOW
-
     try:
-        file_descriptor = os.open(dest_path, open_flags, 0o666)
+        file_descriptor = open_file_no_follow(
+            dest_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            runtime_system=runtime_system,
+        )
         with os.fdopen(file_descriptor, "w", encoding="utf-8") as file_handle:
             file_descriptor = None
             file_handle.write(body.rstrip() + "\n")

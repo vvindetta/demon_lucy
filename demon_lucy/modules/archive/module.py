@@ -7,6 +7,7 @@ from typing import Optional
 from demon_lucy.lib.args.parser import Template
 from demon_lucy.lib.date_sections import format_date_section_header
 from demon_lucy.lib.path import canonical_path
+from demon_lucy.lib.runtime_system import RuntimeSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -30,8 +31,12 @@ class Archive(AbstractModule):
         ctx: Context,
         request: ArchiveRequest,
         src_path: str,
+        runtime_system: RuntimeSystem,
     ) -> str | None:
-        src_text = storage.read_text_no_follow(src_path)
+        src_text = storage.read_text_no_follow(
+            src_path,
+            runtime_system=runtime_system,
+        )
         if src_text is None:
             if os.path.islink(src_path):
                 notify.security_block(
@@ -70,6 +75,7 @@ class Archive(AbstractModule):
         timestamp: float | None,
         base_dir: str,
         allowed_root: str,
+        runtime_system: RuntimeSystem,
     ) -> Optional[IgnoreMap]:
         dest_path = paths.resolve_text_dest_path(
             ctx,
@@ -95,6 +101,7 @@ class Archive(AbstractModule):
             body=body,
             prefix=date_prefix,
             suffix=date_suffix,
+            runtime_system=runtime_system,
         )
         if not append_ok:
             notify.operation_failed(
@@ -104,7 +111,10 @@ class Archive(AbstractModule):
             )
             return None
 
-        if not storage.truncate_source_file(src_path):
+        if not storage.truncate_source_file(
+            src_path,
+            runtime_system=runtime_system,
+        ):
             notify.operation_failed(
                 ctx,
                 reason="truncate_source_failed",
@@ -127,6 +137,7 @@ class Archive(AbstractModule):
         timestamp: float | None,
         base_dir: str,
         allowed_root: str,
+        runtime_system: RuntimeSystem,
     ) -> Optional[IgnoreMap]:
         dest_dir = paths.resolve_dest_dir(
             ctx,
@@ -159,14 +170,21 @@ class Archive(AbstractModule):
                 target=dest_path,
             )
             return None
-        if not storage.write_new_archive_file(dest_path, body):
+        if not storage.write_new_archive_file(
+            dest_path,
+            body,
+            runtime_system=runtime_system,
+        ):
             notify.operation_failed(
                 ctx,
                 reason="write_file_archive_failed",
                 target=dest_path,
             )
             return None
-        if not storage.truncate_source_file(src_path):
+        if not storage.truncate_source_file(
+            src_path,
+            runtime_system=runtime_system,
+        ):
             notify.operation_failed(
                 ctx,
                 reason="truncate_source_failed",
@@ -179,6 +197,7 @@ class Archive(AbstractModule):
         self,
         ctx: Context,
         request: ArchiveRequest,
+        runtime_system: RuntimeSystem,
     ) -> Optional[IgnoreMap]:
         base_dir = paths.event_base_dir(ctx)
         allowed_root = paths.archive_allowed_root(ctx)
@@ -197,7 +216,12 @@ class Archive(AbstractModule):
         if not request.force and not clock.is_stale(ctx, src_path, request.idle_hours):
             return None
 
-        body = self._read_source_body(ctx, request, src_path)
+        body = self._read_source_body(
+            ctx,
+            request,
+            src_path,
+            runtime_system,
+        )
         if not body:
             return None
 
@@ -211,6 +235,7 @@ class Archive(AbstractModule):
                 timestamp=timestamp,
                 base_dir=base_dir,
                 allowed_root=allowed_root,
+                runtime_system=runtime_system,
             )
 
         if request.output_mode is ArchiveOutputMode.FILE:
@@ -222,6 +247,7 @@ class Archive(AbstractModule):
                 timestamp=timestamp,
                 base_dir=base_dir,
                 allowed_root=allowed_root,
+                runtime_system=runtime_system,
             )
 
         return None
@@ -238,10 +264,14 @@ class Archive(AbstractModule):
                 merged[path_value] = merged.get(path_value, 0) + int(times)
         return merged or None
 
-    def _archive_requests_if_needed(self, ctx: Context) -> Optional[IgnoreMap]:
+    def _archive_requests_if_needed(
+        self,
+        ctx: Context,
+        runtime_system: RuntimeSystem,
+    ) -> Optional[IgnoreMap]:
         return self._merge_ignore_maps(
             [
-                self._archive_request(ctx, request)
+                self._archive_request(ctx, request, runtime_system)
                 for request in requests.requests_for_context(ctx)
             ]
         )
@@ -249,6 +279,7 @@ class Archive(AbstractModule):
     def archive_src_to_dest(
         self,
         ctx: Context,
+        system: System,
         force: bool = False,
     ) -> Optional[IgnoreMap]:
         pair_request = requests.auto_pair_request(ctx)
@@ -267,16 +298,16 @@ class Archive(AbstractModule):
             return None
         if force:
             pair_request = replace(pair_request, force=True)
-        return self._archive_request(ctx, pair_request)
+        return self._archive_request(ctx, pair_request, system.runtime_system)
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_requests_if_needed(ctx)
+        return self._archive_requests_if_needed(ctx, system.runtime_system)
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_requests_if_needed(ctx)
+        return self._archive_requests_if_needed(ctx, system.runtime_system)
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_requests_if_needed(ctx)
+        return self._archive_requests_if_needed(ctx, system.runtime_system)
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_requests_if_needed(ctx)
+        return self._archive_requests_if_needed(ctx, system.runtime_system)

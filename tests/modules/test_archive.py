@@ -545,6 +545,46 @@ def test_archive_rejects_hardlink_source(tmp_path: Path, monkeypatch) -> None:
     assert not (tmp_path / "past.md").exists()
 
 
+def test_truncate_source_validates_opened_file_before_truncating(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source_path = tmp_path / "source.md"
+    source_path.write_text("source must stay\n", encoding="utf-8")
+    protected_path = tmp_path / "protected.md"
+    protected_path.write_text("protected must stay\n", encoding="utf-8")
+    hardlink_path = tmp_path / "hardlink.md"
+    try:
+        os.link(protected_path, hardlink_path)
+    except OSError:
+        pytest.skip("filesystem does not support hardlinks")
+
+    open_flags: list[int] = []
+
+    def open_replaced_path(
+        path_value: str,
+        flags: int,
+        *,
+        runtime_system: str,
+        mode: int = 0o666,
+    ) -> int:
+        open_flags.append(flags)
+        return os.open(hardlink_path, os.O_WRONLY)
+
+    monkeypatch.setattr(archive_storage, "open_file_no_follow", open_replaced_path)
+
+    assert (
+        archive_storage.truncate_source_file(
+            str(source_path),
+            runtime_system="linux",
+        )
+        is False
+    )
+    assert open_flags == [os.O_WRONLY]
+    assert source_path.read_text(encoding="utf-8") == "source must stay\n"
+    assert protected_path.read_text(encoding="utf-8") == "protected must stay\n"
+
+
 def _make_stale(path: Path, hours: float) -> None:
     old = time.time() - (hours * 3600.0)
     os.utime(path, (old, old))
@@ -726,7 +766,7 @@ def test_archive_operation_failure_notifies_user(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(
         archive_storage,
         "truncate_source_file",
-        lambda _src_path: False,
+        lambda _src_path, *, runtime_system: False,
     )
 
     active_path = tmp_path / "active.md"
