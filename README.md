@@ -84,7 +84,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 - `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.
 - `banner`: inserts ASCII banner text or date banners into notes.
 - `formatter`: formats note text, including todo list conversion and blank-space padding.
-- `graph`: creates dynamic text or Markdown graph blocks for word and regex frequency.
+- `graph`: creates graph blocks for word and regex frequency.
 - `include`: renders complete files or matching source paragraphs inside notes.
 - `workspace`: initializes a default notes workspace.
 
@@ -93,11 +93,11 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 - `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
 **Experimental:**
-- `dropdir`: handles moved files in configured drop directories. Useful for inbox/drop folders where a move should trigger temporary Lucy flags. Target modules must be selected in `--sys-modules`.
+- `dropdir`: handles moved files in configured drop directories. Useful for inbox/drop folders where a move should trigger temporary Lucy flags.
 - `status`: updates standalone status filenames with dynamic tokens (time/date/git state, animations, prefixes).
 - `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.
 - `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
-- `voice`: replaces inline `--voice` with local Vosk transcription, stopping after speech ends.
+- `voice`: transcribes speech locally with Vosk, stopping after speech ends.
 
 See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
