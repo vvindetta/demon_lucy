@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-import shlex
 from typing import Any, Optional, Protocol
 
+from demon_lucy.lib.args.parser import split_arg_line
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import IgnoreMap
 
@@ -113,7 +113,7 @@ class StatusFileMixin:
             ):
                 continue
             try:
-                tokens = shlex.split(stripped, comments=False, posix=True)
+                tokens = split_arg_line(stripped)
             except ValueError:
                 continue
 

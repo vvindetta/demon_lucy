@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import sys
 from enum import StrEnum
 from pathlib import Path
@@ -15,6 +16,7 @@ from demon_lucy.lib.args.parser import (
     merge_known_args,
     parse_args,
     setup_config_and_cli_args,
+    split_arg_line,
 )
 
 
@@ -138,6 +140,64 @@ def test_is_valid_flag_token(token: str, expected: bool):
     assert is_valid_flag_token(token) is expected
 
 
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        (
+            r"--sys-watch-paths C:\Users\name\Notes",
+            ["--sys-watch-paths", r"C:\Users\name\Notes"],
+        ),
+        (
+            r'--include "C:\My Notes\file.md"',
+            ["--include", r"C:\My Notes\file.md"],
+        ),
+        (
+            r"--include \\server\share\Notes\file.md",
+            ["--include", r"\\server\share\Notes\file.md"],
+        ),
+        (
+            r"--graph-regex log.md \b(foo|bar)\b",
+            ["--graph-regex", "log.md", r"\b(foo|bar)\b"],
+        ),
+        (
+            r"--value some\ value",
+            ["--value", "some\\", "value"],
+        ),
+    ],
+)
+def test_split_arg_line_preserves_backslashes(
+    line: str,
+    expected: list[str],
+) -> None:
+    assert split_arg_line(line) == expected
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        ["--include", r"C:\Users\name\Notes\file.md"],
+        ["--include", r"C:\My Notes\file.md"],
+        ["--include", r"\\server\share\Notes\file.md"],
+        ["--graph-regex", "log.md", r"\b(foo|bar)\b"],
+        ["--value", "text with 'single' and \"double\" quotes"],
+        ["--value", ""],
+    ],
+)
+def test_split_arg_line_round_trips_joined_tokens(tokens: list[str]) -> None:
+    assert split_arg_line(shlex.join(tokens)) == tokens
+
+
+def test_line_edit_preserves_windows_path() -> None:
+    line = "--include C:\\Users\\name\\Notes\\file.md --formatter-todo\n"
+
+    updated = delete_args_from_string(line, ["--formatter-todo"])
+
+    assert split_arg_line(updated) == [
+        "--include",
+        r"C:\Users\name\Notes\file.md",
+    ]
+
+
 def test_get_config_args_reads_lines_and_ignores_comments(tmp_path: Path):
     cfg = tmp_path / "config.txt"
     cfg.write_text(
@@ -152,6 +212,22 @@ def test_get_config_args_reads_lines_and_ignores_comments(tmp_path: Path):
     known, unknown = get_config_args(str(cfg), template)
     assert known["name"] == "jane"
     assert known["count"] == 7
+    assert unknown == []
+
+
+def test_get_config_args_preserves_unquoted_windows_path(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.txt"
+    cfg.write_text(
+        "--sys-watch-paths C:\\Users\\name\\Notes\n",
+        encoding="utf-8",
+    )
+    template = [
+        ArgTemplate(name="--sys-watch-paths", value_type=str, default=[]),
+    ]
+
+    known, unknown = get_config_args(str(cfg), template)
+
+    assert known["sys_watch_paths"] == [r"C:\Users\name\Notes"]
     assert unknown == []
 
 
@@ -220,6 +296,23 @@ def test_get_args_from_file_skips_non_utf8_files(tmp_path: Path):
     assert known == {}
     assert unknown == []
     assert arg_lines == {}
+
+
+def test_get_args_from_file_preserves_windows_path(tmp_path: Path) -> None:
+    path = tmp_path / "note.md"
+    path.write_text(
+        "--include C:\\Users\\name\\Notes\\file.md\n",
+        encoding="utf-8",
+    )
+    template = [
+        ArgTemplate(name="--include", value_type=str, default=[]),
+    ]
+
+    known, unknown, arg_lines = get_args_from_file(str(path), template)
+
+    assert known["include"] == [r"C:\Users\name\Notes\file.md"]
+    assert unknown == []
+    assert arg_lines["include"] == [1]
 
 
 def test_setup_config_and_cli_args_keeps_config_values_when_cli_uses_defaults(

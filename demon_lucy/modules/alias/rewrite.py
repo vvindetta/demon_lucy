@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import shlex
 
-from demon_lucy.lib.args.parser import is_valid_flag_token
+from demon_lucy.lib.args.parser import is_valid_flag_token, split_arg_line
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.modules.abstract_module import System
 from demon_lucy.modules.alias.rules import ARG_PLACEHOLDER, AliasRule, flag_head
@@ -105,7 +105,7 @@ def rewrite_lines(
             continue
 
         try:
-            tokens = shlex.split(stripped, comments=False, posix=True)
+            tokens = split_arg_line(stripped)
         except ValueError as exc:
             logger.warning(
                 log_record(

@@ -179,6 +179,11 @@ watchdog file events.
 as `name=`, `value_type=`, `default=`, `description=`, and `required=`; never
 use positional arguments.
 
+Config and note argument lines must be tokenized with
+`demon_lucy.lib.args.parser.split_arg_line()`, not `shlex.split()`. Lucy treats
+backslashes as literal characters on every system; values containing spaces
+must use quotes.
+
 ## Hard Rules
 
 - Do not add subcommands like `--git pull hours 2`.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
@@ -10,6 +9,7 @@ from demon_lucy.lib.args.parser import (
     Template,
     is_valid_flag_token,
     normalize_template_params,
+    split_arg_line,
 )
 
 
@@ -109,7 +109,7 @@ def include_params_from_line(line: str) -> list[IncludeParams]:
     stripped = line.strip()
     if not stripped or stripped.startswith("#"):
         return []
-    tokens = shlex.split(stripped, comments=False, posix=True)
+    tokens = split_arg_line(stripped)
     if not tokens or not is_valid_flag_token(tokens[0]):
         return []
 

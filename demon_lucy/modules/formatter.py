@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-import shlex
 from collections.abc import Iterable
 from typing import Optional
 
@@ -12,6 +11,7 @@ from demon_lucy.lib.args.parser import (
     Template,
     is_valid_flag_token,
     parse_args,
+    split_arg_line,
 )
 from demon_lucy.lib.date_sections import complete_partial_date_section_headers
 from demon_lucy.lib.text_file import detect_newline
@@ -161,7 +161,7 @@ class Formatter(AbstractModule):
             return False
 
         try:
-            tokens = shlex.split(stripped, comments=False, posix=True)
+            tokens = split_arg_line(stripped)
         except ValueError:
             return False
 

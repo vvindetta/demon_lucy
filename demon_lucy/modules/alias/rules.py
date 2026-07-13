@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import shlex
 from dataclasses import dataclass
 
 from demon_lucy.lib.args.parser import (
     is_valid_flag_token,
+    split_arg_line,
 )
 from demon_lucy.modules.abstract_module import System
 
@@ -92,7 +92,7 @@ def parse_rule(
         )
 
     try:
-        expansion_tokens = shlex.split(expansion, comments=False, posix=True)
+        expansion_tokens = split_arg_line(expansion)
     except ValueError as exc:
         return RuleError(
             raw=raw,

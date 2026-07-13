@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 EnumType = TypeVar("EnumType", bound=Enum)
 
 
+def split_arg_line(line: str) -> List[str]:
+    """Split a Lucy arg line while preserving backslashes as literal text."""
+    lexer = shlex.shlex(line, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    lexer.escape = ""
+    return list(lexer)
+
+
 @dataclass(frozen=True, kw_only=True)
 class ArgTemplate:
     name: str
@@ -185,7 +194,7 @@ def get_config_args(path: str, template: Template) -> Tuple[Dict[str, Any], List
             if not line or line.startswith("#"):
                 continue
             try:
-                config_args_raw.extend(shlex.split(line))
+                config_args_raw.extend(split_arg_line(line))
             except ValueError as exc:
                 logger.warning(
                     log_record(
@@ -322,7 +331,7 @@ def get_args_from_file(
             continue
 
         try:
-            tokens = shlex.split(stripped, comments=False, posix=True)
+            tokens = split_arg_line(stripped)
         except ValueError as e:
             logger.info(
                 log_record("args.file_line_invalid", path=path, line=lineno, error=e)

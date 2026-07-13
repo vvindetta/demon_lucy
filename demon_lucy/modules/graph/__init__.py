@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import logging
-import shlex
 from typing import Optional
 
-from demon_lucy.lib.args.parser import is_valid_flag_token
+from demon_lucy.lib.args.parser import is_valid_flag_token, split_arg_line
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.text_file import detect_newline, write_text_atomic
@@ -45,7 +44,7 @@ class Graph(AbstractModule):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             return []
-        tokens = shlex.split(stripped, comments=False, posix=True)
+        tokens = split_arg_line(stripped)
 
         commands: list[GraphCommand] = []
         index = 0

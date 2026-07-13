@@ -8,6 +8,7 @@ import demon_lucy.modules.alias as alias_mod
 from demon_lucy.lib.args.parser import ArgTemplate, parse_args
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.alias import Alias
+from demon_lucy.modules.alias.rules import AliasRule, parse_rule
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 
 
@@ -88,6 +89,19 @@ def test_alias_passes_inline_value_to_args_placeholder(tmp_path: Path):
 
     assert changed == {str(note): 1}
     assert note.read_text(encoding="utf-8") == "--rename done.md\n"
+
+
+def test_alias_rule_preserves_windows_path() -> None:
+    parsed = parse_rule(
+        r"inc=--include C:\Users\name\Notes\file.md",
+        known_flag_values={"--include"},
+    )
+
+    assert isinstance(parsed, AliasRule)
+    assert parsed.expansion_tokens == [
+        "--include",
+        r"C:\Users\name\Notes\file.md",
+    ]
 
 
 def test_alias_dry_run_does_not_write(tmp_path: Path):

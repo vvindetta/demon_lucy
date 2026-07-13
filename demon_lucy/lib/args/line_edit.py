@@ -3,6 +3,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
+from demon_lucy.lib.args.parser import split_arg_line
+
 
 @dataclass(frozen=True)
 class ArgSegment:
@@ -69,7 +71,7 @@ def migrate_arg_line_segments(
 
     newline = "\n" if line.endswith("\n") else ""
     try:
-        tokens = shlex.split(stripped)
+        tokens = split_arg_line(stripped)
     except ValueError:
         return line, False
 
@@ -120,7 +122,7 @@ def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
     if not any(flag in raw for flag in remove):
         return line
 
-    tokens = shlex.split(raw)
+    tokens = split_arg_line(raw)
 
     out: List[str] = []
     removed_any = False

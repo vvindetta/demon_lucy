@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shlex
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,6 +9,7 @@ from demon_lucy.lib.args.parser import (
     is_valid_flag_token,
     merge_known_args,
     parse_args,
+    split_arg_line,
 )
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import canonical_path, path_is_inside
@@ -68,7 +68,7 @@ def parse_action(raw_action: str) -> DropDirAction | None:
         return None
 
     try:
-        tokens = shlex.split(action_text, comments=False, posix=True)
+        tokens = split_arg_line(action_text)
     except ValueError:
         return None
 
