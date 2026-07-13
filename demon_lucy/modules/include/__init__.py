@@ -18,11 +18,12 @@ from demon_lucy.modules.abstract_module import (
 )
 from demon_lucy.modules.include.params import (
     INCLUDE_TEMPLATE,
-    include_params_from_command,
-    include_sources_from_line,
+    include_arg_template,
+    include_block_params,
+    include_params_from_line,
 )
 from demon_lucy.modules.include.render import (
-    render_file,
+    render_include,
     render_include_dynamic_block,
 )
 
@@ -33,11 +34,16 @@ class Include(AbstractModule):
     name = "include"
     priority = 25
     template = INCLUDE_TEMPLATE
-    dynamic_block_renderers = {"include": render_include_dynamic_block}
+    dynamic_block_renderers = {
+        "include": render_include_dynamic_block,
+        "include-find": render_include_dynamic_block,
+    }
 
     def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
         raw_candidate_lines = {
-            int(value) for value in (ctx.arg_lines.get("include") or [])
+            int(value)
+            for key in ("include", "include_find")
+            for value in (ctx.arg_lines.get(key) or [])
         }
         if not raw_candidate_lines:
             return None
@@ -76,27 +82,35 @@ class Include(AbstractModule):
 
         lines = original_text.splitlines(keepends=True)
         newline = detect_newline(original_text)
-        rendered_files = 0
+        rendered_items = 0
+        include_depth = cast(int, ctx.config["include_depth"])
+        if include_depth < 1:
+            logger.warning(
+                log_record(
+                    "include.skip",
+                    id=system.event_id,
+                    path=ctx.path,
+                    reason="invalid_depth",
+                    depth=include_depth,
+                )
+            )
+            return None
         for line_number in candidate_lines:
             index = line_number - 1
             if index < 0 or index >= len(lines):
                 continue
             try:
-                include_depth = cast(int, ctx.config["include_depth"])
-                params_list = [
-                    include_params_from_command([source], depth=include_depth)
-                    for source in include_sources_from_line(lines[index])
-                ]
+                params_list = include_params_from_line(lines[index])
                 blocks = [
                     format_dynamic_block(
-                        arg="include",
-                        params={"source": params.source, "depth": params.depth},
-                        body=render_file(
-                            params.source,
+                        arg=params.arg,
+                        params=include_block_params(params),
+                        body=render_include(
+                            params,
                             target_path=ctx.path,
-                            depth=params.depth,
+                            depth=include_depth,
                         ),
-                        arg_template=INCLUDE_TEMPLATE[0],
+                        arg_template=include_arg_template(params.arg),
                         show_allowed_values=not ctx.config[
                             "sys_dynamic_block_hide_allowed_values"
                         ],
@@ -119,9 +133,9 @@ class Include(AbstractModule):
             if not blocks:
                 continue
             lines[index : index + 1] = [newline.join(blocks)]
-            rendered_files += len(blocks)
+            rendered_items += len(blocks)
 
-        if rendered_files == 0:
+        if rendered_items == 0:
             return None
 
         try:
@@ -148,7 +162,7 @@ class Include(AbstractModule):
                 "include.render_done",
                 id=system.event_id,
                 path=ctx.path,
-                files=rendered_files,
+                items=rendered_items,
             )
         )
         return {ctx.path: 1}

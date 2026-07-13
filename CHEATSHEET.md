@@ -195,11 +195,13 @@ newly created blocks.
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--include` | `str[]` | Render a complete file inside an indented dynamic block: `file`. |
+| `--include-find` | `str[]` | Collect paragraphs starting with a keyword from a file or directory: `source keyword`. |
 | `--include-depth` | `int` | Maximum nested include render depth. Default: `3`. |
 
 ```text
 --include-depth 3
 --include shared/project.md
+--include-find notes "tasks:"
 ```
 
 ## Archive

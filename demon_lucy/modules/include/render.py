@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import shlex
+from collections.abc import Mapping
+from typing import cast
 
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlock
 from demon_lucy.lib.dynamic_blocks.parser import (
@@ -10,9 +12,12 @@ from demon_lucy.lib.dynamic_blocks.parser import (
 )
 from demon_lucy.lib.path import canonical_path, resolve_file_source_path
 from demon_lucy.lib.text_file import detect_newline, normalize_newlines
+from demon_lucy.modules.include.blocks import find_paragraphs
 from demon_lucy.modules.include.params import (
-    INCLUDE_TEMPLATE,
-    include_sources_from_line,
+    IncludeParams,
+    include_arg_template,
+    include_block_params,
+    include_params_from_line,
     normalize_include_params,
 )
 
@@ -20,6 +25,10 @@ from demon_lucy.modules.include.params import (
 def _normalize_body(body: str, newline: str) -> str:
     normalized = normalize_newlines(body, newline).rstrip("\r\n")
     return normalized + newline if normalized else ""
+
+
+def _indent_text(text: str) -> str:
+    return "".join(f"\t{line}" for line in text.splitlines(keepends=True))
 
 
 def _line_offsets(lines: list[str]) -> list[int]:
@@ -33,17 +42,22 @@ def _offset_in_ranges(offset: int, ranges: list[tuple[int, int]]) -> bool:
     return any(start <= offset < end for start, end in ranges)
 
 
-def _replace_block_with_include_command(
+def _command_text(params: IncludeParams) -> str:
+    values = [shlex.quote(params.source)]
+    if params.keyword is not None:
+        values.append(shlex.quote(params.keyword))
+    return f"--{params.arg} {' '.join(values)}"
+
+
+def _replace_block_with_command(
     text: str,
     block: DynamicBlock,
     *,
-    source: str,
+    params: IncludeParams,
     newline: str,
 ) -> str:
     lines = text.splitlines(keepends=True)
-    lines[block.line - 1 : block.end_line] = [
-        f"--include {shlex.quote(source)}{newline}"
-    ]
+    lines[block.line - 1 : block.end_line] = [f"{_command_text(params)}{newline}"]
     return "".join(lines)
 
 
@@ -65,29 +79,22 @@ def _render_existing_include_blocks(
 
     replacements: list[tuple[int, int, str]] = []
     for block in blocks:
-        if block.arg != "include":
+        if block.arg not in {"include", "include-find"}:
             continue
-        params = normalize_include_params(block.params)
-        child_depth = min(params.depth, depth - 1)
-        source_path = resolve_file_source_path(
-            source=params.source,
-            target_path=current_path,
-        )
-        source_text = (
-            _replace_block_with_include_command(
+        params = normalize_include_params(block.arg, block.params)
+        source_overrides = {
+            canonical_path(current_path): _replace_block_with_command(
                 text,
                 block,
-                source=params.source,
+                params=params,
                 newline=newline,
             )
-            if source_path == canonical_path(current_path)
-            else None
-        )
-        rendered = render_file(
-            params.source,
+        }
+        rendered = render_include(
+            params,
             target_path=current_path,
-            depth=child_depth,
-            source_text=source_text,
+            depth=depth - 1,
+            source_overrides=source_overrides,
         )
         replacements.append(
             (
@@ -122,29 +129,28 @@ def _render_include_commands(
             rendered_lines.append(line)
             continue
 
-        sources = include_sources_from_line(line)
-        if not sources:
+        params_list = include_params_from_line(line)
+        if not params_list:
             rendered_lines.append(line)
             continue
 
         blocks: list[str] = []
-        for source in sources:
+        for params in params_list:
             source_path = resolve_file_source_path(
-                source=source,
+                source=params.source,
                 target_path=current_path,
             )
-            source_text = text if source_path == canonical_path(current_path) else None
             blocks.append(
                 format_dynamic_block(
-                    arg="include",
-                    params={"source": source, "depth": depth - 1},
-                    body=render_file(
-                        source,
+                    arg=params.arg,
+                    params=include_block_params(params),
+                    body=render_include(
+                        params,
                         target_path=current_path,
                         depth=depth - 1,
-                        source_text=source_text,
+                        source_overrides={canonical_path(current_path): text},
                     ),
-                    arg_template=INCLUDE_TEMPLATE[0],
+                    arg_template=include_arg_template(params.arg),
                     newline=newline,
                     updated_timestamp=os.path.getmtime(source_path),
                 )
@@ -206,29 +212,84 @@ def render_file(
         current_path=source_path,
         depth=depth,
     )
-    return "".join(f"\t{line}" for line in rendered_text.splitlines(keepends=True))
+    return _indent_text(rendered_text)
 
 
-def render_include_dynamic_block(block: DynamicBlock, target_path: str) -> str:
-    params = normalize_include_params(block.params)
+def render_found_paragraphs(
+    source: str,
+    *,
+    keyword: str,
+    target_path: str,
+    depth: int,
+    source_overrides: Mapping[str, str] | None = None,
+) -> str:
+    if depth < 1:
+        raise ValueError("include depth must be at least 1")
+    paragraphs = find_paragraphs(
+        source,
+        keyword=keyword,
+        target_path=target_path,
+        source_overrides=source_overrides,
+    )
+    rendered = [
+        _render_nested_includes(text, current_path=path, depth=depth)
+        for path, text in paragraphs
+    ]
+    return _indent_text("\n\n".join(rendered))
+
+
+def render_include(
+    params: IncludeParams,
+    *,
+    target_path: str,
+    depth: int,
+    source_overrides: Mapping[str, str] | None = None,
+) -> str:
     source_path = resolve_file_source_path(
         source=params.source,
         target_path=target_path,
     )
-    if source_path != canonical_path(target_path):
-        return render_file(params.source, target_path=target_path, depth=params.depth)
+    if params.arg == "include":
+        return render_file(
+            params.source,
+            target_path=target_path,
+            depth=depth,
+            source_text=(source_overrides or {}).get(source_path),
+        )
+    if params.arg == "include-find" and params.keyword is not None:
+        return render_found_paragraphs(
+            params.source,
+            keyword=params.keyword,
+            target_path=target_path,
+            depth=depth,
+            source_overrides=source_overrides,
+        )
+    raise ValueError(f"unsupported include arg: {params.arg}")
+
+
+def render_include_dynamic_block(
+    block: DynamicBlock,
+    target_path: str,
+    config: Mapping[str, object],
+) -> str:
+    params = normalize_include_params(block.arg, block.params)
+    depth = cast(int, config["include_depth"])
+    if depth < 1:
+        raise ValueError("include depth must be at least 1")
 
     with open(target_path, "r", encoding="utf-8", newline="") as handle:
         target_text = handle.read()
     newline = detect_newline(target_text)
-    return render_file(
-        params.source,
+    return render_include(
+        params,
         target_path=target_path,
-        depth=params.depth,
-        source_text=_replace_block_with_include_command(
-            target_text,
-            block,
-            source=params.source,
-            newline=newline,
-        ),
+        depth=depth,
+        source_overrides={
+            canonical_path(target_path): _replace_block_with_command(
+                target_text,
+                block,
+                params=params,
+                newline=newline,
+            )
+        },
     )

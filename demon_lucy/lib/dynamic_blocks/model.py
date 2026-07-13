@@ -20,4 +20,7 @@ class DynamicBlock:
     end_line: int
 
 
-DynamicBlockRenderer: TypeAlias = Callable[[DynamicBlock, str], str]
+DynamicBlockRenderer: TypeAlias = Callable[
+    [DynamicBlock, str, Mapping[str, object]],
+    str,
+]

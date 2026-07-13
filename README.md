@@ -85,7 +85,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 - `banner`: inserts ASCII banner text or date banners into notes.
 - `formatter`: formats note text, including todo list conversion and blank-space padding.
 - `graph`: creates dynamic text or Markdown graph blocks for word and regex frequency.
-- `include`: renders complete files inside notes as indented dynamic blocks.
+- `include`: renders complete files or matching source paragraphs inside notes.
 - `workspace`: initializes a default notes workspace.
 
 **Integrations:**

@@ -85,7 +85,7 @@ class _ListMod(AbstractModule):
         return None
 
 
-def _render_test_block(block, _target_path: str) -> str:
+def _render_test_block(block, _target_path: str, _config) -> str:
     return f"rendered {block.params['value']}"
 
 

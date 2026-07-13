@@ -95,9 +95,10 @@ watchdog file events.
   recursive Graph template and shared command/block normalization;
   `dynamic_block.py` owns source safety and renderer registration; `data.py`
   collects dated/Git data; `render.py` builds output.
-- `modules/include/`: renders complete UTF-8 files inside notes as tab-indented
-  Dynamic Blocks. `__init__.py` owns command conversion and event handlers;
-  `params.py` owns the recursive template; `render.py` owns safe source reads.
+- `modules/include/`: renders complete UTF-8 files or matching paragraphs inside
+  notes as tab-indented Dynamic Blocks. `__init__.py` owns command conversion and
+  event handlers; `params.py` owns templates and normalization; `blocks.py` owns
+  paragraph collection; `render.py` owns recursive rendering.
 - `modules/archive/`: archives stale or forced source note content through
   pair/local/global routes. `module.py` owns orchestration and event handlers,
   `requests.py` builds `ArchiveRequest` objects from already-parsed config/note

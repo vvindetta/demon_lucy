@@ -225,7 +225,8 @@ def test_refresh_normalizes_compact_legacy_metadata_and_empty_body() -> None:
     refreshed, changed = refresh_dynamic_blocks(
         text=text,
         target_path="note.md",
-        renderers={"include": lambda _block, _path: "\tcontent"},
+        renderers={"include": lambda _block, _path, _config: "\tcontent"},
+        config={},
     )
 
     assert changed == 1
@@ -260,11 +261,12 @@ def test_refresh_recovers_body_with_unclosed_code_fence() -> None:
         text=text,
         target_path="graph.md",
         renderers={
-            "graph": lambda _block, _path: format_fenced_body(
+            "graph": lambda _block, _path, _config: format_fenced_body(
                 "restored graph",
                 info="text",
             )
         },
+        config={},
     )
 
     assert changed == 1
@@ -286,7 +288,10 @@ def test_refresh_updates_same_arg_blocks_independently(tmp_path: Path) -> None:
     refreshed, changed = refresh_dynamic_blocks(
         text=text,
         target_path=str(tmp_path / "note.md"),
-        renderers={"graph": lambda block, _path: f"new {block.params['pattern']}"},
+        renderers={
+            "graph": lambda block, _path, _config: f"new {block.params['pattern']}"
+        },
+        config={},
         event_id="evt-test",
     )
 
@@ -317,7 +322,8 @@ def test_refresh_preserves_update_time_when_rendered_body_is_unchanged(
     refreshed, changed = refresh_dynamic_blocks(
         text=text,
         target_path=str(tmp_path / "note.md"),
-        renderers={"example": lambda _block, _path: "same body"},
+        renderers={"example": lambda _block, _path, _config: "same body"},
+        config={},
     )
 
     assert changed == 1
@@ -340,7 +346,8 @@ def test_refresh_sets_update_time_when_rendered_body_changes(tmp_path: Path) -> 
     refreshed, changed = refresh_dynamic_blocks(
         text=text,
         target_path=str(tmp_path / "note.md"),
-        renderers={"example": lambda _block, _path: "new body"},
+        renderers={"example": lambda _block, _path, _config: "new body"},
+        config={},
     )
 
     assert changed == 1
@@ -367,7 +374,7 @@ def test_refresh_preserves_failed_unknown_and_successful_blocks(
         body="old",
     )
 
-    def render(block, _path: str) -> str:
+    def render(block, _path: str, _config) -> str:
         if block.params["pattern"] == "fail":
             raise ValueError("invalid test block")
         return "new markdown"
@@ -376,6 +383,7 @@ def test_refresh_preserves_failed_unknown_and_successful_blocks(
         text=failed + unknown + good,
         target_path=str(tmp_path / "note.md"),
         renderers={"graph": render},
+        config={},
     )
 
     assert changed == 1
@@ -396,5 +404,6 @@ def test_refresh_raises_before_partial_change_on_invalid_structure() -> None:
         refresh_dynamic_blocks(
             text=valid + malformed,
             target_path="note.md",
-            renderers={"graph": lambda _block, _path: "new"},
+            renderers={"graph": lambda _block, _path, _config: "new"},
+            config={},
         )

@@ -130,6 +130,7 @@ class ModuleManager:
                 text=text,
                 target_path=path,
                 renderers=self.dynamic_block_renderers,
+                config=config,
                 event_id=event_id,
             )
         except ValueError as exc:
