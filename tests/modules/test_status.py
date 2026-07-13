@@ -1422,7 +1422,7 @@ def test_status_sanitizes_windows_forbidden_filename_tokens() -> None:
     assert (
         Status._sanitize_filename_text(
             "Sync: 08:09 A/B?",
-            runtime_platform="windows",
+            runtime_system="windows",
         )
         == "Sync_ 08_09 A_B_"
     )

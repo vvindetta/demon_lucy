@@ -65,7 +65,7 @@ class Git(AbstractModule):
                 ctx.config["sys_git_repo_lock_wait_timeout_seconds"],
             ),
             stale_seconds=max(0.0, ctx.config["sys_git_repo_lock_stale_seconds"]),
-            runtime_platform=system.runtime_platform,
+            runtime_system=system.runtime_system,
         ):
             logger.info(
                 log_record(
@@ -85,7 +85,7 @@ class Git(AbstractModule):
             event_type="opened",
             paths=[to_str(ctx.path)],
             config_snapshot=ctx.config,
-            runtime_platform=system.runtime_platform,
+            runtime_system=system.runtime_system,
             run_in_background=self._should_run_in_background(system),
         )
         return None
@@ -144,7 +144,7 @@ class Git(AbstractModule):
             event_type=event_type,
             paths=paths_to_hint,
             config_snapshot=ctx.config,
-            runtime_platform=system.runtime_platform,
+            runtime_system=system.runtime_system,
             run_in_background=self._should_run_in_background(system),
         )
         return None

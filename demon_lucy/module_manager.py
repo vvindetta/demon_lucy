@@ -16,7 +16,7 @@ from demon_lucy.lib.args.parser import (
 from demon_lucy.lib.logfmt import ignore_summary, log_record, next_event_id
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path, path_is_inside
-from demon_lucy.lib.runtime_platform import RuntimePlatform, detect_runtime_platform
+from demon_lucy.lib.runtime_system import RuntimeSystem, detect_runtime_system
 from demon_lucy.lib.text_file import write_text_atomic
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlockRenderer
 from demon_lucy.lib.dynamic_blocks.refresh import refresh_dynamic_blocks
@@ -41,7 +41,7 @@ class ModuleManager:
     ):
         self.modules = modules
         self.run_mode: RunMode = run_mode
-        self.runtime_platform: RuntimePlatform = detect_runtime_platform()
+        self.runtime_system: RuntimeSystem = detect_runtime_system()
         self.dynamic_block_renderers = self._collect_dynamic_block_renderers(
             self.modules
         )
@@ -316,7 +316,7 @@ class ModuleManager:
                         modules=self.modules,
                         run_mode=self.run_mode,
                         event_id=event_id,
-                        runtime_platform=self.runtime_platform,
+                        runtime_system=self.runtime_system,
                     ),
                 )
             except Exception:

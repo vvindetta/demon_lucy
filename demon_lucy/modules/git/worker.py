@@ -18,7 +18,7 @@ from demon_lucy.lib.git_state import (
 )
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
-from demon_lucy.lib.runtime_platform import RuntimePlatform
+from demon_lucy.lib.runtime_system import RuntimeSystem
 from demon_lucy.modules.git.batch_factory import make_repo_batch
 from demon_lucy.modules.git.commit_message import (
     GitChange,
@@ -90,7 +90,7 @@ def _run_event_with_repo_lock(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
 ) -> bool:
     repo_lock = _repo_event_lock(repo_root)
     with repo_lock:
@@ -100,7 +100,7 @@ def _run_event_with_repo_lock(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
-            runtime_platform=runtime_platform,
+            runtime_system=runtime_system,
         )
 
 
@@ -110,7 +110,7 @@ def _run_event_with_retry_window_repo_locked(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
 ) -> None:
     repo_lock = _repo_event_lock(repo_root)
     with repo_lock:
@@ -120,7 +120,7 @@ def _run_event_with_retry_window_repo_locked(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
-            runtime_platform=runtime_platform,
+            runtime_system=runtime_system,
         )
 
 
@@ -225,7 +225,7 @@ def _with_repo_process_lock(
     wait_timeout_seconds: float,
     retry_sleep_seconds: float,
     stale_seconds: float,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
 ) -> bool:
     lock_path = repo_process_lock_path(repo_root)
     if not lock_path:
@@ -264,7 +264,7 @@ def _with_repo_process_lock(
             lock_path,
             wait_timeout_seconds=wait_timeout_seconds,
             stale_seconds=stale_seconds,
-            runtime_platform=runtime_platform,
+            runtime_system=runtime_system,
             on_removed=_log_stale_repo_process_lock_removed,
         ):
             continue
@@ -284,7 +284,7 @@ def _with_repo_process_lock_status(
     wait_timeout_seconds: float,
     retry_sleep_seconds: float,
     stale_seconds: float,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
     on_busy_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
     on_invalid_repo_fn: Callable[[], DirtyTreeCommitResult | PatchPacketBuildResult],
 ) -> DirtyTreeCommitResult | PatchPacketBuildResult:
@@ -329,7 +329,7 @@ def _with_repo_process_lock_status(
             lock_path,
             wait_timeout_seconds=wait_timeout_seconds,
             stale_seconds=stale_seconds,
-            runtime_platform=runtime_platform,
+            runtime_system=runtime_system,
             on_removed=_log_stale_repo_process_lock_removed,
         ):
             continue
@@ -345,7 +345,7 @@ def _process_event_once(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
 ) -> bool:
     batch = make_repo_batch(
         repo_root=repo_root,
@@ -358,7 +358,7 @@ def _process_event_once(
         self,
         batch,
         config_snapshot,
-        runtime_platform=runtime_platform,
+        runtime_system=runtime_system,
     )
 
 
@@ -368,7 +368,7 @@ def _run_event_with_retry_window(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
 ) -> None:
     retry_window_seconds = max(
         0.0, float(config_snapshot["git_sync_retry_window_seconds"])
@@ -394,7 +394,7 @@ def _run_event_with_retry_window(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
-            runtime_platform=runtime_platform,
+            runtime_system=runtime_system,
         )
         if success:
             return
@@ -418,7 +418,7 @@ def process_event(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
     run_in_background: bool = False,
 ) -> bool:
     if not run_in_background:
@@ -428,7 +428,7 @@ def process_event(
             event_type=event_type,
             paths=paths,
             config_snapshot=config_snapshot,
-            runtime_platform=runtime_platform,
+            runtime_system=runtime_system,
         )
 
     runner = threading.Thread(
@@ -439,7 +439,7 @@ def process_event(
             "event_type": event_type,
             "paths": list(paths),
             "config_snapshot": dict(config_snapshot),
-            "runtime_platform": runtime_platform,
+            "runtime_system": runtime_system,
         },
         daemon=True,
     )
@@ -937,7 +937,7 @@ def process_batch(
     batch: _RepoBatch,
     config_snapshot: dict,
     *,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
 ) -> bool:
     return _with_repo_process_lock(
         batch.repo_root,
@@ -954,7 +954,7 @@ def process_batch(
             0.0,
             config_snapshot["sys_git_repo_lock_stale_seconds"],
         ),
-        runtime_platform=runtime_platform,
+        runtime_system=runtime_system,
     )
 
 
@@ -1010,7 +1010,7 @@ def commit_dirty_tree(
     event_type: str,
     paths: list[str],
     config_snapshot: dict,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
 ) -> DirtyTreeCommitResult:
     batch = make_repo_batch(
         repo_root=repo_root,
@@ -1112,7 +1112,7 @@ def commit_dirty_tree(
             0.0,
             config_snapshot["sys_git_repo_lock_stale_seconds"],
         ),
-        runtime_platform=runtime_platform,
+        runtime_system=runtime_system,
         on_busy_fn=lambda: DirtyTreeCommitResult(
             status="busy",
             repo_root=repo_root,
@@ -1142,7 +1142,7 @@ def build_patch_packet(
     queue_dir: str,
     author_device: str,
     config_snapshot: dict,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
 ) -> PatchPacketBuildResult:
     batch = make_repo_batch(
         repo_root=repo_root,
@@ -1244,7 +1244,7 @@ def build_patch_packet(
             0.0,
             config_snapshot["sys_git_repo_lock_stale_seconds"],
         ),
-        runtime_platform=runtime_platform,
+        runtime_system=runtime_system,
         on_busy_fn=lambda: PatchPacketBuildResult(
             status="busy",
             repo_root=repo_root,

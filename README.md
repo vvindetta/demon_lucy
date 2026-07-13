@@ -105,6 +105,10 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
 Tested on GNU/Linux based distros only.
 
+### Opened events on macOS and Windows
+
+macOS and Windows do not provide daemon `opened` events. Other events and synthetic oneshot `opened` continue to work.
+
 1. Clone the repository:
 ```
 git clone https://codeberg.org/vvindetta/demon_lucy && cd demon_lucy

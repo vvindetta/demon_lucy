@@ -12,6 +12,7 @@ import main_daemon
 @dataclass
 class _ObserverState:
     scheduled: list[tuple[Any, str, bool]] = field(default_factory=list)
+    notifications: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
     started: bool = False
     stopped: bool = False
     joined: bool = False
@@ -23,6 +24,8 @@ def _run_main_with_flag(
     monkeypatch: pytest.MonkeyPatch,
     watch_paths: list[str] | None = None,
     sys_modules: list[str] | None = None,
+    runtime_system: str = "linux",
+    disable_opened_events: bool = True,
 ) -> _ObserverState:
     state = _ObserverState()
 
@@ -62,6 +65,7 @@ def _run_main_with_flag(
             self.args = args
             self.system_config = system_config
             self.run_mode = run_mode
+            self.runtime_system = runtime_system
 
     class FakeEvent:
         def wait(self):
@@ -72,6 +76,12 @@ def _run_main_with_flag(
     monkeypatch.setattr(main_daemon, "ModuleManager", FakeModuleManager)
     monkeypatch.setattr(main_daemon.threading, "Event", FakeEvent)
     monkeypatch.setattr(main_daemon, "run_config_migrations", lambda _path: [])
+
+    def fake_safe_notify(name, message, **kwargs):
+        state.notifications.append((name, message, kwargs))
+        return True
+
+    monkeypatch.setattr(main_daemon, "safe_notify", fake_safe_notify)
     monkeypatch.setattr(
         main_daemon,
         "setup_config_and_cli_args",
@@ -83,7 +93,7 @@ def _run_main_with_flag(
                     watch_paths if watch_paths is not None else [str(tmp_path)]
                 ),
                 "sys_opened_event_cooldown_seconds": 20,
-                "sys_disable_opened_events": True,
+                "sys_disable_opened_events": disable_opened_events,
                 "sys_notification_provider": "auto",
                 "sys_notification_min_interval_seconds": 10.0,
                 "sys_modules": list(sys_modules or []),
@@ -133,6 +143,41 @@ def test_main_schedules_observer_and_modules(
         "plasma_widget",
         "voice",
     ]
+
+
+def test_main_notifies_when_native_opened_events_are_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = _run_main_with_flag(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        runtime_system="macos",
+        disable_opened_events=False,
+    )
+
+    assert len(state.notifications) == 1
+    name, message, kwargs = state.notifications[0]
+    assert name == "watcher-opened-events-unavailable"
+    assert message == (
+        "macOS does not report file-open events. "
+        "Lucy continues watching file changes normally."
+    )
+    assert kwargs["use_rare_mode"] is False
+
+
+def test_main_does_not_notify_when_opened_events_are_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = _run_main_with_flag(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        runtime_system="windows",
+        disable_opened_events=True,
+    )
+
+    assert state.notifications == []
 
 
 def test_main_raises_when_notes_dirs_are_missing(monkeypatch):

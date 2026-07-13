@@ -219,7 +219,7 @@ def test_run_repo_sync_transfer_failure_does_not_notify_for_transient_phone_erro
         event_type="modified",
         trigger_paths=["/repo/note.md"],
         config_snapshot=_base_config(enabled=True),
-        runtime_platform="posix",
+        runtime_system="linux",
     )
 
     assert notifications == []
@@ -269,7 +269,7 @@ def test_run_repo_sync_transfer_misconfig_notifies_once(monkeypatch):
         event_type="modified",
         trigger_paths=["/repo/note.md"],
         config_snapshot=_base_config(enabled=True),
-        runtime_platform="posix",
+        runtime_system="linux",
     )
 
     assert [item["name"] for item in notifications] == ["kdeconnect-sync:/repo"]

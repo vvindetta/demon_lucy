@@ -14,7 +14,7 @@ from demon_lucy.lib.path import (
     find_parent_git_repo,
     path_has_component,
 )
-from demon_lucy.lib.runtime_platform import RuntimePlatform
+from demon_lucy.lib.runtime_system import RuntimeSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -143,7 +143,7 @@ class KdeconnectSync(AbstractModule):
                 event_type=event_type,
                 trigger_paths=[path for path in [src_path, dest_path] if path],
                 config_snapshot=dict(ctx.config),
-                runtime_platform=system.runtime_platform,
+                runtime_system=system.runtime_system,
             )
             return None
 
@@ -152,7 +152,7 @@ class KdeconnectSync(AbstractModule):
             event_type=event_type,
             trigger_paths=[path for path in [src_path, dest_path] if path],
             config_snapshot=dict(ctx.config),
-            runtime_platform=system.runtime_platform,
+            runtime_system=system.runtime_system,
         )
         return None
 
@@ -163,7 +163,7 @@ class KdeconnectSync(AbstractModule):
         event_type: str,
         trigger_paths: list[str],
         config_snapshot: dict,
-        runtime_platform: RuntimePlatform,
+        runtime_system: RuntimeSystem,
     ) -> None:
         token = time.monotonic_ns()
         with _COALESCE_GUARD:
@@ -185,7 +185,7 @@ class KdeconnectSync(AbstractModule):
                 event_type=event_type,
                 trigger_paths=trigger_paths,
                 config_snapshot=config_snapshot,
-                runtime_platform=runtime_platform,
+                runtime_system=runtime_system,
             )
 
         threading.Thread(target=_run_after_delay, daemon=True).start()
@@ -197,7 +197,7 @@ class KdeconnectSync(AbstractModule):
         event_type: str,
         trigger_paths: list[str],
         config_snapshot: dict,
-        runtime_platform: RuntimePlatform,
+        runtime_system: RuntimeSystem,
     ) -> None:
         try:
             ensure_queue_excluded_in_repo(
@@ -219,7 +219,7 @@ class KdeconnectSync(AbstractModule):
             event_type=event_type,
             paths=trigger_paths,
             config_snapshot=config_snapshot,
-            runtime_platform=runtime_platform,
+            runtime_system=runtime_system,
         )
         if commit_result.status == "noop":
             return
@@ -254,7 +254,7 @@ class KdeconnectSync(AbstractModule):
             queue_dir=outgoing_dir,
             author_device=_author_device_name(),
             config_snapshot=config_snapshot,
-            runtime_platform=runtime_platform,
+            runtime_system=runtime_system,
         )
         if packet_result.status == "busy":
             logger.info(

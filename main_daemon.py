@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 import threading
 
@@ -7,6 +8,7 @@ from watchdog.observers import Observer
 
 from demon_lucy.file_handler import FileHandler
 from demon_lucy.lib.args.parser import parse_args, setup_config_and_cli_args
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import abs_expand_path
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.runtime import (
@@ -16,6 +18,8 @@ from demon_lucy.runtime import (
     run_config_migrations,
     select_demon_lucy_modules,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> int:
@@ -54,6 +58,16 @@ def main() -> int:
         config=config,
         unknown_args=list(unknown_args),
     )
+
+    if modules.runtime_system != "linux" and not config["sys_disable_opened_events"]:
+        logger.info(
+            log_record(
+                "watcher.capability",
+                event="opened",
+                status="unavailable",
+                system=modules.runtime_system,
+            )
+        )
 
     observer = Observer()
     for path in notes_dirs:

@@ -8,7 +8,7 @@ from typing import Dict, List, Literal, Optional
 from watchdog.events import FileSystemEvent
 
 from demon_lucy.lib.args.parser import Template
-from demon_lucy.lib.runtime_platform import RuntimePlatform, detect_runtime_platform
+from demon_lucy.lib.runtime_system import RuntimeSystem, detect_runtime_system
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlockRenderer
 
 IgnoreMap = Dict[str, int]
@@ -25,7 +25,7 @@ class System:
     - global_template: full args template used by ModuleManager
     - modules: ordered module instances in the pipeline
     - run_mode: runtime mode ("daemon" or "oneshot")
-    - runtime_platform: detected runtime platform ("posix" or "windows")
+    - runtime_system: detected system ("linux", "macos", "windows", or "other")
     """
 
     event: FileSystemEvent
@@ -33,7 +33,7 @@ class System:
     modules: List["AbstractModule"]
     run_mode: RunMode = "daemon"
     event_id: str = ""
-    runtime_platform: RuntimePlatform = field(default_factory=detect_runtime_platform)
+    runtime_system: RuntimeSystem = field(default_factory=detect_runtime_system)
 
 
 @dataclass(frozen=True)

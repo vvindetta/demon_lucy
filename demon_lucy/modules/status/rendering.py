@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from demon_lucy.lib.runtime_platform import RuntimePlatform
+from demon_lucy.lib.runtime_system import RuntimeSystem
 
 
 class StatusRenderingMixin:
@@ -36,10 +36,10 @@ class StatusRenderingMixin:
     def _sanitize_filename_text(
         name_text: str,
         *,
-        runtime_platform: RuntimePlatform,
+        runtime_system: RuntimeSystem,
     ) -> str:
         invalid_chars = {"/", "\\", "\x00"}
-        if runtime_platform == "windows":
+        if runtime_system == "windows":
             invalid_chars.update('<>:"|?*')
 
         safe_name = str(name_text)
@@ -77,11 +77,11 @@ class StatusRenderingMixin:
         dir_path: str,
         name_text: str,
         *,
-        runtime_platform: RuntimePlatform,
+        runtime_system: RuntimeSystem,
     ) -> str:
         sanitized = self._sanitize_filename_text(
             name_text,
-            runtime_platform=runtime_platform,
+            runtime_system=runtime_system,
         )
         max_bytes = self._filename_max_bytes(dir_path)
         clipped = self._truncate_utf8_to_bytes(sanitized, max_bytes)

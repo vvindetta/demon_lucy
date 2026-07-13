@@ -16,7 +16,7 @@ from demon_lucy.lib.git_state import (
 )
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import find_parent_with
-from demon_lucy.lib.runtime_platform import RuntimePlatform
+from demon_lucy.lib.runtime_system import RuntimeSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -165,7 +165,7 @@ class Status(
         )
         self._git_repo_lock_wait_timeout_seconds: float | None = None
         self._git_repo_lock_stale_seconds: float | None = None
-        self._runtime_platform: RuntimePlatform | None = None
+        self._runtime_system: RuntimeSystem | None = None
         self._targets: dict[str, _StatusTarget] = {}
         self._track_lock = threading.Lock()
         self._rename_lock = threading.Lock()
@@ -234,20 +234,20 @@ class Status(
         if (
             self._git_repo_lock_wait_timeout_seconds is None
             or self._git_repo_lock_stale_seconds is None
-            or self._runtime_platform is None
+            or self._runtime_system is None
         ):
             return False
         return repo_process_lock_is_active(
             repo_root,
             wait_timeout_seconds=self._git_repo_lock_wait_timeout_seconds,
             stale_seconds=self._git_repo_lock_stale_seconds,
-            runtime_platform=self._runtime_platform,
+            runtime_system=self._runtime_system,
         )
 
     def _update_git_repo_lock_settings(
         self,
         config: dict,
-        runtime_platform: RuntimePlatform,
+        runtime_system: RuntimeSystem,
     ) -> None:
         self._git_repo_lock_wait_timeout_seconds = max(
             0.0,
@@ -257,7 +257,7 @@ class Status(
             0.0,
             config["sys_git_repo_lock_stale_seconds"],
         )
-        self._runtime_platform = runtime_platform
+        self._runtime_system = runtime_system
 
     def _build_tokens(
         self,
@@ -603,8 +603,8 @@ class Status(
                     ascii_frames = list(ascii_animation_state[0])
                     ascii_speed_ms = int(ascii_animation_state[1])
 
-            runtime_platform = self._runtime_platform
-            if runtime_platform is None:
+            runtime_system = self._runtime_system
+            if runtime_system is None:
                 continue
 
             self._apply(
@@ -617,7 +617,7 @@ class Status(
                 ascii_animation_frames=ascii_frames,
                 ascii_animation_speed_ms=ascii_speed_ms,
                 advance_ascii_frame=bool(ascii_frames),
-                runtime_platform=runtime_platform,
+                runtime_system=runtime_system,
             )
 
     def _ticker_interval_seconds(self) -> float:
@@ -684,7 +684,7 @@ class Status(
     def _bootstrap_from_root_status_directories(
         self,
         watch_paths: list[str],
-        runtime_platform: RuntimePlatform,
+        runtime_system: RuntimeSystem,
     ) -> Optional[IgnoreMap]:
         root_status_directories = self._discover_root_status_directories(watch_paths)
         if not root_status_directories:
@@ -739,7 +739,7 @@ class Status(
                         ascii_animation_frames=ascii_animation_frames,
                         ascii_animation_speed_ms=ascii_animation_speed_ms,
                         advance_ascii_frame=True,
-                        runtime_platform=runtime_platform,
+                        runtime_system=runtime_system,
                     )
                     merged = self._merge_ignore_maps(merged, changed)
         return merged
@@ -747,7 +747,7 @@ class Status(
     def _bootstrap_once(
         self,
         watch_paths: list[str],
-        runtime_platform: RuntimePlatform,
+        runtime_system: RuntimeSystem,
     ) -> Optional[IgnoreMap]:
         if self._bootstrap_done:
             return None
@@ -758,7 +758,7 @@ class Status(
             # .status files need one lazy scan to revive ticker/animations.
             changed = self._bootstrap_from_root_status_directories(
                 watch_paths,
-                runtime_platform,
+                runtime_system,
             )
             self._bootstrap_done = True
             return changed
@@ -768,7 +768,7 @@ class Status(
         path: str,
         parts: list[str],
         *,
-        runtime_platform: RuntimePlatform,
+        runtime_system: RuntimeSystem,
         banner_text: str | None = None,
         banner_offset: int = 0,
         banner_max_chars: int | None = None,
@@ -858,7 +858,7 @@ class Status(
             safe_new_name = self._make_filename_candidate(
                 dir_path,
                 new_name,
-                runtime_platform=runtime_platform,
+                runtime_system=runtime_system,
             )
             new_path = self._pick_available_new_path(
                 old_path=old_path,
@@ -880,7 +880,7 @@ class Status(
             return {old_path: 1, new_path: 1}
 
     def _handle_event(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        self._update_git_repo_lock_settings(ctx.config, system.runtime_platform)
+        self._update_git_repo_lock_settings(ctx.config, system.runtime_system)
         self._tick_interval_seconds = max(
             0.1, float(ctx.config["status_tick_interval_seconds"])
         )
@@ -895,7 +895,7 @@ class Status(
         )
         bootstrap_changed = self._bootstrap_once(
             list(ctx.config["sys_watch_paths"]),
-            system.runtime_platform,
+            system.runtime_system,
         )
         self._restart_tracked_animation_cycles(ctx.path)
         parts = self._parse_status_parts(list(ctx.config["status"]))
@@ -938,7 +938,7 @@ class Status(
             ascii_animation_frames=ascii_animation_frames,
             ascii_animation_speed_ms=ascii_animation_speed_ms,
             advance_ascii_frame=True,
-            runtime_platform=system.runtime_platform,
+            runtime_system=system.runtime_system,
         )
         return self._merge_ignore_maps(bootstrap_changed, current_changed)
 

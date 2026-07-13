@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 
 from demon_lucy.lib.path import git_dir_for_repo_root
-from demon_lucy.lib.runtime_platform import RuntimePlatform
+from demon_lucy.lib.runtime_system import RuntimeSystem
 
 SYNC_SUCCESS_MARKER_FILE_NAME = "demon_lucy-last-sync-success.timestamp"
 REPO_PROCESS_LOCK_FILE_NAME = "demon_lucy-sync.lock"
@@ -143,10 +143,10 @@ def _windows_pid_is_alive(pid: int) -> bool:
         kernel32.CloseHandle(handle)
 
 
-def pid_is_alive(pid: int, *, runtime_platform: RuntimePlatform) -> bool:
+def pid_is_alive(pid: int, *, runtime_system: RuntimeSystem) -> bool:
     if pid <= 0:
         return False
-    if runtime_platform == "windows":
+    if runtime_system == "windows":
         return _windows_pid_is_alive(pid)
     return _posix_pid_is_alive(pid)
 
@@ -156,7 +156,7 @@ def remove_stale_repo_process_lock(
     *,
     wait_timeout_seconds: float,
     stale_seconds: float,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
     on_removed: Callable[[str, float, int | None], None] | None = None,
 ) -> bool:
     try:
@@ -170,7 +170,7 @@ def remove_stale_repo_process_lock(
     owner_pid = lock_owner_pid(lock_path)
     stale_by_pid = owner_pid is not None and not pid_is_alive(
         owner_pid,
-        runtime_platform=runtime_platform,
+        runtime_system=runtime_system,
     )
     stale_by_age = lock_age_seconds >= stale_seconds
     stale_legacy_no_pid = owner_pid is None and lock_age_seconds >= wait_timeout_seconds
@@ -194,7 +194,7 @@ def repo_process_lock_is_active(
     *,
     wait_timeout_seconds: float,
     stale_seconds: float,
-    runtime_platform: RuntimePlatform,
+    runtime_system: RuntimeSystem,
     on_stale_removed: Callable[[str, float, int | None], None] | None = None,
 ) -> bool:
     lock_path = repo_process_lock_path(repo_root)
@@ -206,7 +206,7 @@ def repo_process_lock_is_active(
         lock_path,
         wait_timeout_seconds=wait_timeout_seconds,
         stale_seconds=stale_seconds,
-        runtime_platform=runtime_platform,
+        runtime_system=runtime_system,
         on_removed=on_stale_removed,
     ):
         return False
