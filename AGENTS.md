@@ -29,6 +29,7 @@ watchdog file events.
   per-note flag parsing, and config/CLI merge helpers.
 - `demon_lucy/lib/args/line_edit.py`: reusable arg-segment helpers and flag
   deletion from note lines.
+- `demon_lucy/lib/ascii_art.py`: reusable Demon Lucy ASCII art.
 - `demon_lucy/lib/path.py`: path normalization, safe `path_is_inside`
   containment checks, parent marker lookup, Git repo discovery, and `.git`
   file/directory support.
@@ -80,8 +81,9 @@ watchdog file events.
   `demon_lucy.modules.<name>` by exposing the class in `__init__.py`, and put
   focused internals in files such as `module.py`, `config.py`, `paths.py`,
   `storage.py`, `requests.py`, `render.py`, or domain-specific names.
-- `modules/sys.py`: in-note debug/manual commands such as `--mods`, `--config`,
-  `--man`, `--event`, `--ping`, `--help`.
+- `modules/sys/`: in-note runtime and manual commands. `__init__.py` owns the
+  `Sys` module class and command handling; `neofetch.py` renders Lucy and system
+  information for `--neofetch`.
 - `modules/alias/`: in-note aliases for module args. `__init__.py` owns the
   `Alias` module class, rule error logging/notifications, and event handlers;
   `rules.py` owns alias validation/parsing, and `rewrite.py` owns line expansion.
@@ -106,10 +108,11 @@ watchdog file events.
   destination resolution, `storage.py` owns no-follow IO and text/file archive
   writes, `clock.py` applies archive timestamp policy through `lib.file_time`,
   and `notify.py` owns archive error/security notifications.
-- `modules/linker/`: root symlink creation/cleanup and markdown link updates on
+- `modules/linker/`: root link creation/cleanup and markdown link updates on
   move/rename. `__init__.py` owns the `Linker` module class and event handlers,
-  `root.py` owns root symlink and ignore-selector logic, and `markdown.py` owns
-  Markdown link parsing, rewrites, and edited-link target moves.
+  `root.py` owns symlink creation, the Windows hard-link fallback, and
+  ignore-selector logic; `markdown.py` owns Markdown link parsing, rewrites,
+  and edited-link target moves.
 - `modules/dropdir.py`: moved-file drop-directory workflow that can trigger
   archive cleanup through the `Archive` module.
 - `modules/status/`: standalone filename status tokens, banners, animations,

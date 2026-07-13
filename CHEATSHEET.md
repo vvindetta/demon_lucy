@@ -115,6 +115,7 @@ Then a note can use:
 
 | Arg | Type | Meaning |
 |---|---:|---|
+| `--neofetch` | `bool` | Print Demon Lucy and system information. |
 | `--mods` | `bool` | Print loaded modules and priorities. |
 | `--ping` | `bool` | Rewrite command line to `++pong!`. |
 | `--config` | `bool` | Print config values that differ from defaults. |
@@ -125,6 +126,7 @@ Then a note can use:
 Examples:
 
 ```text
+--neofetch
 --man git
 --man sys
 --man --git-sync-on-opened-disable
@@ -165,8 +167,8 @@ Example:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--linker-root` | `bool` | Create a symlink in the repo root with the current note filename. |
-| `--linker-auto-clean-root-links` | `bool` | If `--linker-root` is not set, remove symlinks from the repo root. |
+| `--linker-root` | `bool` | Create a root link; Windows falls back to a hard link when needed. |
+| `--linker-auto-clean-root-links` | `bool` | If `--linker-root` is not set, remove managed root links. |
 | `--linker-ignore` | `str[]` | Ignore files/links for linker actions (basename or absolute/repo-relative path). |
 | `--linker-auto-update-md-links` | `bool` | On move/rename, scan markdown files in repo and update links to moved note. |
 
