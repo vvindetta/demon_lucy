@@ -1428,6 +1428,77 @@ def test_status_sanitizes_windows_forbidden_filename_tokens() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Working   ", "Working"),
+        ("frame...", "frame"),
+        ("Sync\x01Now", "Sync_Now"),
+        ("CON", "_CON"),
+        ("con.txt", "_con.txt"),
+        ("CON .txt", "_CON .txt"),
+        ("COM1.log", "_COM1.log"),
+        ("LPT9", "_LPT9"),
+        ("COM10.log", "COM10.log"),
+    ],
+)
+def test_status_sanitizes_windows_filename_rules(
+    name: str,
+    expected: str,
+) -> None:
+    assert (
+        Status._sanitize_filename_text(name, runtime_system="windows") == expected
+    )
+
+
+def test_status_keeps_linux_filename_behavior() -> None:
+    name = "CON. Working   "
+
+    assert Status._sanitize_filename_text(name, runtime_system="linux") == name
+
+
+def test_status_sanitizes_windows_name_after_truncation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        Status,
+        "_filename_max_bytes",
+        staticmethod(lambda _dir_path: 5),
+    )
+    module = Status()
+
+    assert (
+        module._make_filename_candidate(
+            str(tmp_path),
+            "abc. value",
+            runtime_system="windows",
+        )
+        == "abc"
+    )
+    assert (
+        module._make_filename_candidate(
+            str(tmp_path),
+            "abc. value",
+            runtime_system="linux",
+        )
+        == "abc. "
+    )
+
+
+def test_status_uses_windows_safe_empty_filename_fallback(tmp_path: Path) -> None:
+    module = Status()
+
+    assert (
+        module._make_filename_candidate(
+            str(tmp_path),
+            "...   ",
+            runtime_system="windows",
+        )
+        == "-"
+    )
+
+
 def test_status_uses_fallback_name_when_target_exists(
     tmp_path: Path, monkeypatch
 ) -> None:
