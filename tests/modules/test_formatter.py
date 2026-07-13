@@ -62,6 +62,24 @@ def test_apply_todo_flag_controls_checkbox_formatting(
     assert note.read_text(encoding="utf-8") == expected_text
 
 
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_apply_preserves_line_endings(tmp_path: Path, newline: bytes):
+    note = tmp_path / "todo.md"
+    note.write_bytes(newline.join((b"- task", b"text", b"")))
+
+    changed = Formatter()._apply(
+        path=str(note),
+        config={
+            "formatter_todo": True,
+            "formatter_blank": [],
+        },
+        arg_lines={},
+    )
+
+    assert changed == {str(note.resolve()): 1}
+    assert note.read_bytes() == newline.join((b"- [ ] task", b"text", b""))
+
+
 def test_apply_todo_does_not_change_dynamic_block_lists(tmp_path: Path):
     block = format_dynamic_block(
         arg="graph",

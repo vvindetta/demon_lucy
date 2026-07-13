@@ -373,7 +373,7 @@ class Formatter(AbstractModule):
             return None
 
         try:
-            with open(path, "r", encoding="utf-8") as file_handle:
+            with open(path, "r", encoding="utf-8", newline="") as file_handle:
                 original_text = file_handle.read()
         except (OSError, UnicodeDecodeError):
             return None
@@ -431,7 +431,12 @@ class Formatter(AbstractModule):
             if not non_empty_indexes:
                 if changed:
                     try:
-                        with open(path, "w", encoding="utf-8") as file_handle:
+                        with open(
+                            path,
+                            "w",
+                            encoding="utf-8",
+                            newline="",
+                        ) as file_handle:
                             file_handle.write("".join(new_lines))
                     except OSError:
                         return None
@@ -489,7 +494,7 @@ class Formatter(AbstractModule):
         new_text = "".join(new_lines)
 
         try:
-            with open(path, "w", encoding="utf-8") as file_handle:
+            with open(path, "w", encoding="utf-8", newline="") as file_handle:
                 file_handle.write(new_text)
         except OSError:
             return None
