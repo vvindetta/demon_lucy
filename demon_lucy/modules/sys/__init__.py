@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Any, List, Optional
 
@@ -15,6 +16,7 @@ from demon_lucy.modules.abstract_module import (
     IgnoreMap,
     System,
 )
+from demon_lucy.modules.sys.neofetch import neofetch_lines
 
 
 class Sys(AbstractModule):
@@ -22,6 +24,13 @@ class Sys(AbstractModule):
     priority: int = 2
 
     template = [
+        ArgTemplate(
+            name="--neofetch",
+            value_type=bool,
+            default=False,
+            description="Print Demon Lucy and system information.",
+            required=False,
+        ),
         ArgTemplate(
             name="--mods",
             value_type=bool,
@@ -53,7 +62,7 @@ class Sys(AbstractModule):
             name="--help",
             value_type=bool,
             default=False,
-            description="Print SysInfo commands help: --mods, --man, --config.",
+            description="Print Sys module command help.",
             required=False,
         ),
         ArgTemplate(
@@ -77,6 +86,7 @@ class Sys(AbstractModule):
     @staticmethod
     def _command_help_lines() -> List[str]:
         return [
+            "* --neofetch: print Demon Lucy and system information\n",
             "* --mods: print loaded modules and their priorities\n",
             "* --ping: send notification and rewrite command line to ++pong!\n",
             "* --config: print config values that differ from defaults\n",
@@ -262,7 +272,7 @@ class Sys(AbstractModule):
         path: str,
         man_requests: List[str],
     ) -> List[str]:
-        ordered = ["mods", "ping", "help", "man", "config", "event"]
+        ordered = ["neofetch", "mods", "ping", "help", "man", "config", "event"]
         title_parts = [name for name in ordered if name in selected_opts]
         title = "+".join(title_parts) if title_parts else "sys"
 
@@ -275,6 +285,23 @@ class Sys(AbstractModule):
 
         if "help" in selected_opts:
             lines.extend(self._command_help_lines())
+            lines.append("\n")
+
+        if "neofetch" in selected_opts:
+            watch_paths = ctx.config["sys_watch_paths"]
+            lines.extend(
+                neofetch_lines(
+                    run_mode=system.run_mode,
+                    runtime_system=system.runtime_system,
+                    module_count=len(system.modules),
+                    watch_path_count=len(watch_paths),
+                    opened_events_disabled=ctx.config["sys_disable_opened_events"],
+                    runtime_uptime_seconds=max(
+                        0.0,
+                        time.monotonic() - system.runtime_started_at_monotonic,
+                    ),
+                )
+            )
             lines.append("\n")
 
         if "mods" in selected_opts:
@@ -335,6 +362,10 @@ class Sys(AbstractModule):
         def add_option(lineno_1based: int, option_name: str, remove_flag: str) -> None:
             line_to_opts.setdefault(lineno_1based, set()).add(option_name)
             line_to_remove_flags.setdefault(lineno_1based, []).append(remove_flag)
+
+        if ctx.config["neofetch"]:
+            for lineno_1based in ctx.arg_lines.get("neofetch") or []:
+                add_option(int(lineno_1based), "neofetch", "--neofetch")
 
         if ctx.config["mods"]:
             for lineno_1based in ctx.arg_lines.get("mods") or []:

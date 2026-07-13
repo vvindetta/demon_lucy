@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from abc import ABC
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ class System:
     - modules: ordered module instances in the pipeline
     - run_mode: runtime mode ("daemon" or "oneshot")
     - runtime_system: detected system ("linux", "macos", "windows", or "other")
+    - runtime_started_at_monotonic: monotonic time when this Lucy runtime started
     """
 
     event: FileSystemEvent
@@ -34,6 +36,7 @@ class System:
     run_mode: RunMode = "daemon"
     event_id: str = ""
     runtime_system: RuntimeSystem = field(default_factory=detect_runtime_system)
+    runtime_started_at_monotonic: float = field(default_factory=time.monotonic)
 
 
 @dataclass(frozen=True)

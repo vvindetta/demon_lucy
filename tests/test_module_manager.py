@@ -25,10 +25,14 @@ class _ModA(AbstractModule):
     def __init__(self):
         self.calls = 0
         self.last_run_mode = None
+        self.last_runtime_started_at_monotonic = None
 
     def modified(self, ctx: Context, system: System):
         self.calls += 1
         self.last_run_mode = system.run_mode
+        self.last_runtime_started_at_monotonic = (
+            system.runtime_started_at_monotonic
+        )
         return {ctx.path: 1}
 
 
@@ -285,6 +289,10 @@ def test_run_passes_oneshot_run_mode_to_system(tmp_path: Path):
 
     assert a.calls == 1
     assert a.last_run_mode == "oneshot"
+    assert (
+        a.last_runtime_started_at_monotonic
+        == manager.runtime_started_at_monotonic
+    )
 
 
 def test_run_refreshes_dynamic_blocks_after_module_pipeline(tmp_path: Path):

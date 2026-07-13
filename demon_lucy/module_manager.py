@@ -42,6 +42,7 @@ class ModuleManager:
         self.modules = modules
         self.run_mode: RunMode = run_mode
         self.runtime_system: RuntimeSystem = detect_runtime_system()
+        self.runtime_started_at_monotonic = time.monotonic()
         self.dynamic_block_renderers = self._collect_dynamic_block_renderers(
             self.modules
         )
@@ -317,6 +318,7 @@ class ModuleManager:
                         run_mode=self.run_mode,
                         event_id=event_id,
                         runtime_system=self.runtime_system,
+                        runtime_started_at_monotonic=self.runtime_started_at_monotonic,
                     ),
                 )
             except Exception:
