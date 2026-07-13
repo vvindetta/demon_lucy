@@ -60,12 +60,18 @@ def main() -> int:
     )
 
     if modules.runtime_system != "linux" and not config["sys_disable_opened_events"]:
+        system_name = {
+            "macos": "macOS",
+            "windows": "Windows",
+        }.get(modules.runtime_system, "this system")
         logger.info(
             log_record(
-                "watcher.capability",
-                event="opened",
-                status="unavailable",
-                system=modules.runtime_system,
+                "watcher.opened_events_unavailable",
+                system=system_name,
+                message=(
+                    f"Lucy cannot detect when a file is only opened on {system_name}. "
+                    "Created, modified, moved, and deleted files are still processed."
+                ),
             )
         )
 

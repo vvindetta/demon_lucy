@@ -12,7 +12,6 @@ import main_daemon
 @dataclass
 class _ObserverState:
     scheduled: list[tuple[Any, str, bool]] = field(default_factory=list)
-    notifications: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
     started: bool = False
     stopped: bool = False
     joined: bool = False
@@ -77,11 +76,6 @@ def _run_main_with_flag(
     monkeypatch.setattr(main_daemon.threading, "Event", FakeEvent)
     monkeypatch.setattr(main_daemon, "run_config_migrations", lambda _path: [])
 
-    def fake_safe_notify(name, message, **kwargs):
-        state.notifications.append((name, message, kwargs))
-        return True
-
-    monkeypatch.setattr(main_daemon, "safe_notify", fake_safe_notify)
     monkeypatch.setattr(
         main_daemon,
         "setup_config_and_cli_args",
@@ -145,39 +139,42 @@ def test_main_schedules_observer_and_modules(
     ]
 
 
-def test_main_notifies_when_native_opened_events_are_unavailable(
+def test_main_logs_when_native_opened_events_are_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys,
 ) -> None:
-    state = _run_main_with_flag(
+    _run_main_with_flag(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
         runtime_system="macos",
         disable_opened_events=False,
     )
 
-    assert len(state.notifications) == 1
-    name, message, kwargs = state.notifications[0]
-    assert name == "watcher-opened-events-unavailable"
-    assert message == (
-        "macOS does not report file-open events. "
-        "Lucy continues watching file changes normally."
+    captured = capsys.readouterr()
+    assert "watcher.opened_events_unavailable" in captured.err
+    assert "system=macOS" in captured.err
+    assert "Lucy cannot detect when a file is only opened on macOS." in captured.err
+    assert (
+        "Created, modified, moved, and deleted files are still processed."
+        in captured.err
     )
-    assert kwargs["use_rare_mode"] is False
 
 
-def test_main_does_not_notify_when_opened_events_are_disabled(
+def test_main_does_not_log_unavailable_opened_events_when_disabled(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys,
 ) -> None:
-    state = _run_main_with_flag(
+    _run_main_with_flag(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
         runtime_system="windows",
         disable_opened_events=True,
     )
 
-    assert state.notifications == []
+    captured = capsys.readouterr()
+    assert "watcher.opened_events_unavailable" not in captured.err
 
 
 def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
