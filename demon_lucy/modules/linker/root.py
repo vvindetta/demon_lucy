@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
 
 from demon_lucy.lib.args.parser import Template, get_args_from_file
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import canonical_path
+from demon_lucy.lib.runtime_system import RuntimeSystem
 from demon_lucy.modules.abstract_module import IgnoreMap
+
+logger = logging.getLogger(__name__)
+
+_WINDOWS_PRIVILEGE_NOT_HELD = 1314
 
 
 def matches_ignore_selector(
@@ -54,6 +61,8 @@ def create_top_link(
     source_path: str,
     repo_root: str,
     ignore_selectors: list[str],
+    runtime_system: RuntimeSystem,
+    event_id: str,
 ) -> Optional[IgnoreMap]:
     link_path = str((Path(repo_root) / Path(source_path).name).absolute())
     if link_path == source_path:
@@ -87,17 +96,73 @@ def create_top_link(
 
     try:
         os.symlink(link_target, link_path)
-    except OSError:
-        return None
+    except OSError as symlink_error:
+        if not (
+            runtime_system == "windows"
+            and getattr(symlink_error, "winerror", None)
+            == _WINDOWS_PRIVILEGE_NOT_HELD
+        ):
+            logger.error(
+                log_record(
+                    "linker.root_link_failed",
+                    id=event_id,
+                    source=source_path,
+                    dest=link_path,
+                    reason="symlink_failed",
+                    error=symlink_error,
+                )
+            )
+            return None
+
+        logger.warning(
+            log_record(
+                "linker.root_symlink_unavailable",
+                id=event_id,
+                source=source_path,
+                dest=link_path,
+                reason="developer_mode_or_symlink_privilege_required",
+                fallback="hardlink",
+                message=(
+                    "Windows Developer Mode is disabled or symlink privilege "
+                    "is unavailable. Lucy will try a hard-link fallback."
+                ),
+            )
+        )
+        try:
+            os.link(source_path, link_path)
+        except OSError as hardlink_error:
+            logger.error(
+                log_record(
+                    "linker.root_link_failed",
+                    id=event_id,
+                    source=source_path,
+                    dest=link_path,
+                    reason="hardlink_fallback_failed",
+                    error=hardlink_error,
+                )
+            )
+            return None
 
     return {link_path: 1}
+
+
+def _is_hard_link_to_source(entry_path: str, source_path: str) -> bool:
+    try:
+        return os.stat(entry_path).st_nlink > 1 and os.path.samefile(
+            entry_path,
+            source_path,
+        )
+    except OSError:
+        return False
 
 
 def cleanup_top_links(
     *,
     repo_root: str,
+    source_path: str,
     ignore_selectors: list[str],
     template: Template,
+    runtime_system: RuntimeSystem,
 ) -> Optional[IgnoreMap]:
     deleted: IgnoreMap = {}
     try:
@@ -109,7 +174,11 @@ def cleanup_top_links(
         if entry.name == ".git":
             continue
         abs_path = str(entry.absolute())
-        if not entry.is_symlink():
+        is_symlink = entry.is_symlink()
+        is_current_windows_hard_link = runtime_system == "windows" and (
+            _is_hard_link_to_source(abs_path, source_path)
+        )
+        if not is_symlink and not is_current_windows_hard_link:
             continue
         if is_ignored_path(
             path_value=abs_path,

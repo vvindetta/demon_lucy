@@ -100,7 +100,12 @@ def rewrite_inline_links_for_moved_target(
     moved_to_path: str,
 ) -> bool:
     try:
-        with open(markdown_path, "r", encoding="utf-8") as file_handle:
+        with open(
+            markdown_path,
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as file_handle:
             content = file_handle.read()
     except (OSError, UnicodeDecodeError):
         return False
@@ -167,7 +172,12 @@ def rewrite_inline_links_for_moved_target(
         return False
 
     try:
-        with open(markdown_path, "w", encoding="utf-8") as file_handle:
+        with open(
+            markdown_path,
+            "w",
+            encoding="utf-8",
+            newline="",
+        ) as file_handle:
             file_handle.write(updated_content)
     except OSError:
         return False

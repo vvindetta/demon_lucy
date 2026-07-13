@@ -5,6 +5,7 @@ from typing import Optional
 
 from demon_lucy.lib.args.parser import ArgTemplate, Template
 from demon_lucy.lib.path import find_parent_with
+from demon_lucy.lib.runtime_system import RuntimeSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -27,14 +28,21 @@ class Linker(AbstractModule):
             name="--linker-root",
             value_type=bool,
             default=False,
-            description="Create symlink in repository root with the same filename as current note.",
+            description=(
+                "Create a link in the repository root with the current note "
+                "filename. Windows falls back to a hard link when symlink "
+                "privilege is unavailable."
+            ),
             required=False,
         ),
         ArgTemplate(
             name="--linker-auto-clean-root-links",
             value_type=bool,
             default=False,
-            description="If enabled and --linker-root is not set, delete all symlinks from repository root.",
+            description=(
+                "If enabled and --linker-root is not set, delete managed root "
+                "links."
+            ),
             required=False,
         ),
         ArgTemplate(
@@ -68,7 +76,14 @@ class Linker(AbstractModule):
                 merged[path_value] = merged.get(path_value, 0) + int(times)
         return merged or None
 
-    def _apply(self, *, path: str, config: dict) -> Optional[IgnoreMap]:
+    def _apply(
+        self,
+        *,
+        path: str,
+        config: dict,
+        runtime_system: RuntimeSystem,
+        event_id: str = "",
+    ) -> Optional[IgnoreMap]:
         use_link_top = bool(config["linker_root"])
         auto_cleanup = bool(config["linker_auto_clean_root_links"])
         ignore_selectors = list(config["linker_ignore"])
@@ -89,24 +104,37 @@ class Linker(AbstractModule):
                 source_path=source_path,
                 repo_root=repo_root,
                 ignore_selectors=ignore_selectors,
+                runtime_system=runtime_system,
+                event_id=event_id,
             )
 
         if auto_cleanup:
             return cleanup_top_links(
                 repo_root=repo_root,
+                source_path=source_path,
                 ignore_selectors=ignore_selectors,
                 template=self.template,
+                runtime_system=runtime_system,
             )
 
         return None
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        _ = system
-        return self._apply(path=ctx.path, config=ctx.config)
+        return self._apply(
+            path=ctx.path,
+            config=ctx.config,
+            runtime_system=system.runtime_system,
+            event_id=system.event_id,
+        )
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         _ = system
-        link_changed = self._apply(path=ctx.path, config=ctx.config)
+        link_changed = self._apply(
+            path=ctx.path,
+            config=ctx.config,
+            runtime_system=system.runtime_system,
+            event_id=system.event_id,
+        )
         edited_links_changed = None
         if bool(ctx.config["linker_auto_update_md_links"]):
             edited_links_changed = move_targets_for_edited_links(
@@ -116,7 +144,12 @@ class Linker(AbstractModule):
         return self._merge_ignore_maps(link_changed, edited_links_changed)
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        link_changed = self._apply(path=ctx.path, config=ctx.config)
+        link_changed = self._apply(
+            path=ctx.path,
+            config=ctx.config,
+            runtime_system=system.runtime_system,
+            event_id=system.event_id,
+        )
         moved_links_changed = None
         if bool(ctx.config["linker_auto_update_md_links"]):
             moved_links_changed = update_moved_links(

@@ -5,10 +5,13 @@ import subprocess
 from pathlib import Path
 
 import demon_lucy.modules.linker as linker_mod
+import pytest
+from demon_lucy.modules.linker import root as linker_root
 from watchdog.events import FileModifiedEvent, FileMovedEvent
 
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.linker import Linker
+from demon_lucy.modules.linker.markdown import rewrite_inline_links_for_moved_target
 
 
 def _setup_repo(tmp_path: Path) -> Path:
@@ -64,6 +67,7 @@ def test_apply_creates_link_in_repo_root(tmp_path: Path):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": True,
@@ -78,6 +82,82 @@ def test_apply_creates_link_in_repo_root(tmp_path: Path):
     assert os.path.realpath(link_path) == str(note.resolve())
 
 
+def test_windows_uses_hardlink_when_symlink_privilege_is_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    repo = _setup_repo(tmp_path)
+    note = repo / "notes" / "daily.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("hello\n--linker-root\n", encoding="utf-8")
+
+    privilege_error = OSError("symbolic link privilege is unavailable")
+    privilege_error.winerror = 1314
+
+    def reject_symlink(_target: str, _link_path: str) -> None:
+        raise privilege_error
+
+    monkeypatch.setattr(linker_root.os, "symlink", reject_symlink)
+
+    module = Linker()
+    changed = module._apply(
+        runtime_system="windows",
+        event_id="evt-test",
+        path=str(note),
+        config={
+            "linker_root": True,
+            "linker_auto_clean_root_links": False,
+            "linker_ignore": [],
+        },
+    )
+
+    link_path = repo / "daily.md"
+    assert changed == {str(link_path.absolute()): 1}
+    assert link_path.is_symlink() is False
+    assert os.path.samefile(link_path, note)
+    assert "linker.root_symlink_unavailable" in caplog.text
+    assert "Windows Developer Mode is disabled" in caplog.text
+    assert "fallback=hardlink" in caplog.text
+
+
+def test_windows_does_not_use_hardlink_for_other_symlink_errors(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    repo = _setup_repo(tmp_path)
+    note = repo / "notes" / "daily.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("hello\n--linker-root\n", encoding="utf-8")
+    hardlink_called = False
+
+    def reject_symlink(_target: str, _link_path: str) -> None:
+        raise OSError("unexpected symlink error")
+
+    def track_hardlink(_source: str, _link_path: str) -> None:
+        nonlocal hardlink_called
+        hardlink_called = True
+
+    monkeypatch.setattr(linker_root.os, "symlink", reject_symlink)
+    monkeypatch.setattr(linker_root.os, "link", track_hardlink)
+
+    changed = Linker()._apply(
+        runtime_system="windows",
+        event_id="evt-test",
+        path=str(note),
+        config={
+            "linker_root": True,
+            "linker_auto_clean_root_links": False,
+            "linker_ignore": [],
+        },
+    )
+
+    assert changed is None
+    assert hardlink_called is False
+    assert "reason=symlink_failed" in caplog.text
+
+
 def test_apply_returns_none_when_flag_is_disabled(tmp_path: Path):
     repo = _setup_repo(tmp_path)
     note = repo / "notes" / "x.md"
@@ -86,6 +166,7 @@ def test_apply_returns_none_when_flag_is_disabled(tmp_path: Path):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": False,
@@ -105,6 +186,7 @@ def test_apply_returns_none_when_file_is_already_in_repo_root(tmp_path: Path):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": True,
@@ -127,6 +209,7 @@ def test_apply_returns_none_when_target_exists_as_file(tmp_path: Path):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": True,
@@ -150,6 +233,7 @@ def test_apply_returns_none_when_same_symlink_already_exists(tmp_path: Path):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": True,
@@ -169,6 +253,7 @@ def test_apply_returns_none_outside_repo(tmp_path: Path, monkeypatch):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": True,
@@ -198,6 +283,7 @@ def test_auto_cleanup_removes_symlinks_from_repo_root(tmp_path: Path):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": False,
@@ -214,6 +300,51 @@ def test_auto_cleanup_removes_symlinks_from_repo_root(tmp_path: Path):
     assert keep_file.exists()
 
 
+def test_windows_auto_cleanup_removes_current_source_hardlink(tmp_path: Path):
+    repo = _setup_repo(tmp_path)
+    note = repo / "notes" / "daily.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("hello\n", encoding="utf-8")
+    hardlink_path = repo / "daily.md"
+    os.link(note, hardlink_path)
+
+    changed = Linker()._apply(
+        runtime_system="windows",
+        path=str(note),
+        config={
+            "linker_root": False,
+            "linker_auto_clean_root_links": True,
+            "linker_ignore": [],
+        },
+    )
+
+    assert changed == {str(hardlink_path.absolute()): 1}
+    assert hardlink_path.exists() is False
+    assert note.read_text(encoding="utf-8") == "hello\n"
+
+
+def test_linux_auto_cleanup_does_not_remove_hardlinks(tmp_path: Path):
+    repo = _setup_repo(tmp_path)
+    note = repo / "notes" / "daily.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("hello\n", encoding="utf-8")
+    hardlink_path = repo / "daily.md"
+    os.link(note, hardlink_path)
+
+    changed = Linker()._apply(
+        runtime_system="linux",
+        path=str(note),
+        config={
+            "linker_root": False,
+            "linker_auto_clean_root_links": True,
+            "linker_ignore": [],
+        },
+    )
+
+    assert changed is None
+    assert hardlink_path.exists()
+
+
 def test_auto_cleanup_skipped_when_link_top_is_set(tmp_path: Path):
     repo = _setup_repo(tmp_path)
     notes_dir = repo / "notes"
@@ -225,6 +356,7 @@ def test_auto_cleanup_skipped_when_link_top_is_set(tmp_path: Path):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": True,
@@ -245,6 +377,7 @@ def test_auto_cleanup_returns_none_when_no_links(tmp_path: Path):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": False,
@@ -264,6 +397,7 @@ def test_apply_skips_link_creation_when_source_matches_ignore_basename(tmp_path:
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": True,
@@ -292,6 +426,7 @@ def test_auto_cleanup_keeps_ignored_symlink_by_name(tmp_path: Path):
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(note),
         config={
             "linker_root": False,
@@ -321,6 +456,7 @@ def test_auto_cleanup_keeps_symlink_when_target_has_linker_root_flag(tmp_path: P
 
     module = Linker()
     changed = module._apply(
+        runtime_system="linux",
         path=str(delete_note),
         config={
             "linker_root": False,
@@ -375,6 +511,30 @@ def test_moved_updates_markdown_link_paths_only(tmp_path: Path):
         index_path.read_text(encoding="utf-8") == "[good day](log/day.md)\n"
         '[with title](./log/day.md#top "T")\n'
         "[external](https://example.com/day.md)\n"
+    )
+
+
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_moved_link_rewrite_preserves_line_endings(
+    tmp_path: Path,
+    newline: bytes,
+):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    markdown_path = notes_dir / "index.md"
+    markdown_path.write_bytes(
+        newline.join((b"[good day](day.md)", b"text", b""))
+    )
+
+    changed = rewrite_inline_links_for_moved_target(
+        markdown_path=str(markdown_path),
+        moved_from_path=str(notes_dir / "day.md"),
+        moved_to_path=str(notes_dir / "log" / "day.md"),
+    )
+
+    assert changed is True
+    assert markdown_path.read_bytes() == newline.join(
+        (b"[good day](log/day.md)", b"text", b"")
     )
 
 
