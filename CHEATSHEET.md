@@ -237,15 +237,15 @@ an archive destination.
 |---|---:|---|
 | `--formatter-todo` | `bool` | Convert `- task` list items into `- [ ] task`. |
 | `--formatter-blank` | `str[]` | Add blank lines at top/bottom. Values: `up`, `down`, `both`, optional count. |
-| `--formatter-date` | `bool` | Complete the next archive date written as `--- day`. |
-| `--formatter-complete-args` | `bool` | Complete arguments to their longest shared prefix. |
+| `--formatter-date` | `bool` | Keep completing archive dates written as `--- day`. |
+| `--formatter-autocomplete` | `bool` | Autocomplete Demon Lucy arguments. |
 
 Examples:
 
 ```text
 --formatter-todo
 --formatter-date
---formatter-complete-args
+--formatter-autocomplete
 --formatter-blank up
 --formatter-blank down 20
 --formatter-blank both 12

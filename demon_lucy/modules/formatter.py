@@ -115,14 +115,14 @@ class Formatter(AbstractModule):
             name="--formatter-date",
             value_type=bool,
             default=False,
-            description="Complete consecutive archive date headers written as '--- day' from the previous full date.",
+            description="Keep completing consecutive archive date headers written as '--- day'.",
             required=False,
         ),
         ArgTemplate(
-            name="--formatter-complete-args",
+            name="--formatter-autocomplete",
             value_type=bool,
             default=False,
-            description="Complete Demon Lucy arguments to their longest shared prefix.",
+            description="Autocomplete Demon Lucy arguments.",
             required=False,
         ),
     ]
@@ -193,8 +193,6 @@ class Formatter(AbstractModule):
         for key, flag in (
             ("formatter_todo", "--formatter-todo"),
             ("formatter_blank", "--formatter-blank"),
-            ("formatter_date", "--formatter-date"),
-            ("formatter_complete_args", "--formatter-complete-args"),
         ):
             for raw_line in arg_lines.get(key) or []:
                 try:
@@ -356,14 +354,14 @@ class Formatter(AbstractModule):
     ) -> Optional[IgnoreMap]:
         use_formatter_todo = bool(config.get("formatter_todo"))
         use_formatter_date = bool(config.get("formatter_date"))
-        use_formatter_complete_args = bool(config.get("formatter_complete_args"))
+        use_formatter_autocomplete = bool(config.get("formatter_autocomplete"))
         blank_modes, blank_lines_count = self._blank_config(config)
         use_down = "down" in blank_modes
         use_up = "up" in blank_modes
         if (
             not use_formatter_todo
             and not use_formatter_date
-            and not use_formatter_complete_args
+            and not use_formatter_autocomplete
             and not use_down
             and not use_up
         ):
@@ -399,7 +397,7 @@ class Formatter(AbstractModule):
                 for line_number in range(block.line, block.end_line + 1)
             }
 
-        if use_formatter_complete_args:
+        if use_formatter_autocomplete:
             if protected_lines is not None:
                 new_lines, complete_args_changed = self._complete_arg_lines(
                     new_lines,

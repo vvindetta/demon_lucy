@@ -175,6 +175,48 @@ def test_apply_completes_only_next_archive_dates(
 
 
 @pytest.mark.parametrize(
+    ("prefix", "arg_lines"),
+    [
+        ("--formatter-date\n", {"formatter_date": [1]}),
+        ("", {}),
+    ],
+)
+def test_apply_date_remains_enabled_for_future_updates(
+    tmp_path: Path,
+    prefix: str,
+    arg_lines: dict,
+) -> None:
+    note = tmp_path / "archive.md"
+    note.write_text(prefix + "--- 9.01.2030\n--- 10\n", encoding="utf-8")
+    config = {
+        "formatter_todo": False,
+        "formatter_blank": [],
+        "formatter_date": True,
+    }
+
+    first_changed = Formatter()._apply(
+        path=str(note),
+        config=config,
+        arg_lines=arg_lines,
+    )
+    note.write_text(
+        note.read_text(encoding="utf-8") + "--- 11\n",
+        encoding="utf-8",
+    )
+    second_changed = Formatter()._apply(
+        path=str(note),
+        config=config,
+        arg_lines=arg_lines,
+    )
+
+    assert first_changed == {str(note.resolve()): 1}
+    assert second_changed == {str(note.resolve()): 1}
+    assert note.read_text(encoding="utf-8") == (
+        prefix + "--- 9.01.2030\n--- 10.01.2030\n--- 11.01.2030\n"
+    )
+
+
+@pytest.mark.parametrize(
     "initial_text",
     [
         "--- 9.01.2030\n--- 11\n",
@@ -408,10 +450,10 @@ def test_apply_removes_formatter_only_command_line(tmp_path: Path):
     assert note.read_text(encoding="utf-8") == "- [ ] task\n"
 
 
-def test_apply_completes_argument_prefixes(tmp_path: Path):
+def test_apply_autocompletes_argument_prefixes(tmp_path: Path):
     note = tmp_path / "note.md"
     note.write_text(
-        "--formatter-complete-args --formatter-t\n"
+        "--formatter-autocomplete --formatter-t\n"
         "--gra past.md www\n"
         "--graph-r past.md www\n"
         "--archive-pair now.md past.md\n",
@@ -424,9 +466,9 @@ def test_apply_completes_argument_prefixes(tmp_path: Path):
         config={
             "formatter_todo": False,
             "formatter_blank": [],
-            "formatter_complete_args": True,
+            "formatter_autocomplete": True,
         },
-        arg_lines={"formatter_complete_args": [1]},
+        arg_lines={"formatter_autocomplete": [1]},
         global_template=module.template
         + [
             ArgTemplate(name="--archive", value_type=bool, default=False),
@@ -438,16 +480,16 @@ def test_apply_completes_argument_prefixes(tmp_path: Path):
 
     assert changed == {str(note.resolve()): 1}
     assert note.read_text(encoding="utf-8") == (
-        "--formatter-todo\n"
+        "--formatter-autocomplete --formatter-todo\n"
         "--graph past.md www\n"
         "--graph-regex past.md www\n"
         "--archive-pair now.md past.md\n"
     )
 
 
-def test_apply_completes_to_common_argument_prefix(tmp_path: Path):
+def test_apply_autocompletes_to_common_argument_prefix(tmp_path: Path):
     note = tmp_path / "note.md"
-    note.write_text("--formatter-complete-args --formatter\n", encoding="utf-8")
+    note.write_text("--formatter-autocomplete --formatter\n", encoding="utf-8")
 
     module = Formatter()
     changed = module._apply(
@@ -455,14 +497,60 @@ def test_apply_completes_to_common_argument_prefix(tmp_path: Path):
         config={
             "formatter_todo": False,
             "formatter_blank": [],
-            "formatter_complete_args": True,
+            "formatter_autocomplete": True,
         },
-        arg_lines={"formatter_complete_args": [1]},
+        arg_lines={"formatter_autocomplete": [1]},
         global_template=module.template,
     )
 
     assert changed == {str(note.resolve()): 1}
-    assert note.read_text(encoding="utf-8") == "--formatter-\n"
+    assert note.read_text(encoding="utf-8") == (
+        "--formatter-autocomplete --formatter-\n"
+    )
+
+
+def test_apply_autocomplete_remains_enabled_for_future_updates(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text(
+        "--formatter-autocomplete\n--gra past.md sleep\n",
+        encoding="utf-8",
+    )
+    module = Formatter()
+    config = {
+        "formatter_todo": False,
+        "formatter_blank": [],
+        "formatter_autocomplete": True,
+    }
+    arg_lines = {"formatter_autocomplete": [1]}
+    global_template = module.template + [
+        ArgTemplate(name="--graph", value_type=str, default=[]),
+        ArgTemplate(name="--banner", value_type=str, default=[]),
+    ]
+
+    first_changed = module._apply(
+        path=str(note),
+        config=config,
+        arg_lines=arg_lines,
+        global_template=global_template,
+    )
+    note.write_text(
+        note.read_text(encoding="utf-8") + "--ban title\n",
+        encoding="utf-8",
+    )
+    second_changed = module._apply(
+        path=str(note),
+        config=config,
+        arg_lines=arg_lines,
+        global_template=global_template,
+    )
+
+    assert first_changed == {str(note.resolve()): 1}
+    assert second_changed == {str(note.resolve()): 1}
+    assert note.read_text(encoding="utf-8") == (
+        "--formatter-autocomplete\n"
+        "--graph past.md sleep\n"
+        "--banner title\n"
+    )
 
 
 @pytest.mark.parametrize(
