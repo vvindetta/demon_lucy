@@ -58,7 +58,13 @@ def _base_config() -> dict[str, object]:
 def test_lucy_eye_art_variants_are_available() -> None:
     assert LUCY_EYE_VERTICAL[1] == "       _..--'      |      '--.._"
     assert LUCY_EYE_POINTED[1] == "       _..--'      ^      '--.._"
-    assert LUCY_EYE_DOUBLE[2] == "  <---'           ||            '--->"
+    assert LUCY_EYE_DOUBLE == (
+        "            ___.......___",
+        "      _..--'      ||     '--.._",
+        "<---'             ||           '--->",
+        "      '--..__     ||    __..--'",
+        "              '-------'",
+    )
     assert LUCY_EYE_GLOW[2] == "  <---'           (*)           '--->"
     assert LUCY_EYE_CLASSIC == (
         "          _______________",
@@ -69,43 +75,85 @@ def test_lucy_eye_art_variants_are_available() -> None:
     )
 
 
-def test_neofetch_lines_show_system_and_lucy_information(monkeypatch) -> None:
-    monkeypatch.setattr(neofetch_module, "_host_identity", lambda: "def@desktop")
+def test_neofetch_lines_show_lucy_runtime_information() -> None:
+    lines = neofetch_module.neofetch_lines(
+        run_mode="daemon",
+        runtime_system="linux",
+        module_count=14,
+        watch_path_count=2,
+        opened_events_disabled=False,
+        git_sync_age="3m ago",
+    )
+
+    assert lines == [
+        "            ___.......___\n",
+        "      _..--'      ||     '--.._\n",
+        "<---'             ||           '--->\n",
+        "      '--..__     ||    __..--'\n",
+        "              '-------'\n",
+        "\n",
+        "             Demon Lucy\n",
+        "          Mode      daemon\n",
+        "          Uptime    0m\n",
+        "          Modules   14\n",
+        "          Watch     2 paths\n",
+        "          Opened    enabled\n",
+        "          Git sync  3m ago\n",
+    ]
+
+
+def test_neofetch_git_sync_age_prefers_success_marker(monkeypatch) -> None:
     monkeypatch.setattr(
         neofetch_module,
-        "_operating_system_name",
-        lambda _runtime_system: "Test Linux",
+        "find_parent_git_repo",
+        lambda _path: "/repo",
     )
-    monkeypatch.setattr(neofetch_module.platform, "release", lambda: "6.15.4")
-    monkeypatch.setattr(neofetch_module.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(
-        neofetch_module.platform,
-        "python_version",
-        lambda: "3.14.0",
+        neofetch_module,
+        "read_sync_success_timestamp",
+        lambda _repo_root: 1000.0,
+    )
+    monkeypatch.setattr(
+        neofetch_module,
+        "git_last_commit_timestamp",
+        lambda _repo_root: (_ for _ in ()).throw(
+            AssertionError("commit fallback must not run when a marker exists")
+        ),
     )
 
-    text = "".join(
-        neofetch_module.neofetch_lines(
-            run_mode="daemon",
-            runtime_system="linux",
-            module_count=16,
-            watch_path_count=2,
-            opened_events_disabled=False,
-            runtime_uptime_seconds=8040.0,
+    assert (
+        neofetch_module.git_sync_age_text(
+            "/repo/note.md",
+            now_timestamp=1180.0,
         )
+        == "3m ago"
     )
 
-    assert LUCY_EYE_VERTICAL[0] in text
-    assert "def@desktop" in text
-    assert "OS       Test Linux" in text
-    assert "Kernel   6.15.4" in text
-    assert "Arch     x86_64" in text
-    assert "Python   3.14.0" in text
-    assert "Mode      daemon" in text
-    assert "Uptime    2h 14m" in text
-    assert "Modules   16" in text
-    assert "Watch     2 paths" in text
-    assert "Opened    enabled" in text
+
+def test_neofetch_git_sync_age_falls_back_to_last_commit(monkeypatch) -> None:
+    monkeypatch.setattr(
+        neofetch_module,
+        "find_parent_git_repo",
+        lambda _path: "/repo",
+    )
+    monkeypatch.setattr(
+        neofetch_module,
+        "read_sync_success_timestamp",
+        lambda _repo_root: None,
+    )
+    monkeypatch.setattr(
+        neofetch_module,
+        "git_last_commit_timestamp",
+        lambda _repo_root: 1000.0,
+    )
+
+    assert (
+        neofetch_module.git_sync_age_text(
+            "/repo/note.md",
+            now_timestamp=11800.0,
+        )
+        == "3h ago"
+    )
 
 
 @pytest.mark.parametrize(
@@ -120,15 +168,7 @@ def test_neofetch_opened_event_state_on_windows(
     run_mode: RunMode,
     disabled: bool,
     expected: str,
-    monkeypatch,
 ) -> None:
-    monkeypatch.setattr(neofetch_module, "_host_identity", lambda: "user@host")
-    monkeypatch.setattr(
-        neofetch_module,
-        "_operating_system_name",
-        lambda _runtime_system: "Windows 11",
-    )
-
     text = "".join(
         neofetch_module.neofetch_lines(
             run_mode=run_mode,
@@ -136,21 +176,16 @@ def test_neofetch_opened_event_state_on_windows(
             module_count=1,
             watch_path_count=1,
             opened_events_disabled=disabled,
+            git_sync_age="unavailable",
         )
     )
 
     assert expected in text
 
 
-def test_neofetch_command_writes_runtime_block(tmp_path: Path, monkeypatch) -> None:
+def test_neofetch_command_writes_runtime_block(tmp_path: Path) -> None:
     note = tmp_path / "note.md"
     note.write_text("--neofetch\n", encoding="utf-8")
-    monkeypatch.setattr(neofetch_module, "_host_identity", lambda: "user@host")
-    monkeypatch.setattr(
-        neofetch_module,
-        "_operating_system_name",
-        lambda _runtime_system: "Test Linux",
-    )
 
     module = Sys()
     config = _base_config()
@@ -179,11 +214,11 @@ def test_neofetch_command_writes_runtime_block(tmp_path: Path, monkeypatch) -> N
     assert changed == {str(note): 1}
     assert text.startswith("--- neofetch ---\n\n")
     assert "--neofetch" not in text
-    assert LUCY_EYE_VERTICAL[0] in text
-    assert "user@host" in text
+    assert LUCY_EYE_DOUBLE[0] in text
     assert "Mode      daemon" in text
     assert "Modules   1" in text
     assert "Watch     2 paths" in text
+    assert "Git sync  unavailable" in text
 
 
 def test_man_lines_specific_name_and_flag():

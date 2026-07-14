@@ -16,7 +16,7 @@ from demon_lucy.modules.abstract_module import (
     IgnoreMap,
     System,
 )
-from demon_lucy.modules.sys.neofetch import neofetch_lines
+from demon_lucy.modules.sys.neofetch import git_sync_age_text, neofetch_lines
 
 
 class Sys(AbstractModule):
@@ -28,7 +28,7 @@ class Sys(AbstractModule):
             name="--neofetch",
             value_type=bool,
             default=False,
-            description="Print Demon Lucy and system information.",
+            description="Print Demon Lucy runtime information.",
             required=False,
         ),
         ArgTemplate(
@@ -86,7 +86,7 @@ class Sys(AbstractModule):
     @staticmethod
     def _command_help_lines() -> List[str]:
         return [
-            "* --neofetch: print Demon Lucy and system information\n",
+            "* --neofetch: print Demon Lucy runtime information\n",
             "* --mods: print loaded modules and their priorities\n",
             "* --ping: send notification and rewrite command line to ++pong!\n",
             "* --config: print config values that differ from defaults\n",
@@ -296,6 +296,7 @@ class Sys(AbstractModule):
                     module_count=len(system.modules),
                     watch_path_count=len(watch_paths),
                     opened_events_disabled=ctx.config["sys_disable_opened_events"],
+                    git_sync_age=git_sync_age_text(ctx.path),
                     runtime_uptime_seconds=max(
                         0.0,
                         time.monotonic() - system.runtime_started_at_monotonic,

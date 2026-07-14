@@ -115,7 +115,7 @@ Then a note can use:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--neofetch` | `bool` | Print Demon Lucy and system information. |
+| `--neofetch` | `bool` | Print Demon Lucy runtime information. |
 | `--mods` | `bool` | Print loaded modules and priorities. |
 | `--ping` | `bool` | Rewrite command line to `++pong!`. |
 | `--config` | `bool` | Print config values that differ from defaults. |
