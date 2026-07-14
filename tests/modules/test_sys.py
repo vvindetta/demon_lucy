@@ -75,6 +75,10 @@ def test_lucy_eye_art_variants_are_available() -> None:
     )
 
 
+def test_help_lists_neofetch_last() -> None:
+    assert Sys._command_help_lines()[-1].startswith("* --neofetch:")
+
+
 def test_neofetch_lines_show_lucy_runtime_information() -> None:
     lines = neofetch_module.neofetch_lines(
         run_mode="daemon",

@@ -50,10 +50,10 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
 ```--help``` for help message: 
 ```
-* --neofetch: print Demon Lucy runtime information
 * --mods: print loaded modules and their priorities
 * --config: print config values that differ from defaults
 * --man <name>: print one argument with description (example: --man mods or --man --mods)
+* --neofetch: print Demon Lucy runtime information
 ```
 
 

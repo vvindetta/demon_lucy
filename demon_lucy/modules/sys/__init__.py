@@ -86,12 +86,12 @@ class Sys(AbstractModule):
     @staticmethod
     def _command_help_lines() -> List[str]:
         return [
-            "* --neofetch: print Demon Lucy runtime information\n",
             "* --mods: print loaded modules and their priorities\n",
             "* --ping: send notification and rewrite command line to ++pong!\n",
             "* --config: print config values that differ from defaults\n",
             "* --man <name>: print one argument with description (example: --man mods or --man --mods)\n",
             "* --event: print current filesystem event details\n",
+            "* --neofetch: print Demon Lucy runtime information\n",
         ]
 
     @staticmethod
