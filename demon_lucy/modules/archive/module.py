@@ -221,6 +221,11 @@ class Archive(AbstractModule):
         allowed_root = paths.archive_allowed_root(ctx)
         if allowed_root is None:
             return None
+        allowed_root = paths.source_allowed_root(
+            ctx,
+            selector=request.src_selector,
+            current_allowed_root=allowed_root,
+        )
 
         src_path = paths.resolve_source_path(
             ctx,
@@ -309,6 +314,11 @@ class Archive(AbstractModule):
         allowed_root = paths.archive_allowed_root(ctx)
         if allowed_root is None:
             return None
+        allowed_root = paths.source_allowed_root(
+            ctx,
+            selector=pair_request.src_selector,
+            current_allowed_root=allowed_root,
+        )
         src_path = paths.resolve_source_path(
             ctx,
             pair_request,

@@ -144,6 +144,100 @@ def test_allows_absolute_archive_pair_paths_inside_allowed_root(
     assert past_path.read_text(encoding="utf-8") == "--- 02.05.2026\nunicode active\n"
 
 
+def test_archive_pair_uses_source_root_for_event_from_another_watch_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+    notifications: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        archive_notify,
+        "safe_notify",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    plasma_dir = tmp_path / "plasma"
+    plasma_dir.mkdir()
+
+    now_path = notes_dir / "now.md"
+    now_path.write_text("archive from notes\n", encoding="utf-8")
+    _make_stale(now_path, 3.0)
+    past_path = notes_dir / "past.md"
+    trigger_path = plasma_dir / "widget"
+    trigger_path.write_text("widget event\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=[str(now_path), str(past_path), "2"],
+        watch_paths=[str(plasma_dir), str(notes_dir)],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert past_path.read_text(encoding="utf-8") == (
+        "--- 02.05.2026\narchive from notes\n"
+    )
+    assert notifications == []
+
+
+def test_archive_pair_still_rejects_source_outside_all_watch_roots(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+    notifications: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        archive_notify,
+        "safe_notify",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    plasma_dir = tmp_path / "plasma"
+    plasma_dir.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+
+    outside_path = outside_dir / "now.md"
+    outside_path.write_text("must stay\n", encoding="utf-8")
+    _make_stale(outside_path, 3.0)
+    trigger_path = plasma_dir / "widget"
+    trigger_path.write_text("widget event\n", encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(
+        trigger_path,
+        pair_values=[str(outside_path), str(notes_dir / "past.md"), "2"],
+        watch_paths=[str(plasma_dir), str(notes_dir)],
+    )
+    system = System(
+        event=FileModifiedEvent(str(trigger_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert outside_path.read_text(encoding="utf-8") == "must stay\n"
+    assert not (notes_dir / "past.md").exists()
+    assert any(
+        str(args[0]).startswith("archive-security:outside_allowed_root:")
+        for args, _kwargs in notifications
+    )
+
+
 def test_rejects_absolute_archive_pair_paths_outside_allowed_root(
     tmp_path: Path, monkeypatch
 ) -> None:

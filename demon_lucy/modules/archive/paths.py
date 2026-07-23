@@ -22,19 +22,26 @@ def selector_has_parent_reference(selector: str) -> bool:
 
 
 def event_path_is_inside_configured_watch_roots(ctx: Context) -> bool:
-    raw_watch_paths = ctx.config.get("sys_watch_paths")
-    if not raw_watch_paths:
+    watch_roots = configured_watch_roots(ctx)
+    if not watch_roots:
         return True
 
-    values = raw_watch_paths if isinstance(raw_watch_paths, list) else [raw_watch_paths]
     event_path = canonical_path(ctx.path)
+    return any(path_is_inside(event_path, root) for root in watch_roots)
+
+
+def configured_watch_roots(ctx: Context) -> list[str]:
+    raw_watch_paths = ctx.config.get("sys_watch_paths")
+    if not raw_watch_paths:
+        return []
+
+    values = raw_watch_paths if isinstance(raw_watch_paths, list) else [raw_watch_paths]
+    roots: list[str] = []
     for value in values:
         watch_path = str(value).strip()
-        if not watch_path:
-            continue
-        if path_is_inside(event_path, watch_path):
-            return True
-    return False
+        if watch_path:
+            roots.append(canonical_path(watch_path))
+    return roots
 
 
 def archive_allowed_root(ctx: Context) -> str | None:
@@ -50,6 +57,38 @@ def archive_allowed_root(ctx: Context) -> str | None:
     if repo_root:
         return canonical_path(repo_root)
     return canonical_path(os.path.dirname(ctx.path))
+
+
+def source_allowed_root(
+    ctx: Context,
+    *,
+    selector: str,
+    current_allowed_root: str,
+) -> str:
+    raw_selector = str(selector).strip()
+    if not raw_selector or raw_selector.startswith("~"):
+        return current_allowed_root
+
+    expanded_selector = os.path.expanduser(raw_selector)
+    if not os.path.isabs(expanded_selector):
+        return current_allowed_root
+
+    source_path = canonical_path(expanded_selector)
+    if path_is_inside(source_path, current_allowed_root):
+        return current_allowed_root
+
+    matching_roots = [
+        root
+        for root in configured_watch_roots(ctx)
+        if path_is_inside(source_path, root)
+    ]
+    if not matching_roots:
+        return current_allowed_root
+
+    repo_root = find_parent_git_repo(source_path)
+    if repo_root:
+        return canonical_path(repo_root)
+    return max(matching_roots, key=len)
 
 
 def archive_config_path(ctx: Context) -> str | None:
