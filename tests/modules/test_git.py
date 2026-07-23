@@ -809,6 +809,58 @@ def test_run_git_waits_on_recent_index_lock_without_removing(
     assert all(item == 1.0 for item in sleeps)
 
 
+def test_run_git_retries_when_index_lock_disappears_before_inspection(
+    git_module, monkeypatch, tmp_path, caplog
+):
+    repo_root = tmp_path / "repo"
+    _mk_git_metadata(repo_root)
+    attempts = {"count": 0}
+
+    class _FakeExecutor:
+        def __init__(self, repo_root: str, environment: dict[str, str]):
+            self.repo_root = repo_root
+            self.environment = environment
+
+        def run(
+            self,
+            arguments: list[str],
+            timeout_seconds: float,
+        ) -> subprocess.CompletedProcess[str]:
+            _ = timeout_seconds
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                return subprocess.CompletedProcess(
+                    args=["git"] + arguments,
+                    returncode=1,
+                    stdout="",
+                    stderr=(
+                        "fatal: Unable to create '/repo/.git/index.lock': "
+                        "File exists."
+                    ),
+                )
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+    monkeypatch.setattr(git_ops, "GitExecutor", _FakeExecutor)
+
+    with caplog.at_level("INFO"):
+        result = git_ops.run_git(
+            git_module,
+            repo_root=str(repo_root),
+            arguments=["commit", "-m", "sync"],
+            environment={},
+            timeout_seconds=10.0,
+        )
+
+    assert result.returncode == 0
+    assert attempts["count"] == 2
+    assert "reason=index_lock_released" in caplog.text
+
+
 def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(
     git_module, monkeypatch
 ):

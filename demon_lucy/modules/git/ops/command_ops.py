@@ -135,7 +135,20 @@ def run_git(
 
         lock_age = index_lock_age_seconds_fn(repo_root)
         if lock_age is None:
-            return result
+            if recent_retry_attempt in (0, recent_retry_max_attempts - 1):
+                logger.info(
+                    log_record(
+                        "git.command_retry",
+                        reason="index_lock_released",
+                        repo=repo_root,
+                        retry=(
+                            f"{recent_retry_attempt + 1}/"
+                            f"{recent_retry_max_attempts}"
+                        ),
+                    )
+                )
+            recent_retry_attempt += 1
+            continue
 
         if recent_retry_attempt in (0, recent_retry_max_attempts - 1):
             logger.info(
