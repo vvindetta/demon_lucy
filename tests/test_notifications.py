@@ -219,6 +219,33 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
     assert dummy.message == "desktop notification"
 
 
+def test_notify_desktop_provider_ignores_missing_optional_icon(monkeypatch):
+    class DummyNotify:
+        def __init__(self):
+            self.title = ""
+            self.message = ""
+            self.icon = "unset"
+
+        def send(self):
+            return True
+
+    dummy = DummyNotify()
+    monkeypatch.setitem(
+        sys.modules,
+        "notifypy",
+        types.SimpleNamespace(Notify=lambda: dummy),
+    )
+
+    delivered = notifications_mod._notify_desktop(
+        message="desktop notification",
+        title="Demon Lucy",
+        icon_path="/missing/demon-lucy-icon.png",
+    )
+
+    assert delivered is True
+    assert dummy.icon == "unset"
+
+
 def test_notify_desktop_provider_logs_backend_false(monkeypatch, caplog):
     class DummyNotify:
         def __init__(self):

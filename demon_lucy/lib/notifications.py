@@ -21,7 +21,7 @@ _ERROR_NOTIFY_LEVEL: Dict[str, int] = {}
 _ERROR_NOTIFY_HISTORY: deque[float] = deque()
 _NOTIFY_STATE_LOCK = threading.Lock()
 DEFAULT_NOTIFICATION_ICON_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "media", "icon.png")
+    os.path.join(os.path.dirname(__file__), "..", "..", "media", "icon.jpg")
 )
 
 
@@ -79,7 +79,8 @@ def _notify_desktop(message: str, title: str, icon_path: str) -> bool:
     notifier = Notify()
     notifier.title = title
     notifier.message = message
-    notifier.icon = icon_path
+    if os.path.isfile(icon_path):
+        notifier.icon = icon_path
     return bool(notifier.send())
 
 
