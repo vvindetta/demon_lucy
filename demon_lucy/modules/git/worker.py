@@ -685,6 +685,44 @@ def _commit_if_needed(
     if not porcelain_text:
         return True
 
+    try:
+        staged_result = run_git(
+            self,
+            repo_root,
+            ["diff", "--cached", "--quiet", "--exit-code"],
+            environment,
+            timeout_seconds=git_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        staged_result = None
+        logger.warning(
+            log_record(
+                "git.commit_check_failed",
+                reason="timeout",
+                repo=repo_root,
+            )
+        )
+
+    if staged_result is not None and staged_result.returncode == 0:
+        logger.info(
+            log_record(
+                "git.commit_skip",
+                reason="no_staged_changes",
+                repo=repo_root,
+            )
+        )
+        return True
+    if staged_result is not None and staged_result.returncode not in {0, 1}:
+        check_error = (staged_result.stderr or staged_result.stdout or "").strip()
+        logger.warning(
+            log_record(
+                "git.commit_check_failed",
+                reason="git_diff_failed",
+                repo=repo_root,
+                error=check_error[:1200],
+            )
+        )
+
     staged_changes = _collect_staged_changes_for_commit_message(
         self=self,
         repo_root=repo_root,
@@ -721,7 +759,17 @@ def _commit_if_needed(
         .strip()
         .lower()
     )
-    if "nothing to commit" in combined_output:
+    if (
+        "nothing to commit" in combined_output
+        or "nothing added to commit" in combined_output
+    ):
+        logger.info(
+            log_record(
+                "git.commit_skip",
+                reason="staged_changes_consumed",
+                repo=repo_root,
+            )
+        )
         return True
 
     commit_error = (

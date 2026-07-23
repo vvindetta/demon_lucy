@@ -1114,6 +1114,13 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
                 stdout=" M note.md\n",
                 stderr="",
             )
+        if arguments == ["diff", "--cached", "--quiet", "--exit-code"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=1,
+                stdout="",
+                stderr="",
+            )
         if arguments == ["diff", "--cached", "--name-status", "-z"]:
             return subprocess.CompletedProcess(
                 args=["git"] + arguments,
@@ -1163,6 +1170,7 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
     )
     assert calls[0] == ["add", "-A"]
     assert calls[1] == ["status", "--porcelain"]
+    assert ["diff", "--cached", "--quiet", "--exit-code"] in calls
     assert ["diff", "--cached", "--name-status", "-z"] in calls
     assert ["diff", "--cached", "--numstat", "-z"] in calls
     assert any(call[:2] == ["commit", "-m"] for call in calls)
@@ -1202,6 +1210,13 @@ def test_process_batch_writes_sync_success_marker_on_push_success(
                 args=["git"] + arguments,
                 returncode=0,
                 stdout=" M note.md\n",
+                stderr="",
+            )
+        if arguments == ["diff", "--cached", "--quiet", "--exit-code"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=1,
+                stdout="",
                 stderr="",
             )
         if arguments == ["diff", "--cached", "--name-status", "-z"]:
@@ -1254,6 +1269,7 @@ def test_process_batch_writes_sync_success_marker_on_push_success(
     assert before_ts - 1.0 <= marker_ts <= after_ts + 1.0
     assert calls[0] == ["add", "-A"]
     assert calls[1] == ["status", "--porcelain"]
+    assert ["diff", "--cached", "--quiet", "--exit-code"] in calls
     assert ["diff", "--cached", "--name-status", "-z"] in calls
     assert ["diff", "--cached", "--numstat", "-z"] in calls
     assert any(call[:2] == ["commit", "-m"] for call in calls)
@@ -1518,6 +1534,113 @@ def test_stage_handles_index_lock_as_transient_without_addfail_notification(
     )
 
     assert staged_ok is False
+    assert notifications == []
+
+
+def test_commit_skips_untracked_file_created_after_staging(
+    git_module,
+    monkeypatch,
+) -> None:
+    calls: list[list[str]] = []
+    notifications: list[dict] = []
+    monkeypatch.setattr(
+        git_worker,
+        "safe_notify",
+        lambda **kwargs: notifications.append(kwargs),
+    )
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        calls.append(list(arguments))
+        if arguments == ["diff", "--cached", "--quiet", "--exit-code"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+
+    committed = git_worker._commit_if_needed(
+        self=git_module,
+        batch=_mk_batch(),
+        repo_root="/repo",
+        environment={},
+        git_timeout_seconds=5.0,
+        porcelain_text="?? AGENTS.md",
+        changed_paths=["AGENTS.md"],
+        config=_NOTIFY_CFG,
+    )
+
+    assert committed is True
+    assert calls == [["diff", "--cached", "--quiet", "--exit-code"]]
+    assert notifications == []
+
+
+def test_commit_treats_nothing_added_race_as_success(
+    git_module,
+    monkeypatch,
+) -> None:
+    notifications: list[dict] = []
+    monkeypatch.setattr(
+        git_worker,
+        "safe_notify",
+        lambda **kwargs: notifications.append(kwargs),
+    )
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments == ["diff", "--cached", "--quiet", "--exit-code"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=1,
+                stdout="",
+                stderr="",
+            )
+        if arguments == ["diff", "--cached", "--name-status", "-z"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="A\0AGENTS.md\0",
+                stderr="",
+            )
+        if arguments == ["diff", "--cached", "--numstat", "-z"]:
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=0,
+                stdout="1\t0\tAGENTS.md\0",
+                stderr="",
+            )
+        if arguments and arguments[0] == "commit":
+            return subprocess.CompletedProcess(
+                args=["git"] + arguments,
+                returncode=1,
+                stdout=(
+                    "On branch master\n"
+                    "Untracked files:\n"
+                    "  AGENTS.md\n"
+                    "nothing added to commit but untracked files present\n"
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+
+    committed = git_worker._commit_if_needed(
+        self=git_module,
+        batch=_mk_batch(),
+        repo_root="/repo",
+        environment={},
+        git_timeout_seconds=5.0,
+        porcelain_text="A  AGENTS.md",
+        changed_paths=["AGENTS.md"],
+        config=_NOTIFY_CFG,
+    )
+
+    assert committed is True
     assert notifications == []
 
 
