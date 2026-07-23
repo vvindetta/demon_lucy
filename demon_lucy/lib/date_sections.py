@@ -129,14 +129,14 @@ def complete_partial_date_section_headers(
 
         section = parse_date_section_header(line)
         if section is not None:
-            if previous_date is not None and section.start < previous_date:
-                return lines, False
             previous_date = section.end
             completed_lines.append(original_line)
             continue
 
         if _FULL_DATE_SECTION_PREFIX_RE.match(line):
-            return lines, False
+            previous_date = None
+            completed_lines.append(original_line)
+            continue
 
         partial_match = _PARTIAL_DATE_SECTION_RE.match(line)
         if partial_match is None:
@@ -144,12 +144,15 @@ def complete_partial_date_section_headers(
             continue
 
         if previous_date is None:
-            return lines, False
+            completed_lines.append(original_line)
+            continue
 
         day_text = partial_match.group("day")
         next_date = _next_date_with_day(previous_date, int(day_text))
         if next_date is None:
-            return lines, False
+            previous_date = None
+            completed_lines.append(original_line)
+            continue
 
         completed_lines.append(
             f"{partial_match.group('prefix')}{day_text}"

@@ -237,7 +237,6 @@ def test_apply_date_remains_enabled_for_future_updates(
     [
         "--- 31.02.2030\n--- 1\n",
         "--- 10\n",
-        "--- 10.01.2030\n--- 9.01.2030\n--- 10\n",
         "--- 31.01.2030\n--- 30\n",
     ],
 )
@@ -260,6 +259,51 @@ def test_apply_leaves_ambiguous_date_sequences_unchanged(
 
     assert changed is None
     assert note.read_text(encoding="utf-8") == initial_text
+
+
+@pytest.mark.parametrize(
+    ("initial_text", "expected_text"),
+    [
+        (
+            "--- 10\n--- 11\n--- 9.01.2030\n--- 12\n",
+            "--- 10\n--- 11\n--- 9.01.2030\n--- 12.01.2030\n",
+        ),
+        (
+            "--- 9.01.2030\n--- 11\n--- 31.02.2030\n--- 1\n"
+            "--- 5.03.2030\n--- 8\n",
+            "--- 9.01.2030\n--- 11.01.2030\n--- 31.02.2030\n--- 1\n"
+            "--- 5.03.2030\n--- 8.03.2030\n",
+        ),
+        (
+            "--- 31.01.2030\n--- 30\n--- 1\n--- 5.03.2030\n--- 6\n",
+            "--- 31.01.2030\n--- 30\n--- 1\n--- 5.03.2030\n--- 6.03.2030\n",
+        ),
+        (
+            "--- 10.01.2030\n--- 9.01.2030\n--- 10\n",
+            "--- 10.01.2030\n--- 9.01.2030\n--- 10.01.2030\n",
+        ),
+    ],
+)
+def test_apply_date_resumes_after_next_full_date(
+    tmp_path: Path,
+    initial_text: str,
+    expected_text: str,
+) -> None:
+    note = tmp_path / "archive.md"
+    note.write_text(initial_text, encoding="utf-8")
+
+    changed = Formatter()._apply(
+        path=str(note),
+        config={
+            "formatter_todo": False,
+            "formatter_blank": [],
+            "formatter_date": True,
+        },
+        arg_lines={},
+    )
+
+    assert changed == {str(note.resolve()): 1}
+    assert note.read_text(encoding="utf-8") == expected_text
 
 
 def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
