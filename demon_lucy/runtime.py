@@ -14,6 +14,7 @@ from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import NotificationProvider
 from demon_lucy.migrations import MIGRATIONS, Migration
 from demon_lucy.modules.abstract_module import AbstractModule
+from demon_lucy.modules.ai import Ai
 from demon_lucy.modules.alias import Alias
 from demon_lucy.modules.banner import Banner
 from demon_lucy.modules.dropdir import DropDir
@@ -293,6 +294,7 @@ def select_demon_lucy_modules(
         Linker,
         DropDir,
         Formatter,
+        Ai,
         Graph,
         Include,
         Archive,

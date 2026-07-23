@@ -75,6 +75,7 @@ def test_sys_modules_default_is_defined_in_startup_template():
     assert "workspace" in known_args["sys_modules"]
     assert "graph" in known_args["sys_modules"]
     assert "include" in known_args["sys_modules"]
+    assert "ai" not in known_args["sys_modules"]
     assert "status" in known_args["sys_modules"]
 
 

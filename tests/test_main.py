@@ -128,6 +128,7 @@ def test_main_schedules_observer_and_modules(
         "linker",
         "dropdir",
         "formatter",
+        "ai",
         "graph",
         "include",
         "archive",

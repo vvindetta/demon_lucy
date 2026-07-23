@@ -92,6 +92,9 @@ watchdog file events.
   one-letter scratch files with configurable output format.
 - `modules/formatter.py`: TODO checkbox formatting, archive date completion,
   and top/bottom blank padding; dynamic blocks are left untouched.
+- `modules/ai/`: isolated local Codex edits for the current note;
+  Codex receives only the command file snapshot and prompt, then Lucy validates
+  and writes the result.
 - `modules/graph/`: dynamic text/Markdown graph blocks for word/regex frequency.
   `__init__.py` owns command-to-block conversion; `params.py` owns the main
   recursive Graph template and shared command/block normalization;

@@ -251,6 +251,19 @@ Examples:
 --formatter-blank both 12
 ```
 
+## AI (experimental)
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--ai` | `str[]` | Experimental editing of the current file with local Codex. |
+| `--ai-timeout-seconds` | `int` | Maximum time for one Codex run. Default: `900`. |
+
+Codex receives only the current file snapshot and the prompt.
+
+```text
+--ai summarize this note and add a short title
+```
+
 ## Git
 
 | Arg | Type | Meaning |
