@@ -93,6 +93,23 @@ def iter_date_section_days(section: DateSection) -> Iterator[date]:
         current += timedelta(days=1)
 
 
+def _next_date_with_day(previous_date: date, day: int) -> date | None:
+    year = previous_date.year
+    month = previous_date.month
+    if day <= previous_date.day:
+        if month == 12:
+            year += 1
+            month = 1
+        else:
+            month += 1
+
+    try:
+        candidate = date(year, month, day)
+    except ValueError:
+        return None
+    return candidate if candidate > previous_date else None
+
+
 def complete_partial_date_section_headers(
     lines: list[str],
     *,
@@ -129,9 +146,9 @@ def complete_partial_date_section_headers(
         if previous_date is None:
             return lines, False
 
-        next_date = previous_date + timedelta(days=1)
         day_text = partial_match.group("day")
-        if int(day_text) != next_date.day:
+        next_date = _next_date_with_day(previous_date, int(day_text))
+        if next_date is None:
             return lines, False
 
         completed_lines.append(
