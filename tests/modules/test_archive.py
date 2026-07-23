@@ -11,6 +11,7 @@ from watchdog.events import FileModifiedEvent
 
 from demon_lucy.lib import file_time
 from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.dynamic_blocks.parser import format_dynamic_block
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.archive import Archive
 from demon_lucy.modules.archive import clock as archive_clock
@@ -545,7 +546,7 @@ def test_archive_rejects_hardlink_source(tmp_path: Path, monkeypatch) -> None:
     assert not (tmp_path / "past.md").exists()
 
 
-def test_truncate_source_validates_opened_file_before_truncating(
+def test_source_rewrite_validates_opened_file_before_truncating(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -574,13 +575,14 @@ def test_truncate_source_validates_opened_file_before_truncating(
     monkeypatch.setattr(archive_storage, "open_file_no_follow", open_replaced_path)
 
     assert (
-        archive_storage.truncate_source_file(
+        archive_storage.write_text_no_follow(
             str(source_path),
+            "",
             runtime_system="linux",
         )
         is False
     )
-    assert open_flags == [os.O_WRONLY]
+    assert open_flags == [os.O_WRONLY | os.O_CREAT]
     assert source_path.read_text(encoding="utf-8") == "source must stay\n"
     assert protected_path.read_text(encoding="utf-8") == "protected must stay\n"
 
@@ -763,18 +765,29 @@ def test_archive_operation_failure_notifies_user(tmp_path: Path, monkeypatch) ->
         "safe_notify",
         lambda *args, **kwargs: notifications.append((args, kwargs)),
     )
-    monkeypatch.setattr(
-        archive_storage,
-        "truncate_source_file",
-        lambda _src_path, *, runtime_system: False,
-    )
-
     active_path = tmp_path / "active.md"
     active_path.write_text("cannot truncate\n", encoding="utf-8")
     _make_stale(active_path, 13.0)
 
     trigger_path = tmp_path / "other.md"
     trigger_path.write_text("x\n", encoding="utf-8")
+
+    original_write = archive_storage.write_text_no_follow
+
+    def fail_source_write(path_value, content, *, runtime_system):
+        if path_value == str(active_path.resolve()):
+            return False
+        return original_write(
+            path_value,
+            content,
+            runtime_system=runtime_system,
+        )
+
+    monkeypatch.setattr(
+        archive_storage,
+        "write_text_no_follow",
+        fail_source_write,
+    )
 
     module = Archive()
     ctx = _ctx_for(
@@ -790,7 +803,7 @@ def test_archive_operation_failure_notifies_user(tmp_path: Path, monkeypatch) ->
     assert ignore is None
     assert notifications
     assert str(notifications[0][0][0]).startswith(
-        "archive-operation:truncate_source_failed:"
+        "archive-operation:rewrite_source_failed:"
     )
     assert "Archive operation failed." in str(notifications[0][0][1])
     assert notifications[0][1]["use_rare_mode"] is True
@@ -1086,6 +1099,140 @@ def test_manual_archive_pair_archives_even_when_not_stale(
     assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
     assert now_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "--- 01.05.2026\nmove now\n"
+
+
+def test_archive_text_keeps_dynamic_blocks_in_source(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+    block = format_dynamic_block(
+        arg="graph",
+        params={"source": "past.md", "pattern": "sleep"},
+        body="generated graph",
+        updated_timestamp=1_800_000_000.0,
+    )
+    now_path = tmp_path / "now.md"
+    now_path.write_text(
+        "archive before\n\n" + block + "archive after\n",
+        encoding="utf-8",
+    )
+
+    module = Archive()
+    ctx = _ctx_for(now_path, force_archive=True)
+    system = System(
+        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    )
+
+    ignore = module.modified(ctx, system)
+
+    past_path = tmp_path / "past.md"
+    assert ignore == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == block
+    assert past_path.read_text(encoding="utf-8") == (
+        "--- 01.05.2026\narchive before\n\narchive after\n"
+    )
+
+
+def test_archive_file_keeps_dynamic_blocks_in_source(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+    block = format_dynamic_block(
+        arg="include",
+        params={"source": "todo.md"},
+        body="generated include",
+        updated_timestamp=1_800_000_000.0,
+    )
+    source_path = tmp_path / "note.md"
+    source_path.write_text(
+        "--archive-local file\narchive me\n\n" + block,
+        encoding="utf-8",
+    )
+
+    module = Archive()
+    ctx = _ctx_for(
+        source_path,
+        pair_values=[],
+        manual_route="local",
+        manual_mode="file",
+    )
+    system = System(
+        event=FileModifiedEvent(str(source_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    ignore = module.modified(ctx, system)
+
+    dest_path = tmp_path / ".archive" / "2026-05-01---note.md"
+    assert ignore == {str(source_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert source_path.read_text(encoding="utf-8") == block
+    assert dest_path.read_text(encoding="utf-8") == "archive me\n"
+
+
+def test_archive_skips_source_containing_only_dynamic_blocks(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+    block = format_dynamic_block(
+        arg="graph",
+        params={"pattern": "sleep"},
+        body="generated graph",
+        updated_timestamp=1_800_000_000.0,
+    )
+    source_path = tmp_path / "now.md"
+    source_path.write_text(block, encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(source_path, force_archive=True)
+    system = System(
+        event=FileModifiedEvent(str(source_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert source_path.read_text(encoding="utf-8") == block
+    assert not (tmp_path / "past.md").exists()
+
+
+def test_archive_rejects_malformed_dynamic_block(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 1)
+    notifications: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        archive_notify,
+        "safe_notify",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+    source_text = "archive me\n--- graph begin ---\n- pattern: sleep\n"
+    source_path = tmp_path / "now.md"
+    source_path.write_text(source_text, encoding="utf-8")
+
+    module = Archive()
+    ctx = _ctx_for(source_path, force_archive=True)
+    system = System(
+        event=FileModifiedEvent(str(source_path)),
+        global_template=[],
+        modules=[module],
+    )
+
+    ignore = module.modified(ctx, system)
+
+    assert ignore is None
+    assert source_path.read_text(encoding="utf-8") == source_text
+    assert not (tmp_path / "past.md").exists()
+    assert notifications
+    assert str(notifications[0][0][0]).startswith(
+        "archive-operation:invalid_dynamic_blocks:"
+    )
 
 
 def test_archive_command_prefers_configured_pair(tmp_path: Path, monkeypatch) -> None:

@@ -195,6 +195,35 @@ def parse_dynamic_blocks(text: str) -> list[DynamicBlock]:
     return blocks
 
 
+def partition_dynamic_blocks(text: str) -> tuple[str, str]:
+    blocks = parse_dynamic_blocks(text)
+    if not blocks:
+        return text, ""
+
+    lines = text.splitlines(keepends=True)
+    offsets = _line_offsets(lines)
+    archive_parts: list[str] = []
+    retained_parts: list[str] = []
+    cursor = 0
+
+    for block in blocks:
+        start = offsets[block.line - 1]
+        end = offsets[block.end_line]
+        outside = text[cursor:start]
+        archive_parts.append(outside)
+        if not outside.strip():
+            retained_parts.append(outside)
+        retained_parts.append(text[start:end])
+        cursor = end
+
+    outside = text[cursor:]
+    archive_parts.append(outside)
+    if not outside.strip():
+        retained_parts.append(outside)
+
+    return "".join(archive_parts), "".join(retained_parts)
+
+
 def _fence_ticks(body: str) -> str:
     longest = max(
         (len(match.group(0)) for match in re.finditer(r"`+", body)), default=0

@@ -15,6 +15,7 @@ from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
     format_fenced_body,
     parse_dynamic_blocks,
+    partition_dynamic_blocks,
 )
 from demon_lucy.lib.dynamic_blocks.refresh import refresh_dynamic_blocks
 
@@ -135,6 +136,29 @@ def test_parse_raw_markdown_and_multiple_same_arg_blocks() -> None:
     assert [block.params["pattern"] for block in blocks] == ["sleep", "work"]
     assert blocks[0].body.endswith("| today | 1 |\n")
     assert blocks[1].body == "```text\nwork body\n```\n"
+
+
+def test_partition_dynamic_blocks_separates_plain_text_and_exact_blocks() -> None:
+    first = format_dynamic_block(
+        arg="graph",
+        params={"pattern": "sleep"},
+        body="first graph",
+    )
+    second = format_dynamic_block(
+        arg="include",
+        params={"source": "todo.md"},
+        body="included text",
+    )
+    text = "before\n\n" + first + "between\n\n" + second + "after\n"
+
+    archive_text, retained_text = partition_dynamic_blocks(text)
+
+    assert archive_text == "before\n\nbetween\n\nafter\n"
+    assert retained_text == first + second
+    assert [block.arg for block in parse_dynamic_blocks(retained_text)] == [
+        "graph",
+        "include",
+    ]
 
 
 def test_format_block_uses_longer_fence_than_body_backticks() -> None:

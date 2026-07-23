@@ -6,6 +6,7 @@ from typing import Optional
 
 from demon_lucy.lib.args.parser import Template
 from demon_lucy.lib.date_sections import format_date_section_header
+from demon_lucy.lib.dynamic_blocks.parser import partition_dynamic_blocks
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.lib.runtime_system import RuntimeSystem
 from demon_lucy.modules.abstract_module import (
@@ -26,13 +27,13 @@ class Archive(AbstractModule):
     priority: int = 25
     template: Template = ARCHIVE_TEMPLATE
 
-    def _read_source_body(
+    def _read_source_content(
         self,
         ctx: Context,
         request: ArchiveRequest,
         src_path: str,
         runtime_system: RuntimeSystem,
-    ) -> str | None:
+    ) -> tuple[str, str] | None:
         src_text = storage.read_text_no_follow(
             src_path,
             runtime_system=runtime_system,
@@ -62,8 +63,21 @@ class Archive(AbstractModule):
                 )
             return None
 
-        body = storage.normalize_archive_body(src_text, max_blank_lines=3)
-        return body or None
+        try:
+            archive_text, retained_source = partition_dynamic_blocks(src_text)
+        except ValueError as exc:
+            notify.operation_failed(
+                ctx,
+                reason="invalid_dynamic_blocks",
+                target=src_path,
+                error=exc,
+            )
+            return None
+
+        body = storage.normalize_archive_body(archive_text, max_blank_lines=3)
+        if not body:
+            return None
+        return body, retained_source
 
     def _archive_text(
         self,
@@ -72,6 +86,7 @@ class Archive(AbstractModule):
         *,
         src_path: str,
         body: str,
+        retained_source: str,
         timestamp: float | None,
         base_dir: str,
         allowed_root: str,
@@ -111,13 +126,14 @@ class Archive(AbstractModule):
             )
             return None
 
-        if not storage.truncate_source_file(
+        if not storage.write_text_no_follow(
             src_path,
+            retained_source,
             runtime_system=runtime_system,
         ):
             notify.operation_failed(
                 ctx,
-                reason="truncate_source_failed",
+                reason="rewrite_source_failed",
                 target=src_path,
             )
             return None
@@ -134,6 +150,7 @@ class Archive(AbstractModule):
         *,
         src_path: str,
         body: str,
+        retained_source: str,
         timestamp: float | None,
         base_dir: str,
         allowed_root: str,
@@ -181,13 +198,14 @@ class Archive(AbstractModule):
                 target=dest_path,
             )
             return None
-        if not storage.truncate_source_file(
+        if not storage.write_text_no_follow(
             src_path,
+            retained_source,
             runtime_system=runtime_system,
         ):
             notify.operation_failed(
                 ctx,
-                reason="truncate_source_failed",
+                reason="rewrite_source_failed",
                 target=src_path,
             )
             return None
@@ -216,14 +234,15 @@ class Archive(AbstractModule):
         if not request.force and not clock.is_stale(ctx, src_path, request.idle_hours):
             return None
 
-        body = self._read_source_body(
+        source_content = self._read_source_content(
             ctx,
             request,
             src_path,
             runtime_system,
         )
-        if not body:
+        if source_content is None:
             return None
+        body, retained_source = source_content
 
         timestamp = clock.archive_entry_timestamp(ctx, src_path)
         if request.output_mode is ArchiveOutputMode.TEXT:
@@ -232,6 +251,7 @@ class Archive(AbstractModule):
                 request,
                 src_path=src_path,
                 body=body,
+                retained_source=retained_source,
                 timestamp=timestamp,
                 base_dir=base_dir,
                 allowed_root=allowed_root,
@@ -244,6 +264,7 @@ class Archive(AbstractModule):
                 request,
                 src_path=src_path,
                 body=body,
+                retained_source=retained_source,
                 timestamp=timestamp,
                 base_dir=base_dir,
                 allowed_root=allowed_root,

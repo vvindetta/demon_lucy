@@ -225,35 +225,6 @@ def write_text_archive_entry(
     return True, True
 
 
-def truncate_source_file(
-    src_path: str,
-    *,
-    runtime_system: RuntimeSystem,
-) -> bool:
-    file_descriptor: int | None = None
-    try:
-        file_descriptor = open_file_no_follow(
-            src_path,
-            os.O_WRONLY,
-            runtime_system=runtime_system,
-        )
-        if os.fstat(file_descriptor).st_nlink > 1:
-            os.close(file_descriptor)
-            file_descriptor = None
-            return False
-        os.ftruncate(file_descriptor, 0)
-        os.close(file_descriptor)
-        file_descriptor = None
-        return True
-    except OSError:
-        if file_descriptor is not None:
-            try:
-                os.close(file_descriptor)
-            except OSError:
-                pass
-        return False
-
-
 def safe_archive_stem(src_path: str) -> str:
     stem = os.path.splitext(os.path.basename(src_path))[0].strip()
     cleaned = "".join(
