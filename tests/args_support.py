@@ -8,7 +8,11 @@ from demon_lucy.lib.args.models import (
     Template,
 )
 from demon_lucy.lib.args.parser import parse_args
-from demon_lucy.modules.abstract_module import Context, RunMode
+from demon_lucy.modules.abstract_module import Context, ModuleResult, RunMode
+
+
+def result_changes(result: ModuleResult | None) -> dict[str, int] | None:
+    return result.changed if result is not None else None
 
 
 def make_args(

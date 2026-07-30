@@ -18,6 +18,7 @@ from demon_lucy.lib.dynamic_blocks.parser import format_dynamic_block
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
+    ModuleResult,
     System,
 )
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
@@ -69,7 +70,7 @@ class _ModA(AbstractModule):
         self.calls += 1
         self.last_run_mode = ctx.run_mode
         self.last_runtime_started_at_monotonic = system.runtime_started_at_monotonic
-        return {ctx.path: 1}
+        return ModuleResult(context=ctx, changed={ctx.path: 1})
 
 
 class _ModB(AbstractModule):
@@ -88,7 +89,7 @@ class _ModC(AbstractModule):
 
     def modified(self, ctx: Context, system: System):
         self.calls += 1
-        return {ctx.path: 2}
+        return ModuleResult(context=ctx, changed={ctx.path: 2})
 
 
 class _RequiredMod(AbstractModule):
@@ -107,7 +108,7 @@ class _RequiredMod(AbstractModule):
 
     def modified(self, ctx: Context, system: System):
         self.calls += 1
-        return {ctx.path: 1}
+        return ModuleResult(context=ctx, changed={ctx.path: 1})
 
 
 class _ListMod(AbstractModule):
@@ -153,7 +154,7 @@ class _CliMod(AbstractModule):
     def cli(self, ctx: Context, system: System):
         self.context = ctx
         self.system = system
-        return {ctx.path: 1}
+        return ModuleResult(context=ctx, changed={ctx.path: 1})
 
 
 @pytest.mark.parametrize(

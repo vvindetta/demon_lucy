@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from demon_lucy.lib.args.models import KnownArg
 from demon_lucy.lib.logfmt import log_record
@@ -10,7 +9,7 @@ from demon_lucy.lib.text_file import write_text_atomic
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.alias.rewrite import rewrite_lines
@@ -85,7 +84,7 @@ class Alias(AbstractModule):
             use_rare_mode=True,
         )
 
-    def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def _apply(self, *, ctx: Context, system: System) -> ModuleResult | None:
         if not ctx.args.require("alias").value:
             return None
 
@@ -176,13 +175,13 @@ class Alias(AbstractModule):
                 aliases=alias_count,
             )
         )
-        return {ctx.path: 1}
+        return ModuleResult(context=ctx, changed={ctx.path: 1})
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx=ctx, system=system)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx=ctx, system=system)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx=ctx, system=system)

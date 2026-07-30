@@ -11,6 +11,7 @@ from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.workspace import Workspace
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from tests.args_support import result_changes
 
 _WORKSPACE_TEMPLATE: Template = [
     *DEMON_LUCY_STARTUP_TEMPLATE,
@@ -212,7 +213,7 @@ def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> Non
     assert (workspace_root / ".archive" / "past.md").read_text(
         encoding="utf-8"
     ) == "keep past\n"
-    assert changed == {
+    assert result_changes(changed) == {
         str((workspace_root / ".status" / "-- ---- --").resolve()): 1,
         str((workspace_root / ".status" / "Sync").resolve()): 1,
     }

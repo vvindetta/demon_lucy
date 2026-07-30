@@ -9,7 +9,7 @@ from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 
@@ -88,7 +88,7 @@ class Archive(AbstractModule):
         base_dir: str,
         allowed_root: str,
         operating_system: OperatingSystem,
-    ) -> IgnoreMap | None:
+    ) -> dict[str, int] | None:
         dest_path = paths.resolve_text_dest_path(
             ctx,
             request,
@@ -135,7 +135,7 @@ class Archive(AbstractModule):
             )
             return None
 
-        changed: IgnoreMap = {src_path: 1}
+        changed: dict[str, int] = {src_path: 1}
         if appended:
             changed[dest_path] = 1
         return changed
@@ -152,7 +152,7 @@ class Archive(AbstractModule):
         base_dir: str,
         allowed_root: str,
         operating_system: OperatingSystem,
-    ) -> IgnoreMap | None:
+    ) -> dict[str, int] | None:
         dest_dir = paths.resolve_dest_dir(
             ctx,
             request,
@@ -213,7 +213,7 @@ class Archive(AbstractModule):
         ctx: Context,
         request: ArchiveRequest,
         operating_system: OperatingSystem,
-    ) -> IgnoreMap | None:
+    ) -> dict[str, int] | None:
         base_dir = paths.event_base_dir(ctx)
         allowed_root = paths.archive_allowed_root(ctx)
         if allowed_root is None:
@@ -273,10 +273,10 @@ class Archive(AbstractModule):
         )
 
     @staticmethod
-    def _merge_ignore_maps(
-        items: list[IgnoreMap | None],
-    ) -> IgnoreMap | None:
-        merged: IgnoreMap = {}
+    def _merge_changes(
+        items: list[dict[str, int] | None],
+    ) -> dict[str, int] | None:
+        merged: dict[str, int] = {}
         for item in items:
             if not item:
                 continue
@@ -288,22 +288,26 @@ class Archive(AbstractModule):
         self,
         ctx: Context,
         operating_system: OperatingSystem,
-    ) -> IgnoreMap | None:
-        return self._merge_ignore_maps(
+    ) -> dict[str, int] | None:
+        return self._merge_changes(
             [
                 self._archive_request(ctx, request, operating_system)
                 for request in requests.requests_for_context(ctx)
             ]
         )
 
-    def opened(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._archive_requests_if_needed(ctx, system.operating_system)
+    def opened(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._archive_requests_if_needed(ctx, system.operating_system)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._archive_requests_if_needed(ctx, system.operating_system)
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._archive_requests_if_needed(ctx, system.operating_system)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._archive_requests_if_needed(ctx, system.operating_system)
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._archive_requests_if_needed(ctx, system.operating_system)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._archive_requests_if_needed(ctx, system.operating_system)
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._archive_requests_if_needed(ctx, system.operating_system)
+        return ModuleResult(context=ctx, changed=changed) if changed else None

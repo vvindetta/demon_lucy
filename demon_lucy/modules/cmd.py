@@ -4,14 +4,14 @@ import os
 import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.models import KnownArg
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 
@@ -191,7 +191,7 @@ class Cmd(AbstractModule):
         raise ValueError(f"unsupported command stream: {stream}")
 
     # Apply (replace lines)
-    def _apply(self, ctx: Context) -> Optional[IgnoreMap]:
+    def _apply(self, ctx: Context) -> ModuleResult | None:
         runs = self._collect_runs(ctx)
         if not runs:
             return None
@@ -242,14 +242,14 @@ class Cmd(AbstractModule):
         with open(ctx.path, "w", encoding="utf-8") as f:
             f.writelines(lines)
 
-        return {ctx.path: 1}
+        return ModuleResult(context=ctx, changed={ctx.path: 1})
 
     # Events
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)

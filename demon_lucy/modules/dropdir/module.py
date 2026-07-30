@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from dataclasses import replace
 
 from demon_lucy.lib.args.models import KnownArg, Template
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.dropdir.actions import (
@@ -16,7 +16,7 @@ from demon_lucy.modules.dropdir.actions import (
     action_delay_seconds,
     action_rules,
     matches_selector,
-    merge_ignore_maps,
+    merge_changes,
     move_back_to_source,
     run_action_modules,
 )
@@ -44,7 +44,7 @@ class DropDir(AbstractModule):
     priority: int = 24
     template = DROPDIR_TEMPLATE
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         actions = action_rules(ctx)
         if not actions:
             return None
@@ -67,23 +67,30 @@ class DropDir(AbstractModule):
         if delay_seconds > 0:
             time.sleep(delay_seconds)
 
-        action_changed: Optional[IgnoreMap] = None
+        current_path = action_path
+        changed = move_back_changed
         for action in matched_actions:
             next_ctx = action_context(
-                path=action_path,
+                path=current_path,
                 base_ctx=ctx,
                 action=action,
                 system=system,
             )
             if next_ctx is None:
                 continue
-            action_changed = merge_ignore_maps(
-                action_changed,
-                run_action_modules(
-                    source_module=self,
-                    ctx=next_ctx,
-                    system=system,
-                ),
+            action_result = run_action_modules(
+                source_module=self,
+                ctx=next_ctx,
+                system=system,
             )
+            if action_result is None:
+                continue
+            changed = merge_changes(changed, action_result.changed)
+            current_path = action_result.context.path
 
-        return merge_ignore_maps(move_back_changed, action_changed)
+        if not changed and current_path == ctx.path:
+            return None
+        return ModuleResult(
+            context=replace(ctx, path=current_path),
+            changed=changed,
+        )

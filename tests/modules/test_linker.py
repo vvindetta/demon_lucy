@@ -15,6 +15,7 @@ from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.linker import Linker
 from demon_lucy.modules.linker.markdown import rewrite_inline_links_for_moved_target
+from tests.args_support import result_changes
 
 
 def _setup_repo(tmp_path: Path) -> Path:
@@ -123,7 +124,7 @@ def _apply(
         ),
         _system(module, operating_system),
     )
-    return result
+    return result_changes(result)
 
 
 def test_apply_creates_link_in_repo_root(tmp_path: Path):
@@ -508,7 +509,7 @@ def test_moved_updates_markdown_link_paths_only(tmp_path: Path):
 
     changed = module.moved(ctx, system)
 
-    assert changed == {str(index_path.resolve()): 1}
+    assert result_changes(changed) == {str(index_path.resolve()): 1}
     assert (
         index_path.read_text(encoding="utf-8") == "[good day](log/day.md)\n"
         '[with title](./log/day.md#top "T")\n'
@@ -564,7 +565,7 @@ def test_modified_markdown_link_move_renames_target_file_and_creates_dir(
     changed = module.modified(ctx, system)
 
     moved_target = notes_dir / "log" / "day.md"
-    assert changed == {
+    assert result_changes(changed) == {
         str(target.resolve()): 1,
         str(moved_target.resolve()): 1,
         str(related_path.resolve()): 1,
@@ -712,7 +713,7 @@ def test_moved_updates_link_in_middle_of_line(tmp_path: Path):
 
     changed = module.moved(ctx, system)
 
-    assert changed == {str(index_path.resolve()): 1}
+    assert result_changes(changed) == {str(index_path.resolve()): 1}
     assert (
         index_path.read_text(encoding="utf-8")
         == "prefix text [good day](log/day.md) suffix text\n"

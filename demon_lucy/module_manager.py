@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from dataclasses import replace
 from typing import Dict, List
 
 from watchdog.events import FileSystemEvent
@@ -29,7 +30,7 @@ from demon_lucy.lib.dynamic_blocks.refresh import refresh_dynamic_blocks
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     RunMode,
     System,
 )
@@ -92,7 +93,10 @@ class ModuleManager:
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))
 
     @staticmethod
-    def _merge_ignore_map(target: IgnoreMap, item: IgnoreMap | None) -> None:
+    def _merge_changes(
+        target: dict[str, int],
+        item: dict[str, int],
+    ) -> None:
         if not item:
             return
         for changed_path, times in item.items():
@@ -218,27 +222,6 @@ class ModuleManager:
             if item.required and not parsed_args.require(item.name).value
         ]
 
-    def _next_context_path(
-        self,
-        current_path: str,
-        event_ignore: Dict[str, int] | None,
-    ) -> str:
-        if not event_ignore or os.path.exists(current_path):
-            return current_path
-
-        current_abs = canonical_path(current_path)
-        candidates: list[str] = []
-        for path_value in event_ignore:
-            candidate_path = canonical_path(path_value)
-            if candidate_path == current_abs:
-                continue
-            if not os.path.exists(candidate_path) or os.path.isdir(candidate_path):
-                continue
-            candidates.append(candidate_path)
-        if len(candidates) != 1:
-            return current_path
-        return candidates[0]
-
     def run(
         self,
         path: str,
@@ -263,7 +246,13 @@ class ModuleManager:
             )
             return None
 
-        current_path = canonical_path(path)
+        current_context = Context(
+            path=canonical_path(path),
+            args=self.args,
+            run_mode=self.run_mode,
+            event_id=event_id,
+            event=event,
+        )
 
         def _update_args(config_path: str) -> ParsedArgs:
             file_args = parse_note_args(
@@ -272,7 +261,10 @@ class ModuleManager:
             )
             return self.args.merged_with(file_args)
 
-        parsed_args = _update_args(current_path)
+        current_context = replace(
+            current_context,
+            args=_update_args(current_context.path),
+        )
 
         ignore_paths: Dict[str, int] = {}
 
@@ -283,7 +275,7 @@ class ModuleManager:
 
             missing_required = self._module_missing_required_flags(
                 module,
-                parsed_args,
+                current_context.args,
             )
             if missing_required:
                 missing_text = ", ".join(f"--{name}" for name in missing_required)
@@ -296,13 +288,13 @@ class ModuleManager:
                         reason="missing_required_args",
                         missing=missing_text,
                         event=event_type,
-                        path=current_path,
+                        path=current_context.path,
                     )
                 )
                 safe_notify(
                     f"module_missing_required:{module.name}",
                     message,
-                    args=parsed_args,
+                    args=current_context.args,
                     use_rare_mode=True,
                 )
                 continue
@@ -313,20 +305,14 @@ class ModuleManager:
                     id=event_id,
                     module=module.name,
                     event=event_type,
-                    path=current_path,
+                    path=current_context.path,
                 )
             )
             started_at = time.monotonic()
             try:
-                event_ignore = action(
+                module_result: ModuleResult | None = action(
                     module,
-                    Context(
-                        path=current_path,
-                        args=parsed_args,
-                        run_mode=self.run_mode,
-                        event_id=event_id,
-                        event=event,
-                    ),
+                    current_context,
                     System(
                         global_template=self.template,
                         modules=self.modules,
@@ -341,45 +327,52 @@ class ModuleManager:
                         id=event_id,
                         module=module.name,
                         event=event_type,
-                        path=current_path,
+                        path=current_context.path,
                         duration_ms=(time.monotonic() - started_at) * 1000.0,
                     )
                 )
                 raise
 
-            changed_paths_count, changed_events_count = ignore_summary(event_ignore)
+            changed = module_result.changed if module_result is not None else {}
+            changed_paths_count, changed_events_count = ignore_summary(changed)
             logger.info(
                 log_record(
                     "module.done",
                     id=event_id,
                     module=module.name,
                     event=event_type,
-                    path=current_path,
+                    path=current_context.path,
                     changed_paths=changed_paths_count,
                     changed_events=changed_events_count,
                     duration_ms=(time.monotonic() - started_at) * 1000.0,
                 )
             )
 
-            if event_ignore:
-                self._merge_ignore_map(ignore_paths, event_ignore)
-                current_path = self._next_context_path(current_path, event_ignore)
-                parsed_args = _update_args(current_path)
+            if module_result is not None:
+                self._merge_changes(ignore_paths, module_result.changed)
+                result_context = module_result.context
+                current_context = replace(
+                    result_context,
+                    path=canonical_path(result_context.path),
+                    args=_update_args(result_context.path),
+                )
 
         if self._refresh_dynamic_blocks(
-            path=current_path,
+            path=current_context.path,
             event_id=event_id,
             event_type=event_type,
-            args=parsed_args,
+            args=current_context.args,
         ):
-            ignore_paths[current_path] = ignore_paths.get(current_path, 0) + 1
+            ignore_paths[current_context.path] = (
+                ignore_paths.get(current_context.path, 0) + 1
+            )
 
         return ignore_paths or None
 
     def run_cli(
         self,
         event_id: str | None = None,
-    ) -> tuple[IgnoreMap | None, int]:
+    ) -> tuple[dict[str, int] | None, int]:
         unknown_args = self.args.unknown_from(ArgSource.CLI)
         if unknown_args:
             raise ValueError(
@@ -389,7 +382,13 @@ class ModuleManager:
 
         event_id = event_id or next_event_id()
         cwd = canonical_path(os.getcwd())
-        ignore_paths: IgnoreMap = {}
+        current_context = Context(
+            path=cwd,
+            args=self.args,
+            run_mode="cli",
+            event_id=event_id,
+        )
+        ignore_paths: dict[str, int] = {}
         modules_run = 0
 
         for module in self.modules:
@@ -399,7 +398,7 @@ class ModuleManager:
             cli_args = [
                 argument
                 for item in module.template
-                if (argument := self.args.find(item.name)) is not None
+                if (argument := current_context.args.find(item.name)) is not None
                 and argument.source is ArgSource.CLI
             ]
             if not cli_args:
@@ -407,7 +406,7 @@ class ModuleManager:
 
             missing_required = self._module_missing_required_flags(
                 module,
-                self.args,
+                current_context.args,
             )
             if missing_required:
                 missing_text = ", ".join(f"--{name}" for name in missing_required)
@@ -419,14 +418,14 @@ class ModuleManager:
                         mode="cli",
                         reason="missing_required_args",
                         missing=missing_text,
-                        path=cwd,
+                        path=current_context.path,
                     )
                 )
                 safe_notify(
                     f"module_missing_required:{module.name}",
                     f"Skipping module '{module.name}': "
                     f"missing required args: {missing_text}",
-                    args=self.args,
+                    args=current_context.args,
                     use_rare_mode=True,
                 )
                 continue
@@ -438,19 +437,14 @@ class ModuleManager:
                     module=module.name,
                     mode="cli",
                     args=[argument.name for argument in cli_args],
-                    path=cwd,
+                    path=current_context.path,
                 )
             )
             started_at = time.monotonic()
             modules_run += 1
             try:
-                module_ignore = module.cli(
-                    Context(
-                        path=cwd,
-                        args=self.args,
-                        run_mode="cli",
-                        event_id=event_id,
-                    ),
+                module_result = module.cli(
+                    current_context,
                     System(
                         global_template=self.template,
                         modules=self.modules,
@@ -465,26 +459,32 @@ class ModuleManager:
                         id=event_id,
                         module=module.name,
                         mode="cli",
-                        path=cwd,
+                        path=current_context.path,
                         duration_ms=(time.monotonic() - started_at) * 1000.0,
                     )
                 )
                 raise
 
-            changed_paths_count, changed_events_count = ignore_summary(module_ignore)
+            changed = module_result.changed if module_result is not None else {}
+            changed_paths_count, changed_events_count = ignore_summary(changed)
             logger.info(
                 log_record(
                     "module.done",
                     id=event_id,
                     module=module.name,
                     mode="cli",
-                    path=cwd,
+                    path=current_context.path,
                     changed_paths=changed_paths_count,
                     changed_events=changed_events_count,
                     duration_ms=(time.monotonic() - started_at) * 1000.0,
                 )
             )
-            self._merge_ignore_map(ignore_paths, module_ignore)
+            if module_result is not None:
+                self._merge_changes(ignore_paths, module_result.changed)
+                current_context = replace(
+                    module_result.context,
+                    path=canonical_path(module_result.context.path),
+                )
 
         return ignore_paths or None, modules_run
 

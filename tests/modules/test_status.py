@@ -15,6 +15,7 @@ from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.status import Status
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from tests.args_support import result_changes
 
 
 def _inv(text: str) -> str:
@@ -116,7 +117,9 @@ def test_status_date_only(tmp_path: Path, monkeypatch) -> None:
     changed = module.modified(ctx, system)
 
     new_path = tmp_path / "17-05"
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert changed is not None
+    assert changed.context.path == str(new_path)
     assert new_path.exists()
     assert not path.exists()
 
@@ -134,7 +137,7 @@ def test_status_date_time_order(tmp_path: Path, monkeypatch) -> None:
     changed = module.modified(ctx, system)
 
     new_path = tmp_path / _inv("17-05 08:09")
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
 
@@ -152,7 +155,7 @@ def test_status_time_date_order(tmp_path: Path, monkeypatch) -> None:
     changed = module.modified(ctx, system)
 
     new_path = tmp_path / _inv("08:09 17-05")
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
 
@@ -170,7 +173,7 @@ def test_status_time_with_seconds_order(tmp_path: Path, monkeypatch) -> None:
     changed = module.modified(ctx, system)
 
     new_path = tmp_path / _inv("17-05 08:09:00")
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
 
@@ -199,7 +202,7 @@ def test_status_banner_renames_and_rotates_with_speed(
         system,
     )
     first_path = tmp_path / _inv(".Work sentence")
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     module._tick_once()
@@ -233,7 +236,7 @@ def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) 
     changed = module.modified(ctx, system)
 
     new_path = tmp_path / _inv(".17-05 08:09 Focus now")
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
 
@@ -254,7 +257,7 @@ def test_status_banner_preserves_multi_spaces(tmp_path: Path) -> None:
         system,
     )
     new_path = tmp_path / f".{banner_text}"
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
 
@@ -302,7 +305,7 @@ def test_status_git_uses_upstream_timestamp_and_refreshes_after_sync(
     first_changed = module.modified(_ctx_for(path, status_values=["git"]), system)
     first_path = tmp_path / _inv("1800000000")
 
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     second_changed = module.modified(
@@ -313,7 +316,7 @@ def test_status_git_uses_upstream_timestamp_and_refreshes_after_sync(
 
     third_changed = module.modified(_ctx_for(first_path, status_values=["git"]), system)
     third_path = tmp_path / _inv("1800001000")
-    assert third_changed == {str(first_path.resolve()): 1, str(third_path.resolve()): 1}
+    assert result_changes(third_changed) == {str(first_path.resolve()): 1, str(third_path.resolve()): 1}
     assert third_path.exists()
     assert not first_path.exists()
 
@@ -352,7 +355,7 @@ def test_status_git_update_uses_compact_units_and_ticks(
     first_path = tmp_path / _inv("Sync 3h")
     second_path = tmp_path / _inv("Sync 4h")
 
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     now_state["value"] = 203600.0
@@ -394,7 +397,7 @@ def test_status_git_update_sync_prefix_animates_each_half_second(
         _ctx_for(path, status_values=["git", "update"]), system
     )
     first_path = tmp_path / _inv("Sync 3h")
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     now_state["value"] = 200000.6
@@ -448,7 +451,7 @@ def test_status_git_update_sync_prefix_waits_one_second_between_cycles(
         _ctx_for(path, status_values=["git", "update"]), system
     )
     first_path = tmp_path / _inv("Sync 3h")
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     now_state["value"] = 200000.6
@@ -524,7 +527,7 @@ def test_status_git_update_sync_prefix_cycle_pause_from_config(
         system,
     )
     first_path = tmp_path / _inv("Sync 3h")
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     now_state["value"] = 200000.6
@@ -594,7 +597,7 @@ def test_status_git_update_zero_minutes_disables_prefix_animation(
         _ctx_for(path, status_values=["git", "update"]), system
     )
     first_path = tmp_path / _inv("Sync 0m")
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     now_state["value"] = 200000.6
@@ -641,7 +644,7 @@ def test_status_git_update_active_git_sync_lock_enables_fast_animation(
         _ctx_for(path, status_values=["git", "update"]), system
     )
     first_path = tmp_path / _inv("Sync 3h")
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     now_state["value"] = 200121.0
@@ -691,7 +694,7 @@ def test_status_git_update_animates_custom_prefix_phrase(
         system,
     )
     first_path = tmp_path / _inv("Fresh sync 3h")
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     now_state["value"] = 200000.6
@@ -740,7 +743,7 @@ def test_status_git_update_prefers_upstream_timestamp(
     changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
 
     new_path = tmp_path / _inv("Sync 5h")
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
 
 
@@ -783,7 +786,7 @@ def test_status_git_update_falls_back_to_head_when_upstream_missing(
     changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
 
     new_path = tmp_path / _inv("Sync 2h")
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
 
 
@@ -815,7 +818,7 @@ def test_status_git_update_uses_recent_sync_success_marker(
     changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
 
     new_path = repo_root / _inv("Sync 7m")
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
 
 
@@ -846,7 +849,7 @@ def test_status_git_prefers_sync_success_marker_timestamp(
     changed = module.modified(_ctx_for(path, status_values=["git"]), system)
 
     new_path = repo_root / _inv(str(int(marker_timestamp)))
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
 
 
@@ -913,7 +916,7 @@ def test_status_prefix_prepends_status_output(tmp_path: Path, monkeypatch) -> No
     changed = module.modified(ctx, system)
     new_path = tmp_path / _inv("Work: 17-05 08:09")
 
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
 
@@ -945,7 +948,7 @@ def test_status_animation_advance_per_pass_with_speed_and_prefix(
         system,
     )
     first_path = tmp_path / _inv(">>> pri")
-    assert changed_first == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(changed_first) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     changed_second = module.modified(
@@ -971,7 +974,7 @@ def test_status_animation_advance_per_pass_with_speed_and_prefix(
         system,
     )
     second_path = tmp_path / _inv(">>> prive")
-    assert changed_third == {
+    assert result_changes(changed_third) == {
         str(first_path.resolve()): 1,
         str(second_path.resolve()): 1,
     }
@@ -988,7 +991,7 @@ def test_status_animation_advance_per_pass_with_speed_and_prefix(
         system,
     )
     third_path = tmp_path / _inv(">>> privet")
-    assert changed_fourth == {
+    assert result_changes(changed_fourth) == {
         str(second_path.resolve()): 1,
         str(third_path.resolve()): 1,
     }
@@ -1029,7 +1032,7 @@ def test_status_opened_events_flag_enables_opened_handler(
     changed = module.opened(ctx, system)
 
     new_path = tmp_path / _inv("08:09")
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
 
@@ -1066,7 +1069,7 @@ def test_status_git_update_opened_ignores_opened_events_flag(
     changed = module.opened(ctx, system)
 
     new_path = tmp_path / _inv("Sync 3h")
-    assert changed == {str(path.resolve()): 1, str(new_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(new_path.resolve()): 1}
     assert new_path.exists()
     assert not path.exists()
 
@@ -1116,7 +1119,7 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
         system,
     )
     first_path = tmp_path / _inv(".Work")
-    assert first_changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(first_changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     module._tick_once()
@@ -1155,7 +1158,7 @@ def test_status_banner_fully_disappears_before_restart(
         system,
     )
     first_path = tmp_path / _inv(".17-05 Work")
-    assert changed == {str(path.resolve()): 1, str(first_path.resolve()): 1}
+    assert result_changes(changed) == {str(path.resolve()): 1, str(first_path.resolve()): 1}
     assert first_path.exists()
 
     module._tick_once()  # init slot
@@ -1244,7 +1247,7 @@ def test_status_bootstrap_scans_dot_status_dir_after_restart_like_event(
     changed = module.modified(_ctx_for(trigger_file), system)
 
     revived_path = status_dir / "08:09"
-    assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
+    assert result_changes(changed) == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
     assert revived_path.exists()
     assert not status_file.exists()
 
@@ -1305,7 +1308,7 @@ def test_status_bootstrap_applies_ascii_animation_from_status_file(
     changed = module.modified(_ctx_for(trigger_file), system)
 
     revived_path = status_dir / ">>> pri"
-    assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
+    assert result_changes(changed) == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
     assert revived_path.exists()
     assert not status_file.exists()
 
@@ -1331,7 +1334,7 @@ def test_status_bootstrap_handles_numeric_hyphen_file_name(
     changed = module.modified(_ctx_for(trigger_file), system)
 
     revived_path = status_dir / "17-05"
-    assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
+    assert result_changes(changed) == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
     assert revived_path.exists()
     assert not status_file.exists()
 
@@ -1361,7 +1364,7 @@ def test_status_sanitizes_unnameable_filename_tokens(
     changed = module.modified(_ctx_for(trigger_file), system)
 
     revived_path = status_dir / "A_B pri_ve"
-    assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
+    assert result_changes(changed) == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
     assert revived_path.exists()
     assert not status_file.exists()
 
@@ -1473,7 +1476,7 @@ def test_status_uses_fallback_name_when_target_exists(
     changed = module.modified(_ctx_for(trigger_file), system)
 
     revived_path = status_dir / "17-05 (2)"
-    assert changed == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
+    assert result_changes(changed) == {str(status_file.resolve()): 1, str(revived_path.resolve()): 1}
     assert revived_path.exists()
     assert not status_file.exists()
 
@@ -1504,7 +1507,7 @@ def test_status_animation_advances_once_returns_to_first_and_restarts_on_new_eve
 
     first_changed = module.modified(_ctx_for(trigger_file), system)
     first_path = status_dir / ">>> pri"
-    assert first_changed == {
+    assert result_changes(first_changed) == {
         str(status_file.resolve()): 1,
         str(first_path.resolve()): 1,
     }
@@ -1569,7 +1572,7 @@ def test_status_bootstrap_parses_ascii_frame_that_starts_with_double_dash(
 
     first_changed = module.modified(_ctx_for(trigger_file), system)
     first_path = status_dir / "-- --- --"
-    assert first_changed == {
+    assert result_changes(first_changed) == {
         str(status_file.resolve()): 1,
         str(first_path.resolve()): 1,
     }

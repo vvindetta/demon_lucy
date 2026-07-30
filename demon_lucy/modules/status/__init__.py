@@ -5,7 +5,7 @@ import os
 import subprocess
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Optional
 
@@ -21,7 +21,7 @@ from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.status.files import StatusFileMixin
@@ -677,12 +677,12 @@ class Status(
         self,
         watch_paths: list[str],
         operating_system: OperatingSystem,
-    ) -> Optional[IgnoreMap]:
+    ) -> dict[str, int] | None:
         root_status_directories = self._discover_root_status_directories(watch_paths)
         if not root_status_directories:
             return None
 
-        merged: Optional[IgnoreMap] = None
+        merged: dict[str, int] | None = None
         for status_dir in root_status_directories:
             for root, _dirs, files in os.walk(status_dir):
                 for file_name in files:
@@ -721,7 +721,7 @@ class Status(
                         banner_offset = (
                             target.banner_offset if target is not None else 0
                         )
-                    changed = self._apply(
+                    apply_result = self._apply(
                         path=file_path,
                         parts=parts,
                         banner_text=banner_text,
@@ -733,14 +733,15 @@ class Status(
                         advance_ascii_frame=True,
                         operating_system=operating_system,
                     )
-                    merged = self._merge_ignore_maps(merged, changed)
+                    changed = apply_result[1] if apply_result is not None else None
+                    merged = self._merge_changes(merged, changed)
         return merged
 
     def _bootstrap_once(
         self,
         watch_paths: list[str],
         operating_system: OperatingSystem,
-    ) -> Optional[IgnoreMap]:
+    ) -> dict[str, int] | None:
         if self._bootstrap_done:
             return None
         with self._bootstrap_lock:
@@ -768,7 +769,7 @@ class Status(
         ascii_animation_frames: list[str] | None = None,
         ascii_animation_speed_ms: int | None = None,
         advance_ascii_frame: bool = False,
-    ) -> Optional[IgnoreMap]:
+    ) -> tuple[str, dict[str, int]] | None:
         with self._rename_lock:
             if banner_max_chars is None:
                 banner_max_chars = self._default_banner_max_chars
@@ -870,9 +871,9 @@ class Status(
                 return None
 
             self._move_tracked_path(old_path=old_path, new_path=new_path)
-            return {old_path: 1, new_path: 1}
+            return new_path, {old_path: 1, new_path: 1}
 
-    def _handle_event(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def _handle_event(self, ctx: Context, system: System) -> ModuleResult | None:
         self._update_git_repo_lock_settings(ctx.args, system.operating_system)
         self._tick_interval_seconds = max(
             0.1,
@@ -925,7 +926,7 @@ class Status(
         with self._track_lock:
             target = self._targets.get(os.path.abspath(ctx.path))
             banner_offset = target.banner_offset if target is not None else 0
-        current_changed = self._apply(
+        current_result = self._apply(
             path=ctx.path,
             parts=parts,
             banner_text=banner_text,
@@ -937,18 +938,29 @@ class Status(
             advance_ascii_frame=True,
             operating_system=system.operating_system,
         )
-        return self._merge_ignore_maps(bootstrap_changed, current_changed)
+        if current_result is None:
+            current_path = ctx.path
+            current_changed = None
+        else:
+            current_path, current_changed = current_result
+        changed = self._merge_changes(bootstrap_changed, current_changed)
+        if not changed:
+            return None
+        return ModuleResult(
+            context=replace(ctx, path=current_path),
+            changed=changed,
+        )
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle_event(ctx, system)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle_event(ctx, system)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle_event(ctx, system)
 
-    def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def opened(self, ctx: Context, system: System) -> ModuleResult | None:
         parts = self._parse_status_parts(ctx.args.require("status").value)
         if (
             not ctx.args.require("status-opened-events").value

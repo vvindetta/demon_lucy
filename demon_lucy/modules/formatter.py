@@ -17,7 +17,7 @@ from demon_lucy.lib.dynamic_blocks.parser import parse_dynamic_blocks
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 
@@ -310,7 +310,7 @@ class Formatter(AbstractModule):
         path: str,
         args: ParsedArgs,
         global_template: Template,
-    ) -> IgnoreMap | None:
+    ) -> dict[str, int] | None:
         use_formatter_todo = args.require("formatter-todo").value
         use_formatter_date = args.require("formatter-date").value
         use_formatter_autocomplete = args.require("formatter-autocomplete").value
@@ -457,23 +457,26 @@ class Formatter(AbstractModule):
 
         return {os.path.abspath(path): 1}
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(
             path=ctx.path,
             args=ctx.args,
             global_template=system.global_template,
         )
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(
             path=ctx.path,
             args=ctx.args,
             global_template=system.global_template,
         )
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(
             path=ctx.path,
             args=ctx.args,
             global_template=system.global_template,
         )
+        return ModuleResult(context=ctx, changed=changed) if changed else None

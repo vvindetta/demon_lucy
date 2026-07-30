@@ -1,4 +1,5 @@
 import os
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Optional
@@ -7,7 +8,7 @@ from demon_lucy.lib.args.models import KnownArg, Template
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 
@@ -100,7 +101,7 @@ class Renamer(AbstractModule):
         *,
         path: str,
         new_name: str | None,
-    ) -> Optional[IgnoreMap]:
+    ) -> tuple[str, dict[str, int]] | None:
         if not new_name:
             return None
         new_name = new_name.strip()
@@ -121,7 +122,7 @@ class Renamer(AbstractModule):
 
         try:
             os.rename(old_path, new_path)
-            return {old_path: 1, new_path: 1}
+            return new_path, {old_path: 1, new_path: 1}
         except (FileNotFoundError, OSError):
             return None
 
@@ -131,7 +132,7 @@ class Renamer(AbstractModule):
         path: str,
         enabled: bool,
         extension: str,
-    ) -> Optional[IgnoreMap]:
+    ) -> tuple[str, dict[str, int]] | None:
         if not enabled:
             return None
 
@@ -163,34 +164,54 @@ class Renamer(AbstractModule):
 
             try:
                 os.rename(old_path, new_path)
-                return {old_path: 1, new_path: 1}
+                return new_path, {old_path: 1, new_path: 1}
             except FileNotFoundError:
                 return None
             except OSError:
                 continue
         return None
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        changed = self._apply_manual(
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
+        renamed = self._apply_manual(
             path=ctx.path,
             new_name=ctx.args.require("rename").value,
         )
-        if changed:
-            return changed
-        return self._apply_auto_on_create(
-            path=ctx.path,
-            enabled=ctx.args.require("rename-auto").value,
-            extension=ctx.args.require("rename-auto-format").value,
+        if renamed is None:
+            renamed = self._apply_auto_on_create(
+                path=ctx.path,
+                enabled=ctx.args.require("rename-auto").value,
+                extension=ctx.args.require("rename-auto-format").value,
+            )
+        if renamed is None:
+            return None
+        new_path, changed = renamed
+        return ModuleResult(
+            context=replace(ctx, path=new_path),
+            changed=changed,
         )
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply_manual(
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
+        renamed = self._apply_manual(
             path=ctx.path,
             new_name=ctx.args.require("rename").value,
         )
+        if renamed is None:
+            return None
+        new_path, changed = renamed
+        return ModuleResult(
+            context=replace(ctx, path=new_path),
+            changed=changed,
+        )
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply_manual(
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
+        renamed = self._apply_manual(
             path=ctx.path,
             new_name=ctx.args.require("rename").value,
+        )
+        if renamed is None:
+            return None
+        new_path, changed = renamed
+        return ModuleResult(
+            context=replace(ctx, path=new_path),
+            changed=changed,
         )

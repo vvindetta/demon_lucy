@@ -10,7 +10,7 @@ from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.voice.providers import (
@@ -79,7 +79,7 @@ class Voice(AbstractModule):
             use_rare_mode=True,
         )
 
-    def _apply(self, ctx: Context) -> IgnoreMap | None:
+    def _apply(self, ctx: Context) -> ModuleResult | None:
         event = ctx.event
         if getattr(event, "is_directory", False):
             return None
@@ -157,10 +157,10 @@ class Voice(AbstractModule):
         with open(path, "w", encoding="utf-8") as handle:
             handle.writelines(lines)
 
-        return {path: 1}
+        return ModuleResult(context=ctx, changed={path: 1})
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)

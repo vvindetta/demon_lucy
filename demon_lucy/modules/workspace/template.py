@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 
 from demon_lucy.lib.path import canonical_path
-from demon_lucy.modules.abstract_module import IgnoreMap
 
 DEFAULT_TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "default_workspace")
 
@@ -54,9 +53,9 @@ class WorkspaceTemplate:
         values: dict[str, str],
         *,
         skip: set[str] | None = None,
-    ) -> IgnoreMap:
+    ) -> dict[str, int]:
         skipped = skip or set()
-        changed: IgnoreMap = {}
+        changed: dict[str, int] = {}
         for root, _dirs, files in os.walk(self.template_dir):
             for filename in files:
                 source_path = os.path.join(root, filename)

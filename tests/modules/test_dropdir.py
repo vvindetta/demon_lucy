@@ -15,6 +15,7 @@ from demon_lucy.modules.archive import Archive
 from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.formatter import Formatter
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from tests.args_support import result_changes
 
 
 def _freeze_archive_day(monkeypatch, year: int, month: int, day: int) -> None:
@@ -107,11 +108,13 @@ def test_dropdir_forces_archive_when_now_moved_into_cleanup(
     )
 
     past_path = src_path.parent / "past.md"
-    assert changed == {
+    assert result_changes(changed) == {
         str(now_path.resolve()): 1,
         str(src_path.resolve()): 2,
         str(past_path.resolve()): 1,
     }
+    assert changed is not None
+    assert changed.context.path == str(src_path.resolve())
     assert not now_path.exists()
     assert src_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "--- 03.05.2026\nclean this now\n"
@@ -138,7 +141,7 @@ def test_dropdir_ignores_non_archive_filename(tmp_path: Path, monkeypatch) -> No
         system,
     )
 
-    assert changed == {str(file_path.resolve()): 1, str(src_path.resolve()): 1}
+    assert result_changes(changed) == {str(file_path.resolve()): 1, str(src_path.resolve()): 1}
     assert not file_path.exists()
     assert src_path.read_text(encoding="utf-8") == "keep\n"
     assert not (src_path.parent / "past.md").exists()
@@ -195,7 +198,7 @@ def test_dropdir_runs_arbitrary_configured_action(tmp_path: Path) -> None:
 
     changed = dropdir.moved(ctx, system)
 
-    assert changed == {str(dropped_path.resolve()): 1, str(src_path.resolve()): 2}
+    assert result_changes(changed) == {str(dropped_path.resolve()): 1, str(src_path.resolve()): 2}
     assert not dropped_path.exists()
     assert src_path.read_text(encoding="utf-8") == "- [ ] task\n"
 
@@ -221,6 +224,6 @@ def test_dropdir_rejects_system_flags_in_action(tmp_path: Path) -> None:
 
     changed = dropdir.moved(ctx, system)
 
-    assert changed == {str(dropped_path.resolve()): 1, str(src_path.resolve()): 1}
+    assert result_changes(changed) == {str(dropped_path.resolve()): 1, str(src_path.resolve()): 1}
     assert not dropped_path.exists()
     assert src_path.read_text(encoding="utf-8") == "body\n"

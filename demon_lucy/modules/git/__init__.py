@@ -13,7 +13,7 @@ from demon_lucy.lib.path import (
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.git.config import GIT_TEMPLATE
@@ -29,7 +29,7 @@ class Git(AbstractModule):
 
     template: Template = GIT_TEMPLATE
 
-    def opened(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def opened(self, ctx: Context, system: System) -> ModuleResult | None:
         ctx_path = abs_expand_path(to_str(ctx.path))
         if path_has_component(ctx_path, ".git"):
             return None
@@ -75,21 +75,21 @@ class Git(AbstractModule):
         )
         return None
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle(ctx, system, "created")
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle(ctx, system, "modified")
 
-    def deleted(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def deleted(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle(ctx, system, "deleted")
 
-    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle(ctx, system, "moved")
 
     def _handle(
         self, ctx: Context, system: System, event_type: str
-    ) -> IgnoreMap | None:
+    ) -> ModuleResult | None:
         event = ctx.event
 
         source_path_raw = to_str(getattr(event, "src_path", "") or "")

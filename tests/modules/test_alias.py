@@ -12,7 +12,7 @@ from demon_lucy.modules.alias import Alias
 from demon_lucy.modules.alias.rules import AliasRule, parse_rule
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
-from tests.args_support import make_context
+from tests.args_support import make_context, result_changes
 
 
 def _system(module: Alias, global_template=None) -> System:
@@ -51,7 +51,7 @@ def test_alias_rewrites_note_flags_to_canonical_flags(tmp_path: Path):
 
     changed = module.modified(ctx, _system(module))
 
-    assert changed == {str(note): 1}
+    assert result_changes(changed) == {str(note): 1}
     assert note.read_text(encoding="utf-8") == (
         "--banner 'Daily notes' --formatter-todo\nbody\n"
     )
@@ -70,7 +70,7 @@ def test_alias_passes_inline_value_to_args_placeholder(tmp_path: Path):
 
     changed = module.modified(ctx, _system(module))
 
-    assert changed == {str(note): 1}
+    assert result_changes(changed) == {str(note): 1}
     assert note.read_text(encoding="utf-8") == "--rename done.md\n"
 
 

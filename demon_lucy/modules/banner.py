@@ -9,7 +9,7 @@ from demon_lucy.lib.args.models import KnownArg, ParsedArgs, Template
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 
@@ -55,7 +55,7 @@ class Banner(AbstractModule):
                 values.append(text)
         return " ".join(values).strip()
 
-    def _apply(self, *, path: str, args: ParsedArgs) -> IgnoreMap | None:
+    def _apply(self, *, path: str, args: ParsedArgs) -> dict[str, int] | None:
         banner = args.require("banner")
         banner_text = self._banner_text(args)
         if not banner_text:
@@ -120,11 +120,14 @@ class Banner(AbstractModule):
 
         return {path: 1}
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(path=ctx.path, args=ctx.args)
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(path=ctx.path, args=ctx.args)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(path=ctx.path, args=ctx.args)
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(path=ctx.path, args=ctx.args)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(path=ctx.path, args=ctx.args)
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(path=ctx.path, args=ctx.args)
+        return ModuleResult(context=ctx, changed=changed) if changed else None

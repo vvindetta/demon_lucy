@@ -4,7 +4,6 @@ import logging
 import os
 import time
 from collections import defaultdict
-from typing import Optional
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.models import KnownArg, Template
@@ -19,7 +18,7 @@ from demon_lucy.lib.text_file import (
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.ai.runner import CodexRunError, run_codex
@@ -84,7 +83,7 @@ class Ai(AbstractModule):
             use_rare_mode=True,
         )
 
-    def _apply(self, ctx: Context) -> Optional[IgnoreMap]:
+    def _apply(self, ctx: Context) -> ModuleResult | None:
         if getattr(ctx.event, "is_directory", False):
             return None
 
@@ -198,13 +197,13 @@ class Ai(AbstractModule):
                 duration_ms=(time.monotonic() - started_at) * 1000.0,
             )
         )
-        return {path: 1}
+        return ModuleResult(context=ctx, changed={path: 1})
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)

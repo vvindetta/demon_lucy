@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Protocol
+from typing import Protocol
 
 from demon_lucy.lib.args.models import Template
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.path import canonical_path
-from demon_lucy.modules.abstract_module import IgnoreMap
 
 
 class _StatusFileHost(Protocol):
@@ -31,13 +30,13 @@ class _StatusFileHost(Protocol):
 
 class StatusFileMixin:
     @staticmethod
-    def _merge_ignore_maps(
-        left: Optional[IgnoreMap],
-        right: Optional[IgnoreMap],
-    ) -> Optional[IgnoreMap]:
+    def _merge_changes(
+        left: dict[str, int] | None,
+        right: dict[str, int] | None,
+    ) -> dict[str, int] | None:
         if not left and not right:
             return None
-        merged: IgnoreMap = {}
+        merged: dict[str, int] = {}
         for source in (left or {}, right or {}):
             for path, times in source.items():
                 if not times:

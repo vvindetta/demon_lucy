@@ -16,6 +16,7 @@ from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.voice import Voice
 from demon_lucy.modules.voice.providers import TranscriptResult, VoiceError, listen_once
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from tests.args_support import result_changes
 
 
 _TEMPLATE = [*DEMON_LUCY_STARTUP_TEMPLATE, *Voice.template]
@@ -90,7 +91,7 @@ def test_voice_replaces_flag_inline(tmp_path: Path, monkeypatch):
 
     changed = module.modified(ctx, _system(module))
 
-    assert changed == {str(note.resolve()): 1}
+    assert result_changes(changed) == {str(note.resolve()): 1}
     assert note.read_text(encoding="utf-8") == "before\nprivet mir\n"
 
 

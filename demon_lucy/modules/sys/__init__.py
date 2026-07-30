@@ -10,7 +10,7 @@ from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.sys.neofetch import git_sync_age_text, neofetch_lines
@@ -271,7 +271,7 @@ class Sys(AbstractModule):
 
         return lines
 
-    def _apply(self, *, ctx: Context, system: System) -> IgnoreMap | None:
+    def _apply(self, *, ctx: Context, system: System) -> dict[str, int] | None:
         line_to_opts: dict[int, set[str]] = {}
         line_to_remove_flags: dict[int, List[str]] = {}
         line_to_man_requests: dict[int, List[str]] = {}
@@ -380,11 +380,14 @@ class Sys(AbstractModule):
 
         return {ctx.path: 1}
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(ctx=ctx, system=system)
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(ctx=ctx, system=system)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(ctx=ctx, system=system)
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(ctx=ctx, system=system)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(ctx=ctx, system=system)
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(ctx=ctx, system=system)
+        return ModuleResult(context=ctx, changed=changed) if changed else None

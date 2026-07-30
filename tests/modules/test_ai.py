@@ -10,7 +10,7 @@ from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.ai import Ai
 from demon_lucy.modules.ai import runner as ai_runner
 from demon_lucy.modules.ai.runner import CodexRunError
-from tests.args_support import make_context
+from tests.args_support import make_context, result_changes
 
 
 def _context(path: Path) -> Context:
@@ -61,7 +61,7 @@ def test_ai_edits_only_command_file_content(
 
     changed = module.modified(_context(note), _system(module))
 
-    assert changed == {str(note.resolve()): 1}
+    assert result_changes(changed) == {str(note.resolve()): 1}
     assert captured == {
         "source_path": str(note.resolve()),
         "source_content": "title\n\nbody\n",
@@ -83,7 +83,7 @@ def test_ai_preserves_source_newlines(tmp_path: Path, monkeypatch) -> None:
 
     changed = module.modified(_context(note), _system(module))
 
-    assert changed == {str(note.resolve()): 1}
+    assert result_changes(changed) == {str(note.resolve()): 1}
     assert note.read_bytes() == b"New title\r\n\r\nbody\r\n"
 
 

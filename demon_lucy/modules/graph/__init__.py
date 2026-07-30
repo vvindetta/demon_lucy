@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.args.parser import is_valid_flag_token, split_arg_line
@@ -12,7 +11,7 @@ from demon_lucy.lib.dynamic_blocks.parser import format_dynamic_block
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.graph.params import (
@@ -107,7 +106,7 @@ class Graph(AbstractModule):
             )
         return blocks
 
-    def _apply(self, ctx: Context) -> Optional[IgnoreMap]:
+    def _apply(self, ctx: Context) -> ModuleResult | None:
         candidate_lines = self._candidate_lines(ctx.args)
         if not candidate_lines:
             return None
@@ -193,13 +192,13 @@ class Graph(AbstractModule):
                 graphs=rendered_commands,
             )
         )
-        return {ctx.path: 1}
+        return ModuleResult(context=ctx, changed={ctx.path: 1})
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)

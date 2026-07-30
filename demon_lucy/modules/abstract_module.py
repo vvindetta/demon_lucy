@@ -15,7 +15,6 @@ from demon_lucy.lib.operating_system import (
     detect_operating_system,
 )
 
-IgnoreMap = dict[str, int]
 RunMode = Literal["daemon", "oneshot", "cli"]
 
 
@@ -54,6 +53,13 @@ class Context:
     event_id: str
     event: FileSystemEvent | None = None
 
+
+@dataclass(frozen=True)
+class ModuleResult:
+    context: Context
+    changed: dict[str, int] = field(default_factory=dict)
+
+
 class AbstractModule(ABC):
     """
     Base interface for all processing modules.
@@ -61,13 +67,8 @@ class AbstractModule(ABC):
     Every module optionally handles events and direct CLI runs:
     - created, modified, moved, deleted, opened, cli
 
-    Return value
-    - None:
-        No filesystem changes were made.
-
-    - {'path1': 1, 'path2', 3, ...}:
-        Filesystem paths WAS changed N times by this module.
-        The daemon will ignore the next events for these paths to prevent loops.
+    Handlers return ModuleResult with the context for the next module and the
+    filesystem changes made by this module. None means no changes.
 
     Priority
     - 'priority': integer; lower runs earlier.
@@ -102,20 +103,20 @@ class AbstractModule(ABC):
     template: Template = []
     dynamic_block_renderers: Mapping[str, DynamicBlockRenderer] = {}
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return None
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return None
 
-    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         return None
 
-    def deleted(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def deleted(self, ctx: Context, system: System) -> ModuleResult | None:
         return None
 
-    def opened(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def opened(self, ctx: Context, system: System) -> ModuleResult | None:
         return None
 
-    def cli(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def cli(self, ctx: Context, system: System) -> ModuleResult | None:
         return None

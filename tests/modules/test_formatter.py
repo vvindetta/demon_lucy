@@ -12,7 +12,7 @@ from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
     format_fenced_body,
 )
-from tests.args_support import make_args, make_context
+from tests.args_support import make_args, make_context, result_changes
 
 
 def _run_formatter(
@@ -688,4 +688,4 @@ def test_event_methods_delegate_to_apply(
     result = getattr(module, method_name)(ctx, system)
 
     assert called == [str(note)]
-    assert result == {str(note): 1}
+    assert result_changes(result) == {str(note): 1}

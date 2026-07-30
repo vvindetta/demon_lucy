@@ -8,7 +8,6 @@ from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.lib.operating_system import OperatingSystem
-from demon_lucy.modules.abstract_module import IgnoreMap
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +61,7 @@ def create_top_link(
     ignore_selectors: list[str],
     operating_system: OperatingSystem,
     event_id: str,
-) -> IgnoreMap | None:
+) -> dict[str, int] | None:
     link_path = str((Path(repo_root) / Path(source_path).name).absolute())
     if link_path == source_path:
         return None
@@ -156,8 +155,8 @@ def cleanup_top_links(
     ignore_selectors: list[str],
     template: Template,
     operating_system: OperatingSystem,
-) -> IgnoreMap | None:
-    deleted: IgnoreMap = {}
+) -> dict[str, int] | None:
+    deleted: dict[str, int] = {}
     try:
         entries = list(Path(repo_root).iterdir())
     except OSError:

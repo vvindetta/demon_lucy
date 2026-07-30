@@ -21,6 +21,7 @@ from demon_lucy.modules.graph import Graph
 from demon_lucy.modules.sys import Sys
 from demon_lucy.modules.sys import neofetch as neofetch_module
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from tests.args_support import result_changes
 
 _TEMPLATE = [*DEMON_LUCY_STARTUP_TEMPLATE, *Sys.template]
 _BASE_TOKENS = [
@@ -224,7 +225,7 @@ def test_neofetch_command_writes_runtime_block(tmp_path: Path) -> None:
     changed = module.modified(ctx, system)
     text = note.read_text(encoding="utf-8")
 
-    assert changed == {str(note): 1}
+    assert result_changes(changed) == {str(note): 1}
     assert text.startswith("--- neofetch ---\n\n")
     assert "--neofetch" not in text
     assert LUCY_EYE_DOUBLE[0] in text
@@ -369,7 +370,7 @@ def test_apply_inserts_block_for_first_line_flags(
     changed = module.modified(ctx, system)
     content = note.read_text(encoding="utf-8")
 
-    assert changed == {str(note): 1}
+    assert result_changes(changed) == {str(note): 1}
     for line in expected_lines:
         assert line in content
 
@@ -436,7 +437,7 @@ def test_ping_sends_lucy_notification(tmp_path: Path, monkeypatch):
 
     changed = module.modified(ctx, system)
 
-    assert changed == {str(note): 1}
+    assert result_changes(changed) == {str(note): 1}
     assert note.read_text(encoding="utf-8") == "++pong!\n"
     assert notifications == [
         {

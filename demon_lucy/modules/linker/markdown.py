@@ -15,7 +15,6 @@ from demon_lucy.lib.path import (
     find_parent_with,
     path_is_inside,
 )
-from demon_lucy.modules.abstract_module import IgnoreMap
 from demon_lucy.modules.linker.root import is_ignored_path
 
 INLINE_LINK_PATTERN = r"(!?\[[^\]\r\n]*\]\()([^\)\r\n]*)(\))"
@@ -334,7 +333,7 @@ def move_targets_for_edited_links(
     *,
     markdown_path: str,
     ignore_selectors: list[str],
-) -> IgnoreMap | None:
+) -> dict[str, int] | None:
     markdown_path = canonical_path(markdown_path)
     if not is_supported_reference_file(markdown_path):
         return None
@@ -351,7 +350,7 @@ def move_targets_for_edited_links(
     ):
         return None
 
-    changed_paths: IgnoreMap = {}
+    changed_paths: dict[str, int] = {}
     seen_moves: set[tuple[str, str]] = set()
     for old_abs, new_abs in _edited_link_moves_from_diff(
         markdown_path=markdown_path,
@@ -388,7 +387,7 @@ def move_targets_for_edited_links(
             continue
         changed_paths[old_abs] = changed_paths.get(old_abs, 0) + 1
         changed_paths[new_abs] = changed_paths.get(new_abs, 0) + 1
-        _merge_ignore_maps_into(
+        _merge_changes_into(
             changed_paths,
             update_links_for_moved_paths(
                 moved_from_abs=old_abs,
@@ -400,9 +399,9 @@ def move_targets_for_edited_links(
     return changed_paths or None
 
 
-def _merge_ignore_maps_into(
-    target: IgnoreMap,
-    source: IgnoreMap | None,
+def _merge_changes_into(
+    target: dict[str, int],
+    source: dict[str, int] | None,
 ) -> None:
     if not source:
         return
@@ -416,7 +415,7 @@ def update_links_for_moved_paths(
     moved_to_abs: str,
     repo_root: str,
     ignore_selectors: list[str],
-) -> IgnoreMap | None:
+) -> dict[str, int] | None:
     if is_ignored_path(
         path_value=moved_from_abs,
         repo_root=repo_root,
@@ -428,7 +427,7 @@ def update_links_for_moved_paths(
     ):
         return None
 
-    changed_paths: IgnoreMap = {}
+    changed_paths: dict[str, int] = {}
     for root, dirs, files in os.walk(repo_root):
         dirs[:] = [name for name in dirs if name != ".git"]
         for file_name in files:
@@ -456,7 +455,7 @@ def update_moved_links(
     *,
     event: FileSystemEvent,
     ignore_selectors: list[str],
-) -> IgnoreMap | None:
+) -> dict[str, int] | None:
     src_path_raw = str(getattr(event, "src_path", "") or "").strip()
     dest_path_raw = str(getattr(event, "dest_path", "") or "").strip()
     if not src_path_raw or not dest_path_raw:

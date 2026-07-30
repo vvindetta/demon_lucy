@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional
 
 from demon_lucy.lib.args.parser import (
     is_valid_flag_token,
@@ -15,7 +14,7 @@ from demon_lucy.lib.path import canonical_path, path_is_inside
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 
@@ -29,19 +28,18 @@ class DropDirAction:
     raw: str
 
 
-def merge_ignore_maps(
-    left: Optional[IgnoreMap],
-    right: Optional[IgnoreMap],
-) -> Optional[IgnoreMap]:
-    merged: IgnoreMap = {}
-    for source in (left, right):
+def merge_changes(
+    *items: dict[str, int] | None,
+) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for source in items:
         if not source:
             continue
         for path_value, times in source.items():
             if not times:
                 continue
             merged[path_value] = merged.get(path_value, 0) + int(times)
-    return merged or None
+    return merged
 
 
 def action_delay_seconds(ctx: Context) -> float:
@@ -112,49 +110,28 @@ def matches_selector(file_path: str, raw_selector: str) -> bool:
 def move_back_to_source(
     ctx: Context,
     destination_path: str,
-) -> tuple[str, Optional[IgnoreMap]]:
+) -> tuple[str, dict[str, int]]:
     src_raw = str(getattr(ctx.event, "src_path", "") or "").strip()
     if not src_raw:
-        return destination_path, None
+        return destination_path, {}
 
     src_path = canonical_path(src_raw)
     dest_path = canonical_path(destination_path)
     if src_path == dest_path:
-        return dest_path, None
+        return dest_path, {}
 
     if not os.path.exists(dest_path):
-        return dest_path, None
+        return dest_path, {}
 
     if os.path.exists(src_path):
-        return dest_path, None
+        return dest_path, {}
 
     try:
         os.rename(dest_path, src_path)
     except OSError:
-        return dest_path, None
+        return dest_path, {}
 
     return src_path, {dest_path: 1, src_path: 1}
-
-
-def next_action_path(
-    current_path: str,
-    changed: Optional[IgnoreMap],
-) -> str:
-    if not changed or os.path.exists(current_path):
-        return current_path
-
-    current_abs = canonical_path(current_path)
-    candidates: list[str] = []
-    for path_value in changed:
-        candidate_path = canonical_path(path_value)
-        if candidate_path == current_abs:
-            continue
-        if not os.path.exists(candidate_path) or os.path.isdir(candidate_path):
-            continue
-        candidates.append(candidate_path)
-    if len(candidates) != 1:
-        return current_path
-    return candidates[0]
 
 
 def system_flags_in_tokens(tokens: list[str]) -> list[str]:
@@ -221,12 +198,13 @@ def run_action_modules(
     source_module: AbstractModule,
     ctx: Context,
     system: System,
-) -> Optional[IgnoreMap]:
+) -> ModuleResult | None:
     if ctx.event is None:
         return None
     event_type = str(ctx.event.event_type)
-    current_path = ctx.path
-    changed: Optional[IgnoreMap] = None
+    current_context = ctx
+    changed: dict[str, int] = {}
+    has_result = False
 
     for module in system.modules:
         if module is source_module:
@@ -235,18 +213,20 @@ def run_action_modules(
         if handler is getattr(AbstractModule, event_type):
             continue
 
-        module_changed = handler(
+        result = handler(
             module,
-            Context(
-                path=current_path,
-                args=ctx.args,
-                run_mode=ctx.run_mode,
-                event_id=ctx.event_id,
-                event=ctx.event,
-            ),
+            current_context,
             system,
         )
-        changed = merge_ignore_maps(changed, module_changed)
-        current_path = next_action_path(current_path, module_changed)
+        if result is None:
+            continue
+        has_result = True
+        changed = merge_changes(changed, result.changed)
+        current_context = result.context
 
-    return changed
+    if not has_result:
+        return None
+    return ModuleResult(
+        context=current_context,
+        changed=changed,
+    )

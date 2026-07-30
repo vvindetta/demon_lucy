@@ -12,7 +12,7 @@ from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.plasma_widget.config import PLASMA_WIDGET_TEMPLATE
@@ -217,7 +217,7 @@ def _notify_write_failure(
 def _apply_pending_writes(
     *,
     pending: list[PendingWrite],
-    ignore: IgnoreMap,
+    ignore: dict[str, int],
     args: ParsedArgs,
 ) -> bool:
     applied: list[PendingWrite] = []
@@ -238,7 +238,7 @@ def _apply_pending_writes(
     return True
 
 
-def _inc_ignore(ignore: IgnoreMap, path: str, times: int = 1) -> None:
+def _inc_ignore(ignore: dict[str, int], path: str, times: int = 1) -> None:
     absolute_path = canonical_path(path)
     ignore[absolute_path] = ignore.get(absolute_path, 0) + times
 
@@ -334,8 +334,8 @@ def _apply_sync_plan(
     markdown_path: str,
     bold_widget_path: Optional[str],
     args: ParsedArgs,
-) -> IgnoreMap | None:
-    ignore: IgnoreMap = {}
+) -> dict[str, int] | None:
+    ignore: dict[str, int] = {}
     pending = _collect_pending_writes(
         plan=plan,
         widget_path=widget_path,
@@ -365,16 +365,19 @@ class PlasmaWidget(AbstractModule):
 
     template = PLASMA_WIDGET_TEMPLATE
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._handle(ctx)
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._handle(ctx)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._handle(ctx)
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._handle(ctx)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._handle(ctx)
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._handle(ctx)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def deleted(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def deleted(self, ctx: Context, system: System) -> ModuleResult | None:
         return None
 
     def _cfg(self, ctx: Context) -> tuple[str, str, Optional[str], bool]:
@@ -389,7 +392,7 @@ class PlasmaWidget(AbstractModule):
             ctx.args.require("plasma-css-style").value,
         )
 
-    def _handle(self, ctx: Context) -> IgnoreMap | None:
+    def _handle(self, ctx: Context) -> dict[str, int] | None:
         widget_path, markdown_path, bold_widget_path, css_style = self._cfg(ctx)
         sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
 
@@ -446,7 +449,7 @@ class PlasmaWidget(AbstractModule):
         css_style: bool,
         args: ParsedArgs,
         sync_key: Optional[SyncKey] = None,
-    ) -> IgnoreMap | None:
+    ) -> dict[str, int] | None:
         if sync_key is None:
             sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
         markdown_read = _read_file_checked(markdown_path)
@@ -510,7 +513,7 @@ class PlasmaWidget(AbstractModule):
         html_path: str,
         args: ParsedArgs,
         sync_key: Optional[SyncKey] = None,
-    ) -> IgnoreMap | None:
+    ) -> dict[str, int] | None:
         if sync_key is None:
             sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
         if not os.path.exists(html_path):
@@ -582,7 +585,7 @@ class PlasmaWidget(AbstractModule):
         css_style: bool,
         args: ParsedArgs,
         sync_key: Optional[SyncKey] = None,
-    ) -> IgnoreMap | None:
+    ) -> dict[str, int] | None:
         """
         Optional: editing mirror updates MAIN bold lines.
         Mirror contains one line per bold-line in MAIN (line-safe mapping).

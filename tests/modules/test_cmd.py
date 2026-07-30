@@ -6,7 +6,7 @@ import pytest
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.modules.abstract_module import System
 from demon_lucy.modules.cmd import Cmd, CmdStream
-from tests.args_support import make_context
+from tests.args_support import make_context, result_changes
 
 
 def test_cmd_stream_default_is_typed_enum() -> None:
@@ -81,7 +81,7 @@ def test_apply_replaces_command_line_with_output_block(tmp_path: Path, monkeypat
     changed = module.modified(ctx, system)
     content = note.read_text(encoding="utf-8")
 
-    assert changed == {str(note): 1}
+    assert result_changes(changed) == {str(note): 1}
     assert "--- echo ---\n" in content
     assert "OUT\n" in content
     # assert "tail\n" in content

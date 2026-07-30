@@ -17,7 +17,7 @@ from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.git.worker import build_patch_packet, commit_dirty_tree
@@ -84,21 +84,21 @@ class KdeconnectSync(AbstractModule):
     priority: int = 49
     template: Template = KDECONNECT_SYNC_TEMPLATE
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle(ctx, system, "created")
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle(ctx, system, "modified")
 
-    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle(ctx, system, "moved")
 
-    def deleted(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def deleted(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._handle(ctx, system, "deleted")
 
     def _handle(
         self, ctx: Context, system: System, event_type: str
-    ) -> IgnoreMap | None:
+    ) -> ModuleResult | None:
         if not ctx.args.require("kdeconnect-sync").value:
             return None
 

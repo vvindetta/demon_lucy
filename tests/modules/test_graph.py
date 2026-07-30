@@ -57,7 +57,8 @@ def _run_graph(
 ) -> dict[str, int] | None:
     module = Graph()
     ctx = _ctx_for(note, hide_allowed_values=hide_allowed_values)
-    return module.modified(ctx, _system(module))
+    result = module.modified(ctx, _system(module))
+    return result.changed if result is not None else None
 
 
 def _text_body(rows: list[str]) -> str:

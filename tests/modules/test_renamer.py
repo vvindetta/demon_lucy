@@ -7,7 +7,9 @@ import pytest
 
 from demon_lucy.lib.args.parser import parse_args
 import demon_lucy.modules.renamer as renamer_mod
+from demon_lucy.modules.abstract_module import System
 from demon_lucy.modules.renamer import Renamer
+from tests.args_support import make_context
 
 
 def test_rename_auto_format_defaults_to_markdown():
@@ -15,6 +17,28 @@ def test_rename_auto_format_defaults_to_markdown():
 
     assert parsed.unknown == ()
     assert parsed.require("rename-auto-format").value == "md"
+
+
+def test_modified_returns_context_with_renamed_path(tmp_path: Path) -> None:
+    old_path = tmp_path / "old.md"
+    new_path = tmp_path / "new.md"
+    old_path.write_text("x\n", encoding="utf-8")
+    module = Renamer()
+    ctx = make_context(
+        str(old_path),
+        module.template,
+        {"rename": "new.md"},
+    )
+
+    result = module.modified(
+        ctx,
+        System(global_template=module.template, modules=[module]),
+    )
+
+    assert result is not None
+    assert result.context.path == str(new_path)
+    assert result.changed == {str(old_path): 1, str(new_path): 1}
+
 
 @pytest.mark.parametrize(
     ("target_exists", "expected_changed"),

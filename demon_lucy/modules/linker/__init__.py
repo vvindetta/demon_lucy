@@ -7,7 +7,7 @@ from demon_lucy.lib.path import find_parent_with
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.linker.markdown import (
@@ -55,13 +55,13 @@ class Linker(AbstractModule):
     ]
 
     @staticmethod
-    def _merge_ignore_maps(
-        left: IgnoreMap | None,
-        right: IgnoreMap | None,
-    ) -> IgnoreMap | None:
+    def _merge_changes(
+        left: dict[str, int] | None,
+        right: dict[str, int] | None,
+    ) -> dict[str, int] | None:
         if not left and not right:
             return None
-        merged: IgnoreMap = {}
+        merged: dict[str, int] = {}
         for source in (left or {}, right or {}):
             for path_value, times in source.items():
                 merged[path_value] = merged.get(path_value, 0) + times
@@ -71,7 +71,7 @@ class Linker(AbstractModule):
         self,
         ctx: Context,
         system: System,
-    ) -> IgnoreMap | None:
+    ) -> dict[str, int] | None:
         use_link_top = ctx.args.require("linker-root").value
         auto_cleanup = ctx.args.require("linker-auto-clean-root-links").value
         ignore_selectors = ctx.args.require("linker-ignore").value
@@ -104,10 +104,11 @@ class Linker(AbstractModule):
             operating_system=system.operating_system,
         )
 
-    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
-        return self._apply(ctx, system)
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
+        changed = self._apply(ctx, system)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         link_changed = self._apply(ctx, system)
         edited_links_changed = None
         if ctx.args.require("linker-auto-update-md-links").value:
@@ -115,9 +116,10 @@ class Linker(AbstractModule):
                 markdown_path=ctx.path,
                 ignore_selectors=ctx.args.require("linker-ignore").value,
             )
-        return self._merge_ignore_maps(link_changed, edited_links_changed)
+        changed = self._merge_changes(link_changed, edited_links_changed)
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         link_changed = self._apply(ctx, system)
         moved_links_changed = None
         if (
@@ -128,4 +130,5 @@ class Linker(AbstractModule):
                 event=ctx.event,
                 ignore_selectors=ctx.args.require("linker-ignore").value,
             )
-        return self._merge_ignore_maps(link_changed, moved_links_changed)
+        changed = self._merge_changes(link_changed, moved_links_changed)
+        return ModuleResult(context=ctx, changed=changed) if changed else None

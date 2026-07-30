@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.models import KnownArg, Template
@@ -12,7 +11,7 @@ from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.workspace.config import WorkspaceConfig
@@ -65,7 +64,7 @@ class Workspace(AbstractModule):
         self,
         ctx: Context,
         workspace_root: str,
-    ) -> IgnoreMap:
+    ) -> dict[str, int]:
         line_numbers = ctx.args.require("workspace-init").lines
         if not line_numbers or not os.path.isfile(ctx.path):
             return {}
@@ -127,7 +126,7 @@ class Workspace(AbstractModule):
 
         return {canonical_path(ctx.path): 1}
 
-    def _apply(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def _apply(self, ctx: Context, system: System) -> ModuleResult | None:
         workspace_root = self._workspace_root(ctx)
         if workspace_root is None:
             return None
@@ -136,7 +135,7 @@ class Workspace(AbstractModule):
         config_lines = self._config_builder.lines(ctx, system, workspace_root)
         welcome_path = os.path.join(workspace_root, "welcome.md")
 
-        changed: IgnoreMap = {}
+        changed: dict[str, int] = {}
         try:
             os.makedirs(workspace_root, exist_ok=True)
             changed.update(
@@ -188,16 +187,16 @@ class Workspace(AbstractModule):
                 trigger_written=bool(trigger_changed),
             )
         )
-        return changed or None
+        return ModuleResult(context=ctx, changed=changed) if changed else None
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx, system)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx, system)
 
-    def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def opened(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx, system)
 
-    def cli(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def cli(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx, system)

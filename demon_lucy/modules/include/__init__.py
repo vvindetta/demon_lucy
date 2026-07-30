@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
@@ -13,7 +12,7 @@ from demon_lucy.lib.text_file import detect_newline, write_text_atomic
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
-    IgnoreMap,
+    ModuleResult,
     System,
 )
 from demon_lucy.modules.include.params import (
@@ -39,7 +38,7 @@ class Include(AbstractModule):
         "include-find": render_include_dynamic_block,
     }
 
-    def _apply(self, ctx: Context) -> Optional[IgnoreMap]:
+    def _apply(self, ctx: Context) -> ModuleResult | None:
         raw_candidate_lines = {
             line
             for name in ("include", "include-find")
@@ -165,13 +164,13 @@ class Include(AbstractModule):
                 items=rendered_items,
             )
         )
-        return {ctx.path: 1}
+        return ModuleResult(context=ctx, changed={ctx.path: 1})
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         return self._apply(ctx)
