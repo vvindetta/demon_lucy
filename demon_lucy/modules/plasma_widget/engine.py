@@ -41,10 +41,11 @@ Three-file Plasma sync contract.
 
 All three directions must work:
 Markdown -> MAIN + mirror, MAIN -> Markdown + mirror, mirror -> MAIN + Markdown.
-Plans therefore compare the actual target file contents before deciding writes;
-SyncState is only remembered context, not proof that widget files are already in
-sync. In particular, the first event after bootstrap must still write a missing
-or stale MAIN widget even when state was initialized from the Markdown file.
+Plans compare parsed Plasma documents before deciding writes so equivalent Qt
+HTML serializations do not trigger a write loop. SyncState is only remembered
+context, not proof that widget files are already in sync. In particular, the
+first event after bootstrap must still write a missing or stale MAIN widget even
+when state was initialized from the Markdown file.
 """
 
 
@@ -121,10 +122,12 @@ def _plan_restore_from_markdown(
     doc = _md_to_doc(_normalize_md(markdown_text_current))
     doc_hash = _doc_hash(doc)
 
-    widget_html_out: Optional[str] = None
-    candidate_widget = _doc_to_plasma_html(doc, css_style=css_style)
-    if candidate_widget != widget_html_current:
-        widget_html_out = candidate_widget
+    widget_html_out = _plan_widget_sync(
+        doc=doc,
+        widget_html_current=widget_html_current,
+        css_style=css_style,
+        previous_css_style=state.css_style,
+    )
 
     mirror_html_out, bold_items_hash = _plan_mirror_sync(
         doc=doc,
@@ -190,6 +193,31 @@ def _plan_widget_render_mode(
     return widget_html_new
 
 
+def _plan_widget_sync(
+    *,
+    doc: list[DocLine],
+    widget_html_current: str,
+    css_style: bool,
+    previous_css_style: Optional[bool],
+) -> Optional[str]:
+    """Update MAIN only for semantic/render-mode drift, not Qt HTML formatting."""
+
+    widget_html_new = _doc_to_plasma_html(doc, css_style=css_style)
+    if not widget_html_current.strip():
+        return widget_html_new
+
+    current_doc = _html_to_doc(widget_html_current)
+    expected_render_doc = _html_to_doc(widget_html_new)
+    if current_doc != expected_render_doc:
+        return widget_html_new
+
+    return _plan_widget_render_mode(
+        widget_html_current=widget_html_current,
+        css_style=css_style,
+        previous_css_style=previous_css_style,
+    )
+
+
 def _plan_mirror_sync(
     *,
     doc: list[DocLine],
@@ -203,17 +231,15 @@ def _plan_mirror_sync(
 
     items = _extract_bold_items_from_doc(doc)
     items_hash = _items_hash(items)
+    current_lines = _mirror_html_to_lines(mirror_html_current)
     mirror_lines = _merge_items_into_mirror_lines(
-        _mirror_html_to_lines(mirror_html_current),
+        current_lines,
         items,
     )
-    mirror_html_new = _bold_lines_to_plasma_html(mirror_lines)
-    if (
-        previous_bold_items_hash == items_hash
-        and mirror_html_new == mirror_html_current
-    ):
-        return None, previous_bold_items_hash
+    if mirror_lines == current_lines and mirror_html_current.strip():
+        return None, items_hash
 
+    mirror_html_new = _bold_lines_to_plasma_html(mirror_lines)
     if mirror_html_new == mirror_html_current:
         return None, items_hash
     return mirror_html_new, items_hash
@@ -231,8 +257,8 @@ def plan_from_markdown(
     """Plan Markdown -> MAIN + mirror.
 
     MAIN is generated as rich Plasma HTML from Markdown, not as literal source
-    text. Always compare the generated HTML with the current MAIN file so a
-    missing/stale widget is repaired even if SyncState already matches.
+    text. Compare parsed documents and the configured render mode so a
+    missing/stale widget is repaired without rewriting equivalent Qt HTML.
     """
 
     if markdown_text == "" and not markdown_exists:
@@ -241,10 +267,12 @@ def plan_from_markdown(
     doc = _md_to_doc(_normalize_md(markdown_text))
     doc_hash = _doc_hash(doc)
 
-    widget_html_out: Optional[str] = None
-    candidate = _doc_to_plasma_html(doc, css_style=css_style)
-    if candidate != widget_html_current:
-        widget_html_out = candidate
+    widget_html_out = _plan_widget_sync(
+        doc=doc,
+        widget_html_current=widget_html_current,
+        css_style=css_style,
+        previous_css_style=state.css_style,
+    )
 
     mirror_html_out, bold_items_hash = _plan_mirror_sync(
         doc=doc,
@@ -395,12 +423,14 @@ def plan_from_bold_mirror(
             blocked_shrinking_source="bold_mirror",
         )
 
-    widget_html_out: Optional[str] = None
     markdown_out: Optional[str] = None
 
-    candidate_widget = _doc_to_plasma_html(new_doc, css_style=css_style)
-    if candidate_widget != widget_html_current:
-        widget_html_out = candidate_widget
+    widget_html_out = _plan_widget_sync(
+        doc=new_doc,
+        widget_html_current=widget_html_current,
+        css_style=css_style,
+        previous_css_style=state.css_style,
+    )
 
     candidate_markdown = _doc_to_md(new_doc)
     if _markdown_text_doc_hash(markdown_text_current) != new_doc_hash:
@@ -408,22 +438,6 @@ def plan_from_bold_mirror(
 
     new_items = _extract_bold_items_from_doc(new_doc)
     next_bold_items_hash = _items_hash(new_items)
-
-    mirror_norm = _bold_lines_to_plasma_html(mirror_lines)
-    mirror_out: Optional[str] = None
-    if mirror_norm != mirror_html_current:
-        mirror_out = mirror_norm
-
-    widget_baseline = (
-        widget_html_out if widget_html_out is not None else widget_html_current
-    )
-    widget_render_out = _plan_widget_render_mode(
-        widget_html_current=widget_baseline,
-        css_style=css_style,
-        previous_css_style=state.css_style,
-    )
-    if widget_render_out is not None:
-        widget_html_out = widget_render_out
 
     next_doc_hash = state.doc_hash
     if state.doc_hash != new_doc_hash:
@@ -437,5 +451,4 @@ def plan_from_bold_mirror(
         ),
         widget_html=widget_html_out,
         markdown_text=markdown_out,
-        mirror_html=mirror_out,
     )

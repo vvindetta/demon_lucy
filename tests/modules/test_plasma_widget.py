@@ -86,6 +86,23 @@ def _roundtrip_once(md_text: str, *, css_style: bool) -> str:
     return _doc_to_md(doc_from_html)
 
 
+def _plasma_reserialized(html: str) -> str:
+    reserialized = html.replace(
+        '<meta name="qrichtext" content="1" />',
+        '<meta name="qrichtext" content="1"/>',
+    )
+    reserialized = reserialized.replace(
+        '<span style=" font-weight:700;">',
+        "<strong>",
+    ).replace("</span>", "</strong>")
+    assert reserialized != html
+    assert _html_to_doc(reserialized, trim_empty_edges=False) == _html_to_doc(
+        html,
+        trim_empty_edges=False,
+    )
+    return reserialized
+
+
 def test_md_doc_roundtrip_preserves_checkbox_and_bold():
     md = "- [ ] **Task**\nPlain line"
     doc = _md_to_doc(md)
@@ -304,6 +321,69 @@ def test_from_markdown_writes_widget_and_mirror(tmp_path: Path):
     assert str(mirror.resolve()) in ignore
     assert widget.exists()
     assert mirror.exists()
+
+
+def test_equivalent_plasma_reserialization_does_not_create_sync_loop(
+    tmp_path: Path,
+):
+    md = tmp_path / "todo.md"
+    widget = tmp_path / "widget.html"
+    mirror = tmp_path / "mirror.html"
+    md.write_text("Line\n**Bold**\n", encoding="utf-8")
+
+    module = PlasmaWidget()
+    module._from_markdown(
+        markdown_path=str(md),
+        widget_path=str(widget),
+        bold_widget_path=str(mirror),
+        css_style=False,
+        args=_NOTIFY_ARGS,
+    )
+
+    markdown_before = md.read_text(encoding="utf-8")
+    widget_from_plasma = _plasma_reserialized(widget.read_text(encoding="utf-8"))
+    mirror_from_plasma = _plasma_reserialized(mirror.read_text(encoding="utf-8"))
+    widget.write_text(widget_from_plasma, encoding="utf-8")
+    mirror.write_text(mirror_from_plasma, encoding="utf-8")
+
+    assert (
+        module._from_bold_mirror(
+            widget_path=str(widget),
+            markdown_path=str(md),
+            bold_widget_path=str(mirror),
+            css_style=False,
+            args=_NOTIFY_ARGS,
+        )
+        is None
+    )
+    assert widget.read_text(encoding="utf-8") == widget_from_plasma
+    assert mirror.read_text(encoding="utf-8") == mirror_from_plasma
+    assert md.read_text(encoding="utf-8") == markdown_before
+
+    assert (
+        module._from_main_plasma(
+            widget_path=str(widget),
+            markdown_path=str(md),
+            bold_widget_path=str(mirror),
+            css_style=False,
+            html_path=str(widget),
+            args=_NOTIFY_ARGS,
+        )
+        is None
+    )
+    assert (
+        module._from_markdown(
+            markdown_path=str(md),
+            widget_path=str(widget),
+            bold_widget_path=str(mirror),
+            css_style=False,
+            args=_NOTIFY_ARGS,
+        )
+        is None
+    )
+    assert widget.read_text(encoding="utf-8") == widget_from_plasma
+    assert mirror.read_text(encoding="utf-8") == mirror_from_plasma
+    assert md.read_text(encoding="utf-8") == markdown_before
 
 
 def test_handle_markdown_bootstrap_writes_missing_main_widget(tmp_path: Path):
