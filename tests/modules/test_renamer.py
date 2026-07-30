@@ -11,11 +11,10 @@ from demon_lucy.modules.renamer import Renamer
 
 
 def test_rename_auto_format_defaults_to_markdown():
-    known, unknown = parse_args(args=[], template=Renamer.template)
+    parsed = parse_args(args=[], template=Renamer.template)
 
-    assert unknown == []
-    assert known["rename_auto_format"] == "md"
-
+    assert parsed.unknown == ()
+    assert parsed.require("rename-auto-format").value == "md"
 
 @pytest.mark.parametrize(
     ("target_exists", "expected_changed"),
@@ -34,7 +33,7 @@ def test_apply_manual_rename_behaviour(
         new_path.write_text("y\n", encoding="utf-8")
 
     module = Renamer()
-    changed = module._apply_manual(path=str(old_path), config={"rename": "new.md"})
+    changed = module._apply_manual(path=str(old_path), new_name="new.md")
 
     assert (changed is not None) is expected_changed
     assert new_path.exists()
@@ -60,7 +59,8 @@ def test_apply_auto_on_create_renames_any_one_letter_file_with_default_format(
     module = Renamer()
     changed = module._apply_auto_on_create(
         path=str(old_path),
-        config={"rename_auto": True, "rename_auto_format": "txt"},
+        enabled=True,
+        extension="txt",
     )
 
     assert changed is not None
@@ -84,7 +84,8 @@ def test_apply_auto_on_create_adds_extension_to_extensionless_file(
     module = Renamer()
     changed = module._apply_auto_on_create(
         path=str(old_path),
-        config={"rename_auto": True, "rename_auto_format": "org"},
+        enabled=True,
+        extension="org",
     )
 
     assert changed is not None
@@ -106,7 +107,8 @@ def test_apply_auto_on_create_rejects_filename_format(tmp_path: Path, monkeypatc
     module = Renamer()
     changed = module._apply_auto_on_create(
         path=str(old_path),
-        config={"rename_auto": True, "rename_auto_format": "%Y-%m-%d.md"},
+        enabled=True,
+        extension="%Y-%m-%d.md",
     )
 
     assert changed is None
@@ -130,7 +132,8 @@ def test_apply_auto_on_create_adds_default_extension_to_any_extensionless_file(
     module = Renamer()
     changed = module._apply_auto_on_create(
         path=str(txt_path),
-        config={"rename_auto": True, "rename_auto_format": "md"},
+        enabled=True,
+        extension="md",
     )
 
     assert changed is not None
@@ -156,7 +159,8 @@ def test_apply_auto_on_create_adds_suffix_when_extension_target_exists(
     module = Renamer()
     changed = module._apply_auto_on_create(
         path=str(old_path),
-        config={"rename_auto": True, "rename_auto_format": "md"},
+        enabled=True,
+        extension="md",
     )
 
     assert changed is not None
@@ -189,7 +193,8 @@ def test_apply_auto_on_create_adds_more_time_precision_until_name_is_free(
     module = Renamer()
     changed = module._apply_auto_on_create(
         path=str(old_path),
-        config={"rename_auto": True, "rename_auto_format": "txt"},
+        enabled=True,
+        extension="txt",
     )
 
     assert changed is not None

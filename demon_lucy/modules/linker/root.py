@@ -3,12 +3,11 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Optional
-
-from demon_lucy.lib.args.parser import Template, get_args_from_file
+from demon_lucy.lib.args.models import Template
+from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import canonical_path
-from demon_lucy.lib.runtime_system import RuntimeSystem
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import IgnoreMap
 
 logger = logging.getLogger(__name__)
@@ -22,7 +21,7 @@ def matches_ignore_selector(
     repo_root: str,
     selector_value: str,
 ) -> bool:
-    selector = str(selector_value).strip()
+    selector = selector_value.strip()
     if not selector:
         return False
 
@@ -61,9 +60,9 @@ def create_top_link(
     source_path: str,
     repo_root: str,
     ignore_selectors: list[str],
-    runtime_system: RuntimeSystem,
+    operating_system: OperatingSystem,
     event_id: str,
-) -> Optional[IgnoreMap]:
+) -> IgnoreMap | None:
     link_path = str((Path(repo_root) / Path(source_path).name).absolute())
     if link_path == source_path:
         return None
@@ -81,12 +80,7 @@ def create_top_link(
     ):
         return None
 
-    if os.path.islink(link_path):
-        if os.path.realpath(link_path) == os.path.realpath(source_path):
-            return None
-        return None
-
-    if os.path.exists(link_path):
+    if os.path.lexists(link_path):
         return None
 
     try:
@@ -98,9 +92,8 @@ def create_top_link(
         os.symlink(link_target, link_path)
     except OSError as symlink_error:
         if not (
-            runtime_system == "windows"
-            and getattr(symlink_error, "winerror", None)
-            == _WINDOWS_PRIVILEGE_NOT_HELD
+            operating_system is OperatingSystem.WINDOWS
+            and getattr(symlink_error, "winerror", None) == _WINDOWS_PRIVILEGE_NOT_HELD
         ):
             logger.error(
                 log_record(
@@ -162,8 +155,8 @@ def cleanup_top_links(
     source_path: str,
     ignore_selectors: list[str],
     template: Template,
-    runtime_system: RuntimeSystem,
-) -> Optional[IgnoreMap]:
+    operating_system: OperatingSystem,
+) -> IgnoreMap | None:
     deleted: IgnoreMap = {}
     try:
         entries = list(Path(repo_root).iterdir())
@@ -175,8 +168,9 @@ def cleanup_top_links(
             continue
         abs_path = str(entry.absolute())
         is_symlink = entry.is_symlink()
-        is_current_windows_hard_link = runtime_system == "windows" and (
-            _is_hard_link_to_source(abs_path, source_path)
+        is_current_windows_hard_link = (
+            operating_system is OperatingSystem.WINDOWS
+            and _is_hard_link_to_source(abs_path, source_path)
         )
         if not is_symlink and not is_current_windows_hard_link:
             continue
@@ -210,8 +204,9 @@ def linked_source_has_linker_root_flag(
         return False
     if not source_path.is_file():
         return False
-    known_args, _unknown_args, _arg_lines = get_args_from_file(
+    parsed_args = parse_note_args(
         path=str(source_path),
         template=template,
     )
-    return bool(known_args.get("linker_root"))
+    linker_root = parsed_args.find("linker-root")
+    return linker_root is not None and linker_root.value

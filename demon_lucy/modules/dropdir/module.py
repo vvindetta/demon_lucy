@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.models import KnownArg, Template
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
@@ -13,8 +13,8 @@ from demon_lucy.modules.abstract_module import (
 )
 from demon_lucy.modules.dropdir.actions import (
     action_context,
+    action_delay_seconds,
     action_rules,
-    delay_seconds_from_config,
     matches_selector,
     merge_ignore_maps,
     move_back_to_source,
@@ -22,21 +22,19 @@ from demon_lucy.modules.dropdir.actions import (
 )
 
 DROPDIR_TEMPLATE: Template = [
-    ArgTemplate(
-        name="--dropdir-action",
+    KnownArg(
+        name="dropdir-action",
         value_type=str,
         default=[],
         description="Run temporary Lucy flags when a file is moved into a matching drop directory. "
         "Format: selector=flags. Example: --dropdir-action 'cleanup=--archive-pair'",
-        required=False,
     ),
-    ArgTemplate(
-        name="--dropdir-action-delay-milliseconds",
+    KnownArg(
+        name="dropdir-action-delay-milliseconds",
         value_type=int,
         default=0,
         description="Delay before running dropdir action after instant move-back (milliseconds). "
         "Example: --dropdir-action-delay-milliseconds 1200",
-        required=False,
     ),
 ]
 
@@ -47,7 +45,7 @@ class DropDir(AbstractModule):
     template = DROPDIR_TEMPLATE
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        actions = action_rules(ctx, system)
+        actions = action_rules(ctx)
         if not actions:
             return None
 
@@ -61,11 +59,11 @@ class DropDir(AbstractModule):
             return None
 
         action_path, move_back_changed = move_back_to_source(
-            system=system,
+            ctx=ctx,
             destination_path=file_path,
         )
 
-        delay_seconds = delay_seconds_from_config(ctx)
+        delay_seconds = action_delay_seconds(ctx)
         if delay_seconds > 0:
             time.sleep(delay_seconds)
 
@@ -79,11 +77,13 @@ class DropDir(AbstractModule):
             )
             if next_ctx is None:
                 continue
-            event_ignore = run_action_modules(
-                source_module=self,
-                ctx=next_ctx,
-                system=system,
+            action_changed = merge_ignore_maps(
+                action_changed,
+                run_action_modules(
+                    source_module=self,
+                    ctx=next_ctx,
+                    system=system,
+                ),
             )
-            action_changed = merge_ignore_maps(action_changed, event_ignore)
 
         return merge_ignore_maps(move_back_changed, action_changed)

@@ -4,13 +4,16 @@ import logging
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional
+from typing import Dict, Optional
 
+from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.modules.git.executor import GitExecutor, combined_output
-from demon_lucy.modules.git.helpers import union_resolve_text
-from demon_lucy.modules.git.helpers import failure_looks_like_network_issue
+from demon_lucy.modules.git.helpers import (
+    failure_looks_like_network_issue,
+    union_resolve_text,
+)
 from demon_lucy.modules.git.ops import command_ops, conflict_ops, network_ops
 from demon_lucy.modules.git.types import MergeAutoresolveMode
 
@@ -18,14 +21,6 @@ logger = logging.getLogger(__name__)
 _MIN_STALE_INDEX_LOCK_AGE_SECONDS = 60.0
 _RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS = 15
 _RECENT_INDEX_LOCK_RETRY_SLEEP_SECONDS = 1.0
-
-
-def _index_lock_path(repo_root: str) -> str | None:
-    return command_ops.index_lock_path(repo_root)
-
-
-def failure_is_index_lock(error_text: str) -> bool:
-    return command_ops.failure_is_index_lock(error_text)
 
 
 def clear_stale_index_lock(repo_root: str) -> bool:
@@ -38,18 +33,6 @@ def clear_stale_index_lock(repo_root: str) -> bool:
 
 def _index_lock_age_seconds(repo_root: str) -> float | None:
     return command_ops.index_lock_age_seconds(repo_root, logger=logger)
-
-
-def _resolve_address_infos(
-    host_name: str,
-    port_number: int,
-    timeout_seconds: float,
-) -> tuple[list[tuple], bool]:
-    return network_ops.resolve_address_infos(
-        host_name=host_name,
-        port_number=port_number,
-        timeout_seconds=timeout_seconds,
-    )
 
 
 def abort_merge_safely(
@@ -69,9 +52,7 @@ def abort_merge_safely(
     )
 
 
-def git_environment(self, config: dict) -> Dict[str, str]:
-    _ = self
-    _ = config
+def git_environment() -> Dict[str, str]:
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
     environment["LC_ALL"] = "C"
@@ -95,7 +76,7 @@ def run_git(
         timeout_seconds=timeout_seconds,
         executor_factory=lambda root, env: GitExecutor(repo_root=root, environment=env),
         output_getter=combined_output,
-        failure_is_index_lock_fn=failure_is_index_lock,
+        failure_is_index_lock_fn=command_ops.failure_is_index_lock,
         clear_stale_index_lock_fn=clear_stale_index_lock,
         index_lock_age_seconds_fn=_index_lock_age_seconds,
         recent_retry_max_attempts=_RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS,
@@ -193,10 +174,6 @@ def remote_url(
     return remote_url_value
 
 
-def parse_remote_endpoint(remote_url_value: str) -> tuple[Optional[str], Optional[int]]:
-    return network_ops.parse_remote_endpoint(remote_url_value)
-
-
 def remote_is_reachable(
     self,
     repo_root: str,
@@ -217,19 +194,9 @@ def remote_is_reachable(
             environment,
             timeout_seconds,
         ),
-        parse_remote_endpoint_fn=parse_remote_endpoint,
-        resolve_address_infos_fn=_resolve_address_infos,
+        parse_remote_endpoint_fn=network_ops.parse_remote_endpoint,
+        resolve_address_infos_fn=network_ops.resolve_address_infos,
         logger=logger,
-    )
-
-
-def pull_failure_looks_offline(
-    output_text: str,
-    offline_error_markers: list[str] | None = None,
-) -> bool:
-    return failure_looks_like_network_issue(
-        output_text=output_text,
-        error_markers=offline_error_markers,
     )
 
 
@@ -341,24 +308,6 @@ class _PullPlan:
     remote_name: Optional[str]
 
 
-def _remote_is_reachable_or_wait(
-    self,
-    repo_root: str,
-    remote_name: str,
-    environment: Dict[str, str],
-    operation_timeout_seconds: float,
-    network_probe_timeout_seconds: float,
-) -> bool:
-    return remote_is_reachable(
-        self=self,
-        repo_root=repo_root,
-        remote_name=remote_name,
-        environment=environment,
-        timeout_seconds=operation_timeout_seconds,
-        network_probe_timeout_seconds=network_probe_timeout_seconds,
-    )
-
-
 def _resolve_pull_plan(
     self,
     repo_root: str,
@@ -372,12 +321,12 @@ def _resolve_pull_plan(
         remote_name = upstream_remote_name(
             self, repo_root, environment, operation_timeout_seconds
         )
-        if remote_name and not _remote_is_reachable_or_wait(
+        if remote_name and not remote_is_reachable(
             self=self,
             repo_root=repo_root,
             remote_name=remote_name,
             environment=environment,
-            operation_timeout_seconds=operation_timeout_seconds,
+            timeout_seconds=operation_timeout_seconds,
             network_probe_timeout_seconds=network_probe_timeout_seconds,
         ):
             return None
@@ -400,12 +349,12 @@ def _resolve_pull_plan(
         )
         return None
 
-    if not _remote_is_reachable_or_wait(
+    if not remote_is_reachable(
         self=self,
         repo_root=repo_root,
         remote_name=remote_name,
         environment=environment,
-        operation_timeout_seconds=operation_timeout_seconds,
+        timeout_seconds=operation_timeout_seconds,
         network_probe_timeout_seconds=network_probe_timeout_seconds,
     ):
         return None
@@ -454,12 +403,12 @@ def _handle_pull_timeout(
     network_probe_timeout_seconds: float,
     remote_name: Optional[str],
 ) -> bool:
-    if remote_name and not _remote_is_reachable_or_wait(
+    if remote_name and not remote_is_reachable(
         self=self,
         repo_root=repo_root,
         remote_name=remote_name,
         environment=environment,
-        operation_timeout_seconds=operation_timeout_seconds,
+        timeout_seconds=operation_timeout_seconds,
         network_probe_timeout_seconds=network_probe_timeout_seconds,
     ):
         logger.warning(
@@ -491,7 +440,7 @@ def _handle_pull_failure(
     autoresolve_mode: MergeAutoresolveMode,
     pull_result: subprocess.CompletedProcess[str],
     pull_offline_error_markers: list[str] | None,
-    config: Mapping[str, Any],
+    args: ParsedArgs,
 ) -> bool:
     if merge_in_progress(self, repo_root, environment, operation_timeout_seconds):
         resolved = resolve_merge_conflicts_with_fallback(
@@ -534,15 +483,15 @@ def _handle_pull_failure(
                 f"Error:\n{pull_error[:1200]}"
                 f"{merge_abort_note}"
             ),
-            config=config,
+            args=args,
             use_rare_mode=True,
         )
         return False
 
     pull_error = _pull_error_text(pull_result)
-    if pull_failure_looks_offline(
-        pull_error,
-        pull_offline_error_markers,
+    if failure_looks_like_network_issue(
+        output_text=pull_error,
+        error_markers=pull_offline_error_markers,
     ):
         logger.warning(
             log_record(
@@ -566,7 +515,7 @@ def safe_pull_merge(
     pull_timeout_seconds: float,
     operation_timeout_seconds: float,
     autoresolve_mode: MergeAutoresolveMode,
-    config: Mapping[str, Any],
+    args: ParsedArgs,
     auto_set_upstream: bool = True,
     network_probe_timeout_seconds: float = 0.0,
     pull_offline_error_markers: list[str] | None = None,
@@ -612,5 +561,5 @@ def safe_pull_merge(
         autoresolve_mode=autoresolve_mode,
         pull_result=pull_result,
         pull_offline_error_markers=pull_offline_error_markers,
-        config=config,
+        args=args,
     )

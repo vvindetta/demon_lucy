@@ -20,23 +20,23 @@ class _FakeModules:
     def __init__(
         self,
         ignore_maps: list[dict[str, int] | None] | None = None,
-        values: dict | None = None,
+        values: dict[str, object] | None = None,
     ) -> None:
         self.calls = 0
         self.paths: list[str] = []
         self._ignore_maps = list(ignore_maps or [])
         resolved_values = {
-            "sys_watch_paths": [],
-            "sys_ignore_move_paths": [".status"],
+            "sys-watch-paths": [],
+            "sys-ignore-move-paths": [".status"],
         }
         resolved_values.update(values or {})
         self.args = ParsedArgs(
             known=tuple(
                 KnownArg(
-                    name=key.replace("_", "-"),
+                    name=name,
                     value=value,
                 )
-                for key, value in resolved_values.items()
+                for name, value in resolved_values.items()
             )
         )
 
@@ -225,8 +225,8 @@ def test_move_ignore_dirs_are_derived_from_module_args(tmp_path: Path) -> None:
     extra_move_ignore_dir = tmp_path / "panel-status"
     modules = _FakeModules(
         values={
-            "sys_watch_paths": [str(tmp_path)],
-            "sys_ignore_move_paths": [".status", str(extra_move_ignore_dir)],
+            "sys-watch-paths": [str(tmp_path)],
+            "sys-ignore-move-paths": [".status", str(extra_move_ignore_dir)],
         },
     )
     handler = _mk_handler(modules)
@@ -244,7 +244,7 @@ def test_moved_event_inside_move_ignore_dir_is_skipped(tmp_path: Path) -> None:
     dst = status_dir / "08:10"
     src.write_text("x\n", encoding="utf-8")
 
-    modules = _FakeModules(values={"sys_watch_paths": [str(tmp_path)]})
+    modules = _FakeModules(values={"sys-watch-paths": [str(tmp_path)]})
     handler = _mk_handler(modules)
 
     handler.on_moved(_moved_event(str(src), str(dst)))
@@ -261,7 +261,7 @@ def test_move_ignore_dir_consumes_pending_ignore_map(tmp_path: Path) -> None:
 
     modules = _FakeModules(
         ignore_maps=[{str(src): 1, str(dst): 1}, None],
-        values={"sys_watch_paths": [str(tmp_path)]},
+        values={"sys-watch-paths": [str(tmp_path)]},
     )
     handler = _mk_handler(modules)
 
@@ -279,7 +279,7 @@ def test_modified_event_inside_status_dir_is_processed(tmp_path: Path) -> None:
     path = status_dir / "08:09"
     path.write_text("x\n", encoding="utf-8")
 
-    modules = _FakeModules(values={"sys_watch_paths": [str(tmp_path)]})
+    modules = _FakeModules(values={"sys-watch-paths": [str(tmp_path)]})
     handler = _mk_handler(modules)
 
     handler.on_modified(_modified_event(str(path)))
@@ -295,7 +295,7 @@ def test_moved_event_into_status_dir_from_outside_is_processed(tmp_path: Path) -
     dst = status_dir / "note.md"
     src.write_text("x\n", encoding="utf-8")
 
-    modules = _FakeModules(values={"sys_watch_paths": [str(tmp_path)]})
+    modules = _FakeModules(values={"sys-watch-paths": [str(tmp_path)]})
     handler = _mk_handler(modules)
 
     handler.on_moved(_moved_event(str(src), str(dst)))

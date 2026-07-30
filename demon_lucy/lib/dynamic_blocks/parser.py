@@ -266,11 +266,7 @@ def format_dynamic_block(
             raise ValueError(f"invalid dynamic block parameter: {key}")
         if key == "updated":
             raise ValueError("dynamic block parameter 'updated' is reserved")
-        value = str(
-            raw_value.value
-            if isinstance(raw_value, Enum)
-            else raw_value
-        )
+        value = str(raw_value.value if isinstance(raw_value, Enum) else raw_value)
         if "\n" in value or "\r" in value:
             raise ValueError(f"multiline dynamic block parameter: {key}")
         label = key
@@ -302,8 +298,4 @@ def format_dynamic_block(
         updated_timestamp=updated_timestamp,
         newline=newline,
     )
-    return (
-        f"--- {arg} begin ---{newline}"
-        + section
-        + f"--- {arg} end ---{newline}"
-    )
+    return f"--- {arg} begin ---{newline}" + section + f"--- {arg} end ---{newline}"

@@ -4,45 +4,44 @@ import json
 import subprocess
 from pathlib import Path
 
-from watchdog.events import FileModifiedEvent
-
 import demon_lucy.modules.ai as ai_module
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.ai import Ai
 from demon_lucy.modules.ai import runner as ai_runner
 from demon_lucy.modules.ai.runner import CodexRunError
+from tests.args_support import make_context
 
 
 def _context(path: Path) -> Context:
-    return Context(
-        path=str(path),
-        config={
+    return make_context(
+        str(path),
+        Ai.template,
+        {
             "ai": ["rewrite", "the", "heading"],
-            "ai_timeout_seconds": 900,
+            "ai-timeout-seconds": 900,
         },
-        arg_lines={"ai": [2, 2, 2]},
-    )
-
-
-def _system(path: Path, module: Ai) -> System:
-    return System(
-        event=FileModifiedEvent(str(path)),
-        global_template=module.template,
-        modules=[module],
+        lines={"ai": (2, 2, 2)},
         event_id="evt-ai",
     )
 
 
+def _system(module: Ai) -> System:
+    return System(
+        global_template=module.template,
+        modules=[module],
+    )
+
+
 def test_ai_template_parses_prompt_and_timeout() -> None:
-    config, unknown = parse_args(
+    parsed = parse_args(
         args=["--ai", "rewrite", "the heading", "--ai-timeout-seconds", "30"],
         template=Ai.template,
     )
 
-    assert unknown == []
-    assert config["ai"] == ["rewrite", "the heading"]
-    assert config["ai_timeout_seconds"] == 30
+    assert parsed.unknown == ()
+    assert parsed.require("ai").value == ["rewrite", "the heading"]
+    assert parsed.require("ai-timeout-seconds").value == 30
 
 
 def test_ai_edits_only_command_file_content(
@@ -60,7 +59,7 @@ def test_ai_edits_only_command_file_content(
     monkeypatch.setattr(ai_module, "run_codex", fake_run_codex)
     module = Ai()
 
-    changed = module.modified(_context(note), _system(note, module))
+    changed = module.modified(_context(note), _system(module))
 
     assert changed == {str(note.resolve()): 1}
     assert captured == {
@@ -82,7 +81,7 @@ def test_ai_preserves_source_newlines(tmp_path: Path, monkeypatch) -> None:
     )
     module = Ai()
 
-    changed = module.modified(_context(note), _system(note, module))
+    changed = module.modified(_context(note), _system(module))
 
     assert changed == {str(note.resolve()): 1}
     assert note.read_bytes() == b"New title\r\n\r\nbody\r\n"
@@ -110,7 +109,7 @@ def test_ai_failure_keeps_command_and_source_unchanged(
     )
     module = Ai()
 
-    changed = module.modified(_context(note), _system(note, module))
+    changed = module.modified(_context(note), _system(module))
 
     assert changed is None
     assert note.read_text(encoding="utf-8") == source_text
@@ -139,7 +138,7 @@ def test_ai_does_not_overwrite_file_changed_during_run(
     )
     module = Ai()
 
-    changed = module.modified(_context(note), _system(note, module))
+    changed = module.modified(_context(note), _system(module))
 
     assert changed is None
     assert note.read_text(encoding="utf-8") == "user changed this\n"

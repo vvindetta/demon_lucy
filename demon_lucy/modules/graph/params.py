@@ -5,12 +5,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import cast
 
-from demon_lucy.lib.args.parser import (
-    ArgTemplate,
-    Template,
-    normalize_template_params,
-    template_allowed_values,
-)
+from demon_lucy.lib.args.models import ArgParam, KnownArg, Template
+from demon_lucy.lib.args.parser import normalize_arg_params
 
 GRAPH_ARG_REGEX = {
     "graph": False,
@@ -31,22 +27,22 @@ class GraphView(StrEnum):
 
 
 GRAPH_PARAMS = (
-    ArgTemplate(name="source", required=True),
-    ArgTemplate(name="pattern", required=True),
-    ArgTemplate(
+    ArgParam(name="source", required=True),
+    ArgParam(name="pattern", required=True),
+    ArgParam(
         name="period",
         value_type=GraphPeriod,
         default=GraphPeriod.YEAR,
     ),
-    ArgTemplate(
+    ArgParam(
         name="view",
         value_type=GraphView,
         default=GraphView.ASCII,
     ),
 )
 GRAPH_TEMPLATE: Template = [
-    ArgTemplate(
-        name="--graph",
+    KnownArg(
+        name="graph",
         value_type=str,
         default=[],
         description=(
@@ -55,8 +51,8 @@ GRAPH_TEMPLATE: Template = [
         ),
         params=GRAPH_PARAMS,
     ),
-    ArgTemplate(
-        name="--graph-regex",
+    KnownArg(
+        name="graph-regex",
         value_type=str,
         default=[],
         description=(
@@ -69,10 +65,9 @@ GRAPH_TEMPLATE: Template = [
 ]
 
 
-def graph_arg_template(arg: str) -> ArgTemplate:
-    flag = f"--{arg}"
+def graph_arg_template(arg: str) -> KnownArg:
     for item in GRAPH_TEMPLATE:
-        if item.name == flag:
+        if item.name == arg:
             return item
     raise ValueError(f"unsupported graph arg: {arg}")
 
@@ -98,7 +93,7 @@ def normalize_graph_params(
         raise ValueError(f"unsupported graph arg: {arg}")
 
     arg_template = graph_arg_template(arg)
-    normalized = normalize_template_params(values, arg_template.params)
+    normalized = normalize_arg_params(values, arg_template.params)
     return GraphParams(
         arg=arg,
         source=cast(str, normalized["source"]),
@@ -113,14 +108,10 @@ def graph_params_from_command(flag: str, values: list[str]) -> GraphParams:
     if len(values) < 2:
         raise ValueError(f"{flag} requires: file pattern [period]")
 
-    named_values = {"source": str(values[0])}
+    named_values = {"source": values[0]}
     pattern_values = values[1:]
-    arg_template = graph_arg_template(arg)
-    period_param = next(
-        param for param in arg_template.params if param.name == "period"
-    )
-    allowed_periods = template_allowed_values(period_param)
-    maybe_period = str(values[-1]).strip().lower()
+    allowed_periods = {period.value for period in GraphPeriod}
+    maybe_period = values[-1].strip().lower()
     if len(values) >= 3 and maybe_period in allowed_periods:
         named_values["period"] = maybe_period
         pattern_values = values[1:-1]

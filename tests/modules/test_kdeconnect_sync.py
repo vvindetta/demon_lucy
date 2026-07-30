@@ -3,38 +3,69 @@ from __future__ import annotations
 from watchdog.events import FileModifiedEvent
 
 import demon_lucy.modules.kdeconnect_sync as kde_mod
+from demon_lucy.lib.args.models import ParsedArgs
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.git.config import GIT_TEMPLATE
 from demon_lucy.modules.git.worker import (
     DirtyTreeCommitResult,
     PatchPacketBuildResult,
 )
 from demon_lucy.modules.kdeconnect_sync import KdeconnectSync
+from demon_lucy.modules.kdeconnect_sync.config import KDECONNECT_SYNC_TEMPLATE
 from demon_lucy.modules.kdeconnect_sync.transport import TransferResult
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
 
-def _base_config(*, enabled: bool, dry_run: bool = False) -> dict:
-    return {
-        "kdeconnect_sync": enabled,
-        "kdeconnect_device_id": "device-1",
-        "kdeconnect_remote_root": "/storage/emulated/0/Notes",
-        "kdeconnect_patch_queue_dir": ".demon_lucy/patch_queue",
-        "kdeconnect_patch_coalesce_milliseconds": 0,
-        "kdeconnect_patch_retry_seconds": 5.0,
-        "kdeconnect_patch_max_retries": 3,
-        "kdeconnect_binary_fallback_enabled": False,
-        "kdeconnect_command_timeout_seconds": 10.0,
-        "kdeconnect_mount_retry_seconds": 1.0,
-        "kdeconnect_dry_run": dry_run,
-        "sys_notification_provider": "disable",
-        "sys_notification_min_interval_seconds": 0.1,
-        "sys_notification_error_backoff_base_seconds": 0.1,
-        "sys_notification_error_backoff_max_seconds": 1.0,
-        "sys_notification_error_burst_limit": 3,
-        "sys_notification_error_burst_window_seconds": 10.0,
-        "sys_git_repo_lock_wait_timeout_seconds": 30.0,
-        "sys_git_repo_lock_retry_sleep_seconds": 0.2,
-        "sys_git_repo_lock_stale_seconds": 1800.0,
-    }
+_TEMPLATE = [
+    *DEMON_LUCY_STARTUP_TEMPLATE,
+    *GIT_TEMPLATE,
+    *KDECONNECT_SYNC_TEMPLATE,
+]
+
+
+def _base_args(*, enabled: bool, dry_run: bool = False) -> ParsedArgs:
+    tokens = [
+        "--kdeconnect-device-id",
+        "device-1",
+        "--kdeconnect-remote-root",
+        "/storage/emulated/0/Notes",
+        "--kdeconnect-patch-coalesce-milliseconds",
+        "0",
+        "--kdeconnect-mount-retry-seconds",
+        "1",
+        "--sys-notification-provider",
+        "disable",
+    ]
+    if enabled:
+        tokens.append("--kdeconnect-sync")
+    if dry_run:
+        tokens.append("--kdeconnect-dry-run")
+    return parse_args(args=tokens, template=_TEMPLATE)
+
+
+def _context(
+    path: str,
+    args: ParsedArgs,
+    *,
+    run_mode: str = "daemon",
+) -> Context:
+    return Context(
+        path=path,
+        args=args,
+        run_mode=run_mode,
+        event_id="evt-test",
+        event=FileModifiedEvent(path),
+    )
+
+
+def _system(module: KdeconnectSync) -> System:
+    return System(
+        global_template=_TEMPLATE,
+        modules=[module],
+        operating_system=OperatingSystem.LINUX,
+    )
 
 
 def test_modified_noop_when_module_disabled(monkeypatch):
@@ -50,14 +81,9 @@ def test_modified_noop_when_module_disabled(monkeypatch):
         module, "_run_repo_sync", lambda **_kwargs: called.__setitem__("value", True)
     )
 
-    ctx = Context(
-        path="/repo/note.md", config=_base_config(enabled=False), arg_lines={}
-    )
-    system = System(
-        event=FileModifiedEvent("/repo/note.md"), global_template=[], modules=[module]
-    )
+    ctx = _context("/repo/note.md", _base_args(enabled=False))
 
-    result = module.modified(ctx, system)
+    result = module.modified(ctx, _system(module))
 
     assert result is None
     assert called["value"] is False
@@ -75,12 +101,9 @@ def test_modified_ignores_patch_queue_internal_files(monkeypatch):
     )
 
     queue_file = "/repo/.demon_lucy/patch_queue/outgoing_pc_to_phone/p-1.patch"
-    ctx = Context(path=queue_file, config=_base_config(enabled=True), arg_lines={})
-    system = System(
-        event=FileModifiedEvent(queue_file), global_template=[], modules=[module]
-    )
+    ctx = _context(queue_file, _base_args(enabled=True))
 
-    result = module.modified(ctx, system)
+    result = module.modified(ctx, _system(module))
 
     assert result is None
     assert called["value"] is False
@@ -123,14 +146,12 @@ def test_modified_oneshot_builds_and_sends_patch(monkeypatch):
 
     monkeypatch.setattr(kde_mod, "transfer_packet_to_phone", _transfer)
 
-    ctx = Context(path="/repo/note.md", config=_base_config(enabled=True), arg_lines={})
-    system = System(
-        event=FileModifiedEvent("/repo/note.md"),
-        global_template=[],
-        modules=[module],
+    ctx = _context(
+        "/repo/note.md",
+        _base_args(enabled=True),
         run_mode="oneshot",
     )
-    result = module.modified(ctx, system)
+    result = module.modified(ctx, _system(module))
 
     assert result is None
     assert len(transfer_calls) == 1
@@ -161,15 +182,13 @@ def test_modified_oneshot_silently_skips_when_git_repo_is_busy(monkeypatch):
         ),
     )
 
-    ctx = Context(path="/repo/note.md", config=_base_config(enabled=True), arg_lines={})
-    system = System(
-        event=FileModifiedEvent("/repo/note.md"),
-        global_template=[],
-        modules=[module],
+    ctx = _context(
+        "/repo/note.md",
+        _base_args(enabled=True),
         run_mode="oneshot",
     )
 
-    result = module.modified(ctx, system)
+    result = module.modified(ctx, _system(module))
 
     assert result is None
     assert notifications == []
@@ -218,8 +237,8 @@ def test_run_repo_sync_transfer_failure_does_not_notify_for_transient_phone_erro
         repo_root="/repo",
         event_type="modified",
         trigger_paths=["/repo/note.md"],
-        config_snapshot=_base_config(enabled=True),
-        runtime_system="linux",
+        args=_base_args(enabled=True),
+        operating_system=OperatingSystem.LINUX,
     )
 
     assert notifications == []
@@ -268,8 +287,8 @@ def test_run_repo_sync_transfer_misconfig_notifies_once(monkeypatch):
         repo_root="/repo",
         event_type="modified",
         trigger_paths=["/repo/note.md"],
-        config_snapshot=_base_config(enabled=True),
-        runtime_system="linux",
+        args=_base_args(enabled=True),
+        operating_system=OperatingSystem.LINUX,
     )
 
     assert [item["name"] for item in notifications] == ["kdeconnect-sync:/repo"]

@@ -8,28 +8,63 @@ from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileMovedEvent
 
 import demon_lucy.modules.banner as banner_mod
 import demon_lucy.modules.plasma_widget as plasma_mod
+from demon_lucy.lib.args.models import ArgSource, ParsedArgs
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.notifications import NotificationProvider
 from demon_lucy.module_manager import ModuleManager
+from demon_lucy.modules.abstract_module import AbstractModule
 from demon_lucy.modules.archive import Archive
 from demon_lucy.modules.banner import Banner
 from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.formatter import Formatter
 from demon_lucy.modules.linker import Linker
 from demon_lucy.modules.plasma_widget import PlasmaWidget
+from demon_lucy.modules.plasma_widget.markdown_codec import _doc_to_md
+from demon_lucy.modules.plasma_widget.mirror_mapper import _mirror_html_to_items
+from demon_lucy.modules.plasma_widget.plasma_html_codec import _html_to_doc
 from demon_lucy.modules.renamer import Renamer
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
 
-def _system_config(root: Path) -> dict[str, object]:
-    return {
-        "sys_config_path": str(root / ".lucy" / "config.txt"),
-        "sys_watch_paths": [str(root)],
-        "sys_ignore_paths": [],
-        "sys_notification_provider": "disable",
-        "sys_notification_min_interval_seconds": 0.0,
-        "sys_notification_error_backoff_base_seconds": 0.0,
-        "sys_notification_error_backoff_max_seconds": 0.0,
-        "sys_notification_error_burst_limit": 0,
-        "sys_notification_error_burst_window_seconds": 0.0,
-    }
+def _startup_args(
+    root: Path,
+    *,
+    priorities: tuple[str, ...] = (),
+    extra: tuple[str, ...] = (),
+) -> ParsedArgs:
+    tokens = [
+        "--sys-config-path",
+        str(root / ".lucy" / "config.txt"),
+        "--sys-watch-paths",
+        str(root),
+        "--sys-notification-provider",
+        NotificationProvider.DISABLE,
+    ]
+    if priorities:
+        tokens.extend(["--sys-modules-priority", *priorities])
+    tokens.extend(extra)
+    return parse_args(
+        args=tokens,
+        template=DEMON_LUCY_STARTUP_TEMPLATE,
+        source=ArgSource.CONFIG,
+    )
+
+
+def _manager(
+    root: Path,
+    modules: list[AbstractModule],
+    *,
+    priorities: tuple[str, ...] = (),
+    extra: tuple[str, ...] = (),
+) -> ModuleManager:
+    return ModuleManager(
+        modules=modules,
+        startup_args=_startup_args(
+            root,
+            priorities=priorities,
+            extra=extra,
+        ),
+    )
 
 
 def _make_repo(tmp_path: Path) -> Path:
@@ -47,9 +82,7 @@ def _reset_plasma_state(monkeypatch):
 
 
 def _widget_markdown(widget_path: Path) -> str:
-    return plasma_mod._doc_to_md(
-        plasma_mod._html_to_doc(widget_path.read_text(encoding="utf-8"))
-    )
+    return _doc_to_md(_html_to_doc(widget_path.read_text(encoding="utf-8")))
 
 
 def test_renamer_formatter_linker_pipeline_on_created_note(tmp_path: Path):
@@ -65,10 +98,10 @@ def test_renamer_formatter_linker_pipeline_on_created_note(tmp_path: Path):
         encoding="utf-8",
     )
 
-    manager = ModuleManager(
-        modules=[Linker(), Formatter(), Renamer()],
-        args=["--sys-modules-priority", "renamer=10", "formatter=20", "linker=30"],
-        system_config=_system_config(repo),
+    manager = _manager(
+        repo,
+        [Linker(), Formatter(), Renamer()],
+        priorities=("renamer=10", "formatter=20", "linker=30"),
     )
 
     ignore = manager.run(str(note), FileCreatedEvent(str(note)))
@@ -82,7 +115,7 @@ def test_renamer_formatter_linker_pipeline_on_created_note(tmp_path: Path):
     }
     assert not note.exists()
     assert renamed.read_text(encoding="utf-8") == (
-        "--rename daily.md\n" "--linker-root\n" "- [ ] first task\n" "- [x] done\n"
+        "--rename daily.md\n--linker-root\n- [ ] first task\n- [x] done\n"
     )
     assert link_path.is_symlink()
     assert os.path.realpath(link_path) == str(renamed.resolve())
@@ -108,13 +141,16 @@ def test_banner_formatter_archive_pipeline_archives_complex_note(
         encoding="utf-8",
     )
 
-    manager = ModuleManager(
-        modules=[Archive(), Formatter(), Banner()],
-        args=["--sys-modules-priority", "banner=10", "formatter=20", "archive=30"],
-        system_config={
-            **_system_config(repo),
-            "archive_auto_pair": [str(note), str(archive), "12"],
-        },
+    manager = _manager(
+        repo,
+        [Archive(), Formatter(), Banner()],
+        priorities=("banner=10", "formatter=20", "archive=30"),
+        extra=(
+            "--archive-auto-pair",
+            str(note),
+            str(archive),
+            "12",
+        ),
     )
 
     ignore = manager.run(str(note), FileModifiedEvent(str(note)))
@@ -135,17 +171,20 @@ def test_formatter_blank_command_is_not_archived(tmp_path: Path):
     note = repo / "daily.md"
     archive = repo / "past.md"
     note.write_text(
-        "--archive-pair --formatter-blank up 3 --formatter-todo\n" "- inbox task\n",
+        "--archive-pair --formatter-blank up 3 --formatter-todo\n- inbox task\n",
         encoding="utf-8",
     )
 
-    manager = ModuleManager(
-        modules=[Archive(), Formatter()],
-        args=["--sys-modules-priority", "formatter=10", "archive=20"],
-        system_config={
-            **_system_config(repo),
-            "archive_auto_pair": [str(note), str(archive), "12"],
-        },
+    manager = _manager(
+        repo,
+        [Archive(), Formatter()],
+        priorities=("formatter=10", "archive=20"),
+        extra=(
+            "--archive-auto-pair",
+            str(note),
+            str(archive),
+            "12",
+        ),
     )
 
     ignore = manager.run(str(note), FileModifiedEvent(str(note)))
@@ -170,15 +209,18 @@ def test_formatter_dropdir_archive_pipeline_formats_before_clean_archive(
     dropped = drop_dir / source.name
     source.rename(dropped)
 
-    manager = ModuleManager(
-        modules=[Archive(), DropDir(), Formatter()],
-        args=["--sys-modules-priority", "formatter=10", "dropdir=20", "archive=30"],
-        system_config={
-            **_system_config(repo),
-            "archive_auto_pair": [str(source), str(archive), "12"],
-            "dropdir_action": ["drop=--archive-pair"],
-            "dropdir_action_delay_milliseconds": 0,
-        },
+    manager = _manager(
+        repo,
+        [Archive(), DropDir(), Formatter()],
+        priorities=("formatter=10", "dropdir=20", "archive=30"),
+        extra=(
+            "--archive-auto-pair",
+            str(source),
+            str(archive),
+            "12",
+            "--dropdir-action",
+            "drop=--archive-pair",
+        ),
     )
 
     ignore = manager.run(str(dropped), FileMovedEvent(str(source), str(dropped)))
@@ -215,22 +257,23 @@ def test_banner_formatter_linker_plasma_complex_note_stays_consistent(
         encoding="utf-8",
     )
 
-    manager = ModuleManager(
-        modules=[PlasmaWidget(), Linker(), Formatter(), Banner()],
-        args=[
-            "--sys-modules-priority",
+    manager = _manager(
+        repo,
+        [PlasmaWidget(), Linker(), Formatter(), Banner()],
+        priorities=(
             "banner=10",
             "formatter=20",
             "linker=30",
             "plasma_widget=40",
-        ],
-        system_config={
-            **_system_config(repo),
-            "plasma_markdown_note_path": str(note),
-            "plasma_widget_path": str(widget),
-            "plasma_bold_widget_path": str(mirror),
-            "plasma_css_style": False,
-        },
+        ),
+        extra=(
+            "--plasma-markdown-note-path",
+            str(note),
+            "--plasma-widget-path",
+            str(widget),
+            "--plasma-bold-widget-path",
+            str(mirror),
+        ),
     )
 
     manager.run(str(note), FileModifiedEvent(str(note)))
@@ -238,9 +281,7 @@ def test_banner_formatter_linker_plasma_complex_note_stays_consistent(
     assert (repo / "daily.md").is_symlink()
     assert "- [ ] raw task" in note.read_text(encoding="utf-8")
     assert "- [ ] raw task" in _widget_markdown(widget)
-    assert plasma_mod._mirror_html_to_items(mirror.read_text(encoding="utf-8")) == [
-        "Important"
-    ]
+    assert _mirror_html_to_items(mirror.read_text(encoding="utf-8")) == ["Important"]
 
 
 def test_linker_and_formatter_keep_the_original_event_path_between_modules(
@@ -251,11 +292,7 @@ def test_linker_and_formatter_keep_the_original_event_path_between_modules(
     note.parent.mkdir(parents=True)
     note.write_text("--linker-root\n--formatter-todo\n- task\n", encoding="utf-8")
 
-    manager = ModuleManager(
-        modules=[Formatter(), Linker()],
-        args=[],
-        system_config=_system_config(repo),
-    )
+    manager = _manager(repo, [Formatter(), Linker()])
 
     ignore = manager.run(str(note), FileModifiedEvent(str(note)))
 
@@ -274,10 +311,10 @@ def test_formatter_then_linker_priority_override_combines_side_effects(
     note.parent.mkdir(parents=True)
     note.write_text("--linker-root\n--formatter-todo\n- task\n", encoding="utf-8")
 
-    manager = ModuleManager(
-        modules=[Formatter(), Linker()],
-        args=["--sys-modules-priority", "formatter=10", "linker=20"],
-        system_config=_system_config(repo),
+    manager = _manager(
+        repo,
+        [Formatter(), Linker()],
+        priorities=("formatter=10", "linker=20"),
     )
 
     ignore = manager.run(str(note), FileModifiedEvent(str(note)))
@@ -296,13 +333,10 @@ def test_sys_ignore_paths_blocks_real_modules_and_side_effects(tmp_path: Path):
     note.parent.mkdir(parents=True)
     note.write_text("--linker-root\n--formatter-todo\n- task\n", encoding="utf-8")
 
-    manager = ModuleManager(
-        modules=[Formatter(), Linker()],
-        args=[],
-        system_config={
-            **_system_config(repo),
-            "sys_ignore_paths": [str(ignored_dir)],
-        },
+    manager = _manager(
+        repo,
+        [Formatter(), Linker()],
+        extra=("--sys-ignore-paths", str(ignored_dir)),
     )
 
     ignore = manager.run(str(note), FileModifiedEvent(str(note)))
@@ -325,15 +359,17 @@ def test_dropdir_moves_file_back_and_archives_with_absolute_pair(tmp_path: Path)
     dropped = drop_dir / source.name
     source.rename(dropped)
 
-    manager = ModuleManager(
-        modules=[Archive(), DropDir()],
-        args=[],
-        system_config={
-            **_system_config(repo),
-            "archive_auto_pair": [str(source), str(archive), "12"],
-            "dropdir_action": ["drop=--archive-pair"],
-            "dropdir_action_delay_milliseconds": 0,
-        },
+    manager = _manager(
+        repo,
+        [Archive(), DropDir()],
+        extra=(
+            "--archive-auto-pair",
+            str(source),
+            str(archive),
+            "12",
+            "--dropdir-action",
+            "drop=--archive-pair",
+        ),
     )
 
     ignore = manager.run(str(dropped), FileMovedEvent(str(source), str(dropped)))
@@ -355,16 +391,17 @@ def test_default_formatter_plasma_order_keeps_widget_in_sync(tmp_path: Path):
     mirror = repo / "mirror.html"
     note.write_text("--formatter-todo\n- task\n**Bold**\n", encoding="utf-8")
 
-    manager = ModuleManager(
-        modules=[PlasmaWidget(), Formatter()],
-        args=[],
-        system_config={
-            **_system_config(repo),
-            "plasma_markdown_note_path": str(note),
-            "plasma_widget_path": str(widget),
-            "plasma_bold_widget_path": str(mirror),
-            "plasma_css_style": False,
-        },
+    manager = _manager(
+        repo,
+        [PlasmaWidget(), Formatter()],
+        extra=(
+            "--plasma-markdown-note-path",
+            str(note),
+            "--plasma-widget-path",
+            str(widget),
+            "--plasma-bold-widget-path",
+            str(mirror),
+        ),
     )
 
     ignore = manager.run(str(note), FileModifiedEvent(str(note)))
@@ -372,6 +409,4 @@ def test_default_formatter_plasma_order_keeps_widget_in_sync(tmp_path: Path):
     assert ignore is not None
     assert note.read_text(encoding="utf-8") == "- [ ] task\n**Bold**\n"
     assert "- [ ] task" in _widget_markdown(widget)
-    assert plasma_mod._mirror_html_to_items(mirror.read_text(encoding="utf-8")) == [
-        "Bold"
-    ]
+    assert _mirror_html_to_items(mirror.read_text(encoding="utf-8")) == ["Bold"]

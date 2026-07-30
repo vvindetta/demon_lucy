@@ -10,6 +10,7 @@ from demon_lucy.file_handler import FileHandler
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.args.sources import load_args
 from demon_lucy.lib.logfmt import log_record
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.lib.path import abs_expand_path
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.runtime import (
@@ -31,12 +32,11 @@ def main() -> int:
     config_path_arg = initial_args.find("sys-config-path")
     if config_path_arg is not None:
         run_config_migrations(config_path_arg.value)
-    startup_args = load_args(
-        template=DEMON_LUCY_STARTUP_TEMPLATE
-    )
-    notes_dirs = startup_args.require("sys-watch-paths").value
-    if not notes_dirs:
-        raise ValueError("No --sys-watch-paths was setuped")
+    startup_args = load_args(template=DEMON_LUCY_STARTUP_TEMPLATE)
+    watch_paths = startup_args.find("sys-watch-paths")
+    if watch_paths is None or not watch_paths.value:
+        raise ValueError("--sys-watch-paths is required")
+    notes_dirs = watch_paths.value
     if "/path/to/note/dir" in notes_dirs:
         raise ValueError(
             "--sys-watch-paths: '/path/to/note/dir' is not a valid path. Please edit your config."
@@ -58,13 +58,14 @@ def main() -> int:
         args=startup_args,
     )
 
-    disable_opened_events = startup_args.require(
-        "sys-disable-opened-events"
-    ).value
-    if modules.operating_system != "linux" and not disable_opened_events:
+    disable_opened_events = startup_args.require("sys-disable-opened-events").value
+    if (
+        modules.operating_system is not OperatingSystem.LINUX
+        and not disable_opened_events
+    ):
         system_name = {
-            "macos": "macOS",
-            "windows": "Windows",
+            OperatingSystem.MACOS: "macOS",
+            OperatingSystem.WINDOWS: "Windows",
         }.get(modules.operating_system, "this system")
         logger.info(
             log_record(

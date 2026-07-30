@@ -5,22 +5,58 @@ from pathlib import Path
 
 from watchdog.events import FileModifiedEvent
 
+from demon_lucy.lib.args.models import ArgSource, ParsedArgs, Template
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.workspace import Workspace
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
+_WORKSPACE_TEMPLATE: Template = [
+    *DEMON_LUCY_STARTUP_TEMPLATE,
+    *Workspace.template,
+]
 
-def _startup_config(tmp_path: Path) -> dict[str, object]:
-    config, unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
-    assert unknown == []
-    config.update(
-        {
-            "sys_watch_paths": [str(tmp_path)],
-        }
+
+def _startup_args(
+    tmp_path: Path,
+    *,
+    log_level: str | None = None,
+) -> ParsedArgs:
+    tokens = ["--sys-watch-paths", str(tmp_path)]
+    if log_level is not None:
+        tokens.extend(["--sys-log-level", log_level])
+    return parse_args(
+        args=tokens,
+        template=DEMON_LUCY_STARTUP_TEMPLATE,
+        source=ArgSource.CONFIG,
     )
-    return config
+
+
+def _context(
+    path: Path,
+    workspace: str,
+    event: FileModifiedEvent,
+) -> Context:
+    return Context(
+        path=str(path),
+        args=parse_args(
+            args=["--workspace-init", workspace],
+            template=_WORKSPACE_TEMPLATE,
+            source=ArgSource.FILE,
+            line=1,
+        ),
+        run_mode="oneshot",
+        event_id="test",
+        event=event,
+    )
+
+
+def _system(module: Workspace) -> System:
+    return System(
+        global_template=_WORKSPACE_TEMPLATE,
+        modules=[module],
+    )
 
 
 def test_workspace_default_template_contains_created_files() -> None:
@@ -44,8 +80,7 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
 
     manager = ModuleManager(
         modules=[Workspace()],
-        args=[],
-        system_config=_startup_config(tmp_path),
+        startup_args=_startup_args(tmp_path),
     )
 
     with caplog.at_level(logging.INFO, logger="demon_lucy.modules.workspace"):
@@ -107,16 +142,13 @@ def test_workspace_init_resolves_relative_path_from_note_dir(tmp_path: Path) -> 
     trigger.write_text("body\n", encoding="utf-8")
 
     module = Workspace()
-    ctx = Context(
-        path=str(trigger),
-        config={"workspace_init": "project"},
-        arg_lines={"workspace_init": [1]},
+    event = FileModifiedEvent(str(trigger))
+    ctx = _context(
+        trigger,
+        "project",
+        event,
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger)),
-        global_template=DEMON_LUCY_STARTUP_TEMPLATE + Workspace.template,
-        modules=[module],
-    )
+    system = _system(module)
 
     module.modified(ctx, system)
 
@@ -130,20 +162,14 @@ def test_workspace_init_keeps_non_default_system_values(tmp_path: Path) -> None:
     trigger = tmp_path / "trigger.md"
     workspace_root = tmp_path / "notes"
     trigger.write_text(f"--workspace-init {workspace_root}\n", encoding="utf-8")
-    config = _startup_config(tmp_path)
-    config["sys_log_level"] = "info"
-
     manager = ModuleManager(
         modules=[Workspace()],
-        args=[],
-        system_config=config,
+        startup_args=_startup_args(tmp_path, log_level="info"),
     )
 
     manager.run(str(trigger), FileModifiedEvent(str(trigger)))
 
-    config_text = (workspace_root / ".lucy" / "config.txt").read_text(
-        encoding="utf-8"
-    )
+    config_text = (workspace_root / ".lucy" / "config.txt").read_text(encoding="utf-8")
     welcome_text = (workspace_root / "welcome.md").read_text(encoding="utf-8")
     assert "--sys-log-level info" in config_text
     assert "- `--sys-log-level info`" in welcome_text
@@ -165,23 +191,20 @@ def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> Non
     )
 
     module = Workspace()
-    ctx = Context(
-        path=str(tmp_path / "trigger.md"),
-        config={"workspace_init": str(workspace_root)},
-        arg_lines={"workspace_init": [1]},
+    trigger = tmp_path / "trigger.md"
+    event = FileModifiedEvent(str(trigger))
+    ctx = _context(
+        trigger,
+        str(workspace_root),
+        event,
     )
-    system = System(
-        event=FileModifiedEvent(str(tmp_path / "trigger.md")),
-        global_template=DEMON_LUCY_STARTUP_TEMPLATE + Workspace.template,
-        modules=[module],
-    )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
-    assert (
-        (workspace_root / ".lucy" / "config.txt").read_text(encoding="utf-8")
-        == "custom config\n"
-    )
+    assert (workspace_root / ".lucy" / "config.txt").read_text(
+        encoding="utf-8"
+    ) == "custom config\n"
     assert (workspace_root / "welcome.md").read_text(encoding="utf-8") == (
         "custom welcome\n"
     )

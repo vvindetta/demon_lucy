@@ -60,9 +60,7 @@ def test_parse_args_handles_bool_and_nargs():
     assert parsed.require("formatter-blank").value == ["up", "down"]
     assert parsed.require("name").value == "alice"
     assert parsed.require("tags").value == ["x", "y"]
-    assert parsed.unknown == (
-        UnknownArg(token="--unknown", source=ArgSource.CLI),
-    )
+    assert parsed.unknown == (UnknownArg(token="--unknown", source=ArgSource.CLI),)
 
 
 def test_parse_args_allows_empty_list_flag_value():
@@ -328,14 +326,13 @@ def test_parsed_args_merge_overwrites_by_argument_presence():
 
     merged = base.merged_with(overwrite)
 
-    assert {
-        argument.name: argument.value
-        for argument in merged.known
-    } == {"a": None, "b": "", "c": ["new"], "d": 5}
-    assert all(
-        argument.source is ArgSource.CLI
-        for argument in merged.known
-    )
+    assert {argument.name: argument.value for argument in merged.known} == {
+        "a": None,
+        "b": "",
+        "c": ["new"],
+        "d": 5,
+    }
+    assert all(argument.source is ArgSource.CLI for argument in merged.known)
     assert merged.find("missing") is None
     with pytest.raises(KeyError, match="missing"):
         merged.require("missing")
@@ -397,6 +394,22 @@ def test_parse_note_args_preserves_windows_path(tmp_path: Path) -> None:
     assert parsed.require("include").source is ArgSource.FILE
     assert parsed.require("include").lines == (1,)
     assert parsed.unknown == ()
+
+
+def test_parse_note_args_combines_repeated_list_values(tmp_path: Path) -> None:
+    path = tmp_path / "note.md"
+    path.write_text(
+        "--alias first\n--alias second third\n",
+        encoding="utf-8",
+    )
+    template = [
+        KnownArg(name="alias", value_type=str, default=[]),
+    ]
+
+    parsed = parse_note_args(str(path), template)
+
+    assert parsed.require("alias").value == ["first", "second", "third"]
+    assert parsed.require("alias").lines == (1, 2, 2)
 
 
 def test_load_args_keeps_config_values_when_cli_uses_defaults(

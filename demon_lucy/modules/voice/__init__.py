@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
 
-from demon_lucy.lib.args.parser import ArgTemplate
+from demon_lucy.lib.args.models import KnownArg, Template
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path
@@ -26,47 +25,42 @@ class Voice(AbstractModule):
     name: str = "voice"
     priority: int = 45
 
-    template = [
-        ArgTemplate(
-            name="--voice",
+    template: Template = [
+        KnownArg(
+            name="voice",
             value_type=bool,
             default=False,
             description="Record one voice snippet and replace --voice inline with recognized text.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--voice-offline-vosk-model-path",
+        KnownArg(
+            name="voice-offline-vosk-model-path",
             value_type=str,
             default="",
             description="Path to a local Vosk model directory.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--voice-timeout-seconds",
+        KnownArg(
+            name="voice-timeout-seconds",
             value_type=int,
             default=60,
             description="Safety timeout for one inline --voice listen. Default: 60.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--voice-recorder-path",
+        KnownArg(
+            name="voice-recorder-path",
             value_type=str,
             default="arecord",
             description="Recorder executable that writes raw mono PCM16 audio to stdout. Default: arecord.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--voice-sample-rate",
+        KnownArg(
+            name="voice-sample-rate",
             value_type=int,
             default=16000,
             description="Recorder and Vosk sample rate. Default: 16000.",
-            required=False,
         ),
     ]
 
     @staticmethod
     def _inline_text(text: str) -> str:
-        return " ".join(str(text).split()).strip()
+        return " ".join(text.split()).strip()
 
     def _replace_voice_line(self, line: str, text: str) -> tuple[str, bool]:
         inline_text = self._inline_text(text)
@@ -81,12 +75,12 @@ class Voice(AbstractModule):
         safe_notify(
             f"voice:{canonical_path(path)}",
             message,
-            config=ctx.config,
+            args=ctx.args,
             use_rare_mode=True,
         )
 
-    def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        event = system.event
+    def _apply(self, ctx: Context) -> IgnoreMap | None:
+        event = ctx.event
         if getattr(event, "is_directory", False):
             return None
 
@@ -101,11 +95,8 @@ class Voice(AbstractModule):
             return None
 
         voice_line_indexes: list[int] = []
-        for raw_lineno in ctx.arg_lines.get("voice") or []:
-            try:
-                index = int(raw_lineno) - 1
-            except (TypeError, ValueError):
-                continue
+        for line_number in ctx.args.require("voice").lines:
+            index = line_number - 1
             if 0 <= index < len(lines) and index not in voice_line_indexes:
                 voice_line_indexes.append(index)
 
@@ -115,12 +106,12 @@ class Voice(AbstractModule):
         changed = False
         for index in voice_line_indexes:
             try:
-                result = listen_once(ctx.config)
+                result = listen_once(ctx.args)
             except VoiceError as exc:
                 logger.error(
                     log_record(
                         "voice.inline_failed",
-                        id=system.event_id,
+                        id=ctx.event_id,
                         path=path,
                         line=index + 1,
                         reason=exc.reason,
@@ -139,7 +130,7 @@ class Voice(AbstractModule):
                 logger.info(
                     log_record(
                         "voice.inline_skip",
-                        id=system.event_id,
+                        id=ctx.event_id,
                         path=path,
                         line=index + 1,
                         reason="empty_transcript",
@@ -152,7 +143,7 @@ class Voice(AbstractModule):
             logger.info(
                 log_record(
                     "voice.inline_transcribed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=path,
                     line=index + 1,
                     provider=result.provider,
@@ -168,8 +159,8 @@ class Voice(AbstractModule):
 
         return {path: 1}
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._apply(ctx)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._apply(ctx)

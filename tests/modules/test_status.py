@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import subprocess
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
 import pytest
-from watchdog.events import FileModifiedEvent, FileOpenedEvent
 
 import demon_lucy.modules.status as status_mod
+from demon_lucy.lib.args.models import ArgSource, ParsedArgs
+from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.git_state import write_sync_success_timestamp
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.status import Status
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
 
 def _inv(text: str) -> str:
@@ -52,31 +56,50 @@ def _ctx_for(
     status_opened_events: bool = False,
     sys_watch_paths: list[str] | None = None,
 ) -> Context:
+    overrides = {
+        "sys-watch-paths": list(sys_watch_paths or [str(path.parent)]),
+        "status": list(status_values or []),
+        "status-banner": status_banner_text,
+        "status-banner-speed-milliseconds": status_banner_speed_milliseconds,
+        "status-banner-max-characters": status_banner_max_characters,
+        "status-prefix": status_prefix,
+        "status-animation": list(status_animation or []),
+        "status-animation-speed-milliseconds": (status_animation_speed_milliseconds),
+        "status-opened-events": status_opened_events,
+        "status-git-sync-prefix-cycle-pause-seconds": (
+            status_git_sync_prefix_cycle_pause_seconds
+        ),
+    }
+    parsed = parse_args(
+        args=[],
+        template=[*DEMON_LUCY_STARTUP_TEMPLATE, *Status.template],
+    )
     return Context(
         path=str(path),
-        config={
-            "sys_watch_paths": list(sys_watch_paths or [str(path.parent)]),
-            "sys_git_repo_lock_wait_timeout_seconds": 30.0,
-            "sys_git_repo_lock_retry_sleep_seconds": 0.2,
-            "sys_git_repo_lock_stale_seconds": 1800.0,
-            "status": list(status_values or []),
-            "status_banner": status_banner_text,
-            "status_banner_speed_milliseconds": status_banner_speed_milliseconds,
-            "status_banner_max_characters": status_banner_max_characters,
-            "status_prefix": status_prefix,
-            "status_animation": list(status_animation or []),
-            "status_animation_speed_milliseconds": (
-                status_animation_speed_milliseconds
-            ),
-            "status_opened_events": status_opened_events,
-            "status_tick_interval_seconds": 60.0,
-            "status_git_fast_tick_interval_seconds": 0.5,
-            "status_git_fast_tick_window_seconds": 120.0,
-            "status_git_sync_prefix_cycle_pause_seconds": (
-                status_git_sync_prefix_cycle_pause_seconds
-            ),
-        },
-        arg_lines={},
+        args=ParsedArgs(
+            known=tuple(
+                replace(
+                    argument,
+                    value=overrides.get(argument.name, argument.value),
+                    source=(
+                        ArgSource.FILE
+                        if argument.name in overrides
+                        else argument.source
+                    ),
+                )
+                for argument in parsed.known
+            )
+        ),
+        run_mode="daemon",
+        event_id="status",
+    )
+
+
+def _system(module: Status) -> System:
+    return System(
+        global_template=[],
+        modules=[module],
+        operating_system=OperatingSystem.LINUX,
     )
 
 
@@ -88,9 +111,7 @@ def test_status_date_only(tmp_path: Path, monkeypatch) -> None:
 
     module = Status()
     ctx = _ctx_for(path, status_values=["date"])
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
@@ -108,9 +129,7 @@ def test_status_date_time_order(tmp_path: Path, monkeypatch) -> None:
 
     module = Status()
     ctx = _ctx_for(path, status_values=["date", "time"])
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
@@ -128,9 +147,7 @@ def test_status_time_date_order(tmp_path: Path, monkeypatch) -> None:
 
     module = Status()
     ctx = _ctx_for(path, status_values=["time", "date"])
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
@@ -148,9 +165,7 @@ def test_status_time_with_seconds_order(tmp_path: Path, monkeypatch) -> None:
 
     module = Status()
     ctx = _ctx_for(path, status_values=["date", "time-with-seconds"])
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
@@ -173,9 +188,7 @@ def test_status_banner_renames_and_rotates_with_speed(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     first_changed = module.modified(
         _ctx_for(
@@ -215,9 +228,7 @@ def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) 
         status_banner_text="Focus now",
         status_banner_speed_milliseconds=3000,
     )
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
@@ -236,9 +247,7 @@ def test_status_banner_preserves_multi_spaces(tmp_path: Path) -> None:
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.modified(
         _ctx_for(path, status_banner_text=banner_text),
@@ -288,9 +297,7 @@ def test_status_git_uses_upstream_timestamp_and_refreshes_after_sync(
     monkeypatch.setattr(status_mod.subprocess, "run", _run)
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     first_changed = module.modified(_ctx_for(path, status_values=["git"]), system)
     first_path = tmp_path / _inv("1800000000")
@@ -337,9 +344,7 @@ def test_status_git_update_uses_compact_units_and_ticks(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     first_changed = module.modified(
         _ctx_for(path, status_values=["git", "update"]), system
@@ -383,9 +388,7 @@ def test_status_git_update_sync_prefix_animates_each_half_second(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     first_changed = module.modified(
         _ctx_for(path, status_values=["git", "update"]), system
@@ -439,9 +442,7 @@ def test_status_git_update_sync_prefix_waits_one_second_between_cycles(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     first_changed = module.modified(
         _ctx_for(path, status_values=["git", "update"]), system
@@ -512,9 +513,7 @@ def test_status_git_update_sync_prefix_cycle_pause_from_config(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     first_changed = module.modified(
         _ctx_for(
@@ -589,9 +588,7 @@ def test_status_git_update_zero_minutes_disables_prefix_animation(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     first_changed = module.modified(
         _ctx_for(path, status_values=["git", "update"]), system
@@ -638,9 +635,7 @@ def test_status_git_update_active_git_sync_lock_enables_fast_animation(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     first_changed = module.modified(
         _ctx_for(path, status_values=["git", "update"]), system
@@ -689,9 +684,7 @@ def test_status_git_update_animates_custom_prefix_phrase(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     first_changed = module.modified(
         _ctx_for(path, status_values=["git", "update"], status_prefix="fresh sync "),
@@ -743,9 +736,7 @@ def test_status_git_update_prefers_upstream_timestamp(
     monkeypatch.setattr(status_mod.subprocess, "run", _run)
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
 
     new_path = tmp_path / _inv("Sync 5h")
@@ -788,9 +779,7 @@ def test_status_git_update_falls_back_to_head_when_upstream_missing(
     monkeypatch.setattr(status_mod.subprocess, "run", _run)
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
 
     new_path = tmp_path / _inv("Sync 2h")
@@ -822,9 +811,7 @@ def test_status_git_update_uses_recent_sync_success_marker(
     monkeypatch.setattr(status_mod.subprocess, "run", _unexpected_git_call)
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     changed = module.modified(_ctx_for(path, status_values=["git", "update"]), system)
 
     new_path = repo_root / _inv("Sync 7m")
@@ -855,9 +842,7 @@ def test_status_git_prefers_sync_success_marker_timestamp(
     monkeypatch.setattr(status_mod.subprocess, "run", _unexpected_git_call)
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     changed = module.modified(_ctx_for(path, status_values=["git"]), system)
 
     new_path = repo_root / _inv(str(int(marker_timestamp)))
@@ -905,9 +890,10 @@ def test_status_ticker_interval_uses_banner_speed(monkeypatch) -> None:
 
 def test_status_animation_default_speed_is_500_ms() -> None:
     module = Status()
+    args = parse_args(args=[], template=Status.template)
     frames, speed_ms = module._normalize_animation_settings(
         ["a", "b"],
-        None,
+        args.require("status-animation-speed-milliseconds").value,
     )
 
     assert frames == ["a", "b"]
@@ -922,9 +908,7 @@ def test_status_prefix_prepends_status_output(tmp_path: Path, monkeypatch) -> No
 
     module = Status()
     ctx = _ctx_for(path, status_values=["date", "time"], status_prefix="Work: ")
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
     new_path = tmp_path / _inv("Work: 17-05 08:09")
@@ -949,9 +933,7 @@ def test_status_animation_advance_per_pass_with_speed_and_prefix(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed_first = module.modified(
         _ctx_for(
@@ -1023,9 +1005,7 @@ def test_status_opened_events_disabled_by_default_skips_opened_handler(
 
     module = Status()
     ctx = _ctx_for(path, status_values=["time"])
-    system = System(
-        event=FileOpenedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.opened(ctx, system)
 
@@ -1044,9 +1024,7 @@ def test_status_opened_events_flag_enables_opened_handler(
 
     module = Status()
     ctx = _ctx_for(path, status_values=["time"], status_opened_events=True)
-    system = System(
-        event=FileOpenedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.opened(ctx, system)
 
@@ -1083,9 +1061,7 @@ def test_status_git_update_opened_ignores_opened_events_flag(
 
     module = Status()
     ctx = _ctx_for(path, status_values=["git", "update"])
-    system = System(
-        event=FileOpenedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     changed = module.opened(ctx, system)
 
@@ -1129,9 +1105,7 @@ def test_status_banner_uses_max_chars_window(tmp_path: Path, monkeypatch) -> Non
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     first_changed = module.modified(
         _ctx_for(
             path,
@@ -1169,9 +1143,7 @@ def test_status_banner_fully_disappears_before_restart(
     )
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     changed = module.modified(
         _ctx_for(
             path,
@@ -1238,11 +1210,7 @@ def test_status_ticker_starts_only_after_first_status_use(
     module = Status()
     assert starts["count"] == 0
 
-    system = System(
-        event=FileModifiedEvent(str(no_status_path)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     changed_plain = module.modified(_ctx_for(no_status_path), system)
     assert changed_plain is None
@@ -1271,11 +1239,7 @@ def test_status_bootstrap_scans_dot_status_dir_after_restart_like_event(
     trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(trigger_file)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     changed = module.modified(_ctx_for(trigger_file), system)
 
@@ -1303,11 +1267,7 @@ def test_status_bootstrap_ignores_nested_dot_status_dir(
     trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(trigger_file)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     changed = module.modified(
         _ctx_for(trigger_file, sys_watch_paths=[str(notes_root)]),
@@ -1340,11 +1300,7 @@ def test_status_bootstrap_applies_ascii_animation_from_status_file(
     trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(trigger_file)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     changed = module.modified(_ctx_for(trigger_file), system)
 
@@ -1370,11 +1326,7 @@ def test_status_bootstrap_handles_numeric_hyphen_file_name(
     trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(trigger_file)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     changed = module.modified(_ctx_for(trigger_file), system)
 
@@ -1396,7 +1348,7 @@ def test_status_sanitizes_unnameable_filename_tokens(
 
     status_file = status_dir / "dead.md"
     status_file.write_text(
-        '--status-animation "pri/ve"\n' '--status-prefix "A/B "\n',
+        '--status-animation "pri/ve"\n--status-prefix "A/B "\n',
         encoding="utf-8",
     )
 
@@ -1404,11 +1356,7 @@ def test_status_sanitizes_unnameable_filename_tokens(
     trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(trigger_file)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     changed = module.modified(_ctx_for(trigger_file), system)
 
@@ -1422,7 +1370,7 @@ def test_status_sanitizes_windows_forbidden_filename_tokens() -> None:
     assert (
         Status._sanitize_filename_text(
             "Sync: 08:09 A/B?",
-            runtime_system="windows",
+            operating_system=OperatingSystem.WINDOWS,
         )
         == "Sync_ 08_09 A_B_"
     )
@@ -1447,14 +1395,18 @@ def test_status_sanitizes_windows_filename_rules(
     expected: str,
 ) -> None:
     assert (
-        Status._sanitize_filename_text(name, runtime_system="windows") == expected
+        Status._sanitize_filename_text(name, operating_system=OperatingSystem.WINDOWS)
+        == expected
     )
 
 
 def test_status_keeps_linux_filename_behavior() -> None:
     name = "CON. Working   "
 
-    assert Status._sanitize_filename_text(name, runtime_system="linux") == name
+    assert (
+        Status._sanitize_filename_text(name, operating_system=OperatingSystem.LINUX)
+        == name
+    )
 
 
 def test_status_sanitizes_windows_name_after_truncation(
@@ -1472,7 +1424,7 @@ def test_status_sanitizes_windows_name_after_truncation(
         module._make_filename_candidate(
             str(tmp_path),
             "abc. value",
-            runtime_system="windows",
+            operating_system=OperatingSystem.WINDOWS,
         )
         == "abc"
     )
@@ -1480,7 +1432,7 @@ def test_status_sanitizes_windows_name_after_truncation(
         module._make_filename_candidate(
             str(tmp_path),
             "abc. value",
-            runtime_system="linux",
+            operating_system=OperatingSystem.LINUX,
         )
         == "abc. "
     )
@@ -1493,7 +1445,7 @@ def test_status_uses_windows_safe_empty_filename_fallback(tmp_path: Path) -> Non
         module._make_filename_candidate(
             str(tmp_path),
             "...   ",
-            runtime_system="windows",
+            operating_system=OperatingSystem.WINDOWS,
         )
         == "-"
     )
@@ -1516,11 +1468,7 @@ def test_status_uses_fallback_name_when_target_exists(
     trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(trigger_file)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     changed = module.modified(_ctx_for(trigger_file), system)
 
@@ -1552,11 +1500,7 @@ def test_status_animation_advances_once_returns_to_first_and_restarts_on_new_eve
     trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(trigger_file)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     first_changed = module.modified(_ctx_for(trigger_file), system)
     first_path = status_dir / ">>> pri"
@@ -1621,11 +1565,7 @@ def test_status_bootstrap_parses_ascii_frame_that_starts_with_double_dash(
     trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(trigger_file)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     first_changed = module.modified(_ctx_for(trigger_file), system)
     first_path = status_dir / "-- --- --"
@@ -1653,11 +1593,7 @@ def test_status_bootstrap_scans_only_once_even_if_first_scan_found_nothing(
     trigger_file.write_text("body\n", encoding="utf-8")
 
     module = Status()
-    system = System(
-        event=FileModifiedEvent(str(trigger_file)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     first_changed = module.modified(_ctx_for(trigger_file), system)
     assert first_changed is None

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -10,8 +11,11 @@ import pytest
 from watchdog.events import FileModifiedEvent
 
 from demon_lucy.lib import file_time
+from demon_lucy.lib.args.models import ArgSource, KnownArg, ParsedArgs, Template
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.dynamic_blocks.parser import format_dynamic_block
+from demon_lucy.lib.notifications import NotificationProvider
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.archive import Archive
 from demon_lucy.modules.archive import clock as archive_clock
@@ -20,12 +24,48 @@ from demon_lucy.modules.archive import storage as archive_storage
 from demon_lucy.modules.archive.constants import ARCHIVE_TEMPLATE
 from demon_lucy.modules.archive.types import ArchiveOutputMode
 
+_TEST_SYSTEM_TEMPLATE: Template = [
+    KnownArg(name="sys-config-path", value_type=str, default=""),
+    KnownArg(name="sys-watch-paths", value_type=str, default=[]),
+    KnownArg(
+        name="sys-notification-provider",
+        value_type=NotificationProvider,
+        default=NotificationProvider.DISABLE,
+    ),
+    KnownArg(
+        name="sys-notification-min-interval-seconds",
+        value_type=float,
+        default=0.0,
+    ),
+    KnownArg(
+        name="sys-notification-error-backoff-base-seconds",
+        value_type=float,
+        default=0.0,
+    ),
+    KnownArg(
+        name="sys-notification-error-backoff-max-seconds",
+        value_type=float,
+        default=0.0,
+    ),
+    KnownArg(
+        name="sys-notification-error-burst-limit",
+        value_type=int,
+        default=0,
+    ),
+    KnownArg(
+        name="sys-notification-error-burst-window-seconds",
+        value_type=float,
+        default=0.0,
+    ),
+]
+_TEST_TEMPLATE = [*ARCHIVE_TEMPLATE, *_TEST_SYSTEM_TEMPLATE]
+
 
 def test_archive_default_mode_is_typed_enum() -> None:
-    config, unknown = parse_args(args=[], template=ARCHIVE_TEMPLATE)
+    parsed = parse_args(args=[], template=ARCHIVE_TEMPLATE)
 
-    assert unknown == []
-    assert config["archive_default_mode"] is ArchiveOutputMode.TEXT
+    assert parsed.unknown == ()
+    assert parsed.require("archive-default-mode").value is ArchiveOutputMode.TEXT
 
 
 def _ctx_for(
@@ -42,53 +82,69 @@ def _ctx_for(
     config_path: str | None = None,
     watch_paths: list[str] | None = None,
     archive_command: bool = False,
+    date_prefix: str = "--- ",
+    date_suffix: str = "",
 ) -> Context:
     resolved_pair = (
         list(pair_values) if pair_values is not None else ["now.md", "past.md"]
     )
-    config: dict[str, object] = {
-        "archive": False,
-        "archive_pair": [],
-        "archive_local": [],
-        "archive_global": [],
-        "archive_auto_pair": resolved_pair,
-        "archive_auto_local": list(auto_local_values or []),
-        "archive_auto_global": list(auto_global_values or []),
-        "archive_default_mode": "text",
-        "archive_global_dest_path": global_dest_path,
-        "archive_idle_hours": 12.0,
-        "archive_date_prefix": "--- ",
-        "archive_date_suffix": "",
-        "archive_force_filesystem_mtime": False,
-        "sys_notification_provider": "disable",
-        "sys_notification_min_interval_seconds": 0.0,
-        "sys_notification_error_backoff_base_seconds": 0.0,
-        "sys_notification_error_backoff_max_seconds": 0.0,
-        "sys_notification_error_burst_limit": 0,
-        "sys_notification_error_burst_window_seconds": 0.0,
+    values: dict[str, object] = {
+        "archive-auto-pair": resolved_pair,
+        "archive-auto-local": list(auto_local_values or []),
+        "archive-auto-global": list(auto_global_values or []),
+        "archive-global-dest-path": global_dest_path,
+        "archive-date-prefix": date_prefix,
+        "archive-date-suffix": date_suffix,
+        "archive-force-filesystem-mtime": force_fs,
+        "sys-config-path": config_path or "",
+        "sys-watch-paths": list(watch_paths or []),
     }
-    if force_fs:
-        config["archive_force_filesystem_mtime"] = True
-    arg_lines: dict[str, list[int]] = {}
+    file_args: set[str] = set()
     if archive_command:
-        config["archive"] = True
-        arg_lines["archive"] = [1]
+        values["archive"] = True
+        file_args.add("archive")
     selected_manual_route = manual_route
     if force_archive and selected_manual_route is None:
         selected_manual_route = "pair"
     if selected_manual_route is not None:
-        route_key = f"archive_{selected_manual_route}"
-        config[route_key] = [manual_mode] if manual_mode else []
-        arg_lines[route_key] = [1]
-    if config_path is not None:
-        config["sys_config_path"] = config_path
-    if watch_paths is not None:
-        config["sys_watch_paths"] = watch_paths
+        route_name = f"archive-{selected_manual_route}"
+        values[route_name] = [manual_mode] if manual_mode else []
+        file_args.add(route_name)
+
+    defaults = parse_args(args=[], template=_TEST_TEMPLATE)
+    args = ParsedArgs(
+        known=tuple(
+            replace(
+                argument,
+                value=values[argument.name],
+                source=(
+                    ArgSource.FILE if argument.name in file_args else ArgSource.CONFIG
+                ),
+                lines=(1,) if argument.name in file_args else (),
+            )
+            if argument.name in values
+            else argument
+            for argument in defaults.known
+        ),
+    )
 
     return Context(
         path=str(path),
-        config=config,
-        arg_lines=arg_lines,
+        args=args,
+        run_mode="oneshot",
+        event_id="test",
+        event=FileModifiedEvent(str(path)),
+    )
+
+
+def _system(
+    module: Archive,
+    operating_system: OperatingSystem = OperatingSystem.LINUX,
+) -> System:
+    return System(
+        global_template=_TEST_TEMPLATE,
+        modules=[module],
+        operating_system=operating_system,
     )
 
 
@@ -104,9 +160,7 @@ def test_supports_custom_archive_now_file(tmp_path: Path, monkeypatch) -> None:
 
     module = Archive()
     ctx = _ctx_for(trigger_path, pair_values=["active.md", "past.md"])
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
@@ -133,9 +187,7 @@ def test_allows_absolute_archive_pair_paths_inside_allowed_root(
         trigger_path,
         pair_values=[str(now_path), str(past_path), "2"],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -174,11 +226,7 @@ def test_archive_pair_uses_source_root_for_event_from_another_watch_root(
         pair_values=[str(now_path), str(past_path), "2"],
         watch_paths=[str(plasma_dir), str(notes_dir)],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -221,11 +269,7 @@ def test_archive_pair_still_rejects_source_outside_all_watch_roots(
         pair_values=[str(outside_path), str(notes_dir / "past.md"), "2"],
         watch_paths=[str(plasma_dir), str(notes_dir)],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -257,9 +301,7 @@ def test_rejects_absolute_archive_pair_paths_outside_allowed_root(
         trigger_path,
         pair_values=[str(outside_path), "past.md", "2"],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -293,9 +335,7 @@ def test_archive_security_block_notifies_for_outside_path(
         trigger_path,
         pair_values=[str(outside_path), "past.md", "2"],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -326,9 +366,7 @@ def test_rejects_absolute_archive_pair_path_traversal_outside_allowed_root(
         trigger_path,
         pair_values=[str(notes_dir / ".." / "outside.md"), "past.md", "2"],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -351,9 +389,7 @@ def test_rejects_archive_pair_path_traversal(tmp_path: Path, monkeypatch) -> Non
 
     module = Archive()
     ctx = _ctx_for(trigger_path, pair_values=["../outside.md", "past.md"])
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -383,9 +419,7 @@ def test_rejects_archive_pair_through_symlink_parent_outside_allowed_root(
 
     module = Archive()
     ctx = _ctx_for(trigger_path, pair_values=["linked/outside.md", "past.md"])
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -415,11 +449,7 @@ def test_archive_rejects_canonical_event_path_outside_configured_watch_roots(
         pair_values=["now.md", "past.md"],
         watch_paths=[str(notes_dir)],
     )
-    system = System(
-        event=FileModifiedEvent(str(notes_dir / "linked-now.md")),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -453,9 +483,7 @@ def test_archive_paths_must_stay_inside_git_repo_root(
         force_archive=True,
         pair_values=["now.md", "past.md"],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -490,9 +518,7 @@ def test_absolute_archive_paths_can_target_repo_root_from_subdirectory_event(
         force_archive=True,
         pair_values=[str(now_path), str(repo_root / "past.md")],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -521,9 +547,7 @@ def test_archive_rejects_config_file_as_source(tmp_path: Path, monkeypatch) -> N
         pair_values=[str(config_path), "past.md"],
         config_path=str(config_path),
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -551,9 +575,7 @@ def test_archive_rejects_config_file_as_destination(
         pair_values=["now.md", str(config_path)],
         config_path=str(config_path),
     )
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -576,9 +598,7 @@ def test_archive_rejects_symlink_destination(tmp_path: Path, monkeypatch) -> Non
 
     module = Archive()
     ctx = _ctx_for(now_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -604,9 +624,7 @@ def test_archive_rejects_hardlink_destination(tmp_path: Path, monkeypatch) -> No
 
     module = Archive()
     ctx = _ctx_for(now_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -629,9 +647,7 @@ def test_archive_rejects_hardlink_source(tmp_path: Path, monkeypatch) -> None:
 
     module = Archive()
     ctx = _ctx_for(now_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -660,7 +676,7 @@ def test_source_rewrite_validates_opened_file_before_truncating(
         path_value: str,
         flags: int,
         *,
-        runtime_system: str,
+        operating_system: OperatingSystem,
         mode: int = 0o666,
     ) -> int:
         open_flags.append(flags)
@@ -672,7 +688,7 @@ def test_source_rewrite_validates_opened_file_before_truncating(
         archive_storage.write_text_no_follow(
             str(source_path),
             "",
-            runtime_system="linux",
+            operating_system=OperatingSystem.LINUX,
         )
         is False
     )
@@ -723,9 +739,7 @@ def test_archives_stale_now_md_when_triggered_by_now_or_sibling_event(
 
     module = Archive()
     ctx = _ctx_for(trigger_path)
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -742,9 +756,7 @@ def test_does_not_archive_when_file_is_not_stale(tmp_path: Path) -> None:
 
     module = Archive()
     ctx = _ctx_for(now_path)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -770,9 +782,7 @@ def test_compact_archive_arg_overrides_paths_and_idle_hours(
         trigger_path,
         pair_values=["active.md", "history.md", "1"],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -802,9 +812,7 @@ def test_compact_archive_arg_without_idle_value_uses_default_idle_hours(
         trigger_path,
         pair_values=["active.md", "history.md"],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -833,19 +841,16 @@ def test_invalid_archive_rule_notifies_user(tmp_path: Path, monkeypatch) -> None
     module = Archive()
     ctx = _ctx_for(
         trigger_path,
-        pair_values=["active.md", "history.md"],
+        pair_values=["active.md", "history.md", "zip"],
     )
-    ctx.config["archive_default_mode"] = "zip"
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
     assert ignore is None
     assert notifications
     assert str(notifications[0][0][0]).startswith(
-        "archive-rule:--archive-default-mode:unsupported_mode:"
+        "archive-rule:--archive-auto-pair:invalid_trailing_token:"
     )
     assert "Archive rule is invalid." in str(notifications[0][0][1])
     assert notifications[0][1]["use_rare_mode"] is True
@@ -868,13 +873,13 @@ def test_archive_operation_failure_notifies_user(tmp_path: Path, monkeypatch) ->
 
     original_write = archive_storage.write_text_no_follow
 
-    def fail_source_write(path_value, content, *, runtime_system):
+    def fail_source_write(path_value, content, *, operating_system):
         if path_value == str(active_path.resolve()):
             return False
         return original_write(
             path_value,
             content,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         )
 
     monkeypatch.setattr(
@@ -888,9 +893,7 @@ def test_archive_operation_failure_notifies_user(tmp_path: Path, monkeypatch) ->
         trigger_path,
         pair_values=["active.md", "history.md"],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -919,9 +922,7 @@ def test_archive_global_uses_configured_global_dest_path(
         manual_route="global",
         global_dest_path="journal.md",
     )
-    system = System(
-        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -946,9 +947,7 @@ def test_archive_local_text_prefers_existing_dot_archive_file(
         pair_values=[],
         manual_route="local",
     )
-    system = System(
-        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -977,9 +976,7 @@ def test_archive_local_file_creates_new_file_under_dot_archive(
         manual_route="local",
         manual_mode="file",
     )
-    system = System(
-        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1010,9 +1007,7 @@ def test_archive_file_mode_uses_unique_name_without_overwrite(
         manual_route="local",
         manual_mode="file",
     )
-    system = System(
-        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1043,9 +1038,7 @@ def test_archive_global_without_dest_uses_repo_root_archive_text(
         pair_values=[],
         manual_route="global",
     )
-    system = System(
-        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1075,9 +1068,7 @@ def test_archive_auto_local_file_archives_stale_configured_source(
         pair_values=[],
         auto_local_values=["now.md", "1", "file"],
     )
-    system = System(
-        event=FileModifiedEvent(str(trigger_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1108,9 +1099,7 @@ def test_archive_file_mode_rejects_global_dest_outside_allowed_root(
         manual_mode="file",
         global_dest_path=str(outside_dir),
     )
-    system = System(
-        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1134,9 +1123,7 @@ def test_does_not_use_default_dest_when_pair_is_missing_without_archive_flag(
         pair_values=[],
         global_dest_path="journal.md",
     )
-    system = System(
-        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1154,12 +1141,12 @@ def test_custom_archive_date_prefix_and_suffix(tmp_path: Path, monkeypatch) -> N
     _make_stale(now_path, 13.0)
 
     module = Archive()
-    ctx = _ctx_for(now_path)
-    ctx.config["archive_date_prefix"] = "### "
-    ctx.config["archive_date_suffix"] = " // archived"
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
+    ctx = _ctx_for(
+        now_path,
+        date_prefix="### ",
+        date_suffix=" // archived",
     )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1183,9 +1170,7 @@ def test_manual_archive_pair_archives_even_when_not_stale(
 
     module = Archive()
     ctx = _ctx_for(now_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1214,9 +1199,7 @@ def test_archive_text_keeps_dynamic_blocks_in_source(
 
     module = Archive()
     ctx = _ctx_for(now_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1252,11 +1235,7 @@ def test_archive_file_keeps_dynamic_blocks_in_source(
         manual_route="local",
         manual_mode="file",
     )
-    system = System(
-        event=FileModifiedEvent(str(source_path)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1282,11 +1261,7 @@ def test_archive_skips_source_containing_only_dynamic_blocks(
 
     module = Archive()
     ctx = _ctx_for(source_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(source_path)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1312,11 +1287,7 @@ def test_archive_rejects_malformed_dynamic_block(
 
     module = Archive()
     ctx = _ctx_for(source_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(source_path)),
-        global_template=[],
-        modules=[module],
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1338,9 +1309,7 @@ def test_archive_command_prefers_configured_pair(tmp_path: Path, monkeypatch) ->
 
     module = Archive()
     ctx = _ctx_for(now_path, archive_command=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1361,9 +1330,7 @@ def test_archive_command_uses_local_archive_when_no_pair(
 
     module = Archive()
     ctx = _ctx_for(src_path, pair_values=[], archive_command=True)
-    system = System(
-        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1390,9 +1357,7 @@ def test_archive_command_uses_global_when_no_pair_or_local_archive(
 
     module = Archive()
     ctx = _ctx_for(src_path, pair_values=[], archive_command=True)
-    system = System(
-        event=FileModifiedEvent(str(src_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1414,9 +1379,7 @@ def test_archive_does_not_copy_old_archive_command(tmp_path: Path, monkeypatch) 
 
     module = Archive()
     ctx = _ctx_for(now_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1443,9 +1406,7 @@ def test_archive_pair_command_is_removed_from_archive_text(
 
     module = Archive()
     ctx = _ctx_for(now_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1472,9 +1433,7 @@ def test_archive_keeps_non_ascii_plain_text_without_extra_quotes(
 
     module = Archive()
     ctx = _ctx_for(now_path, force_archive=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1499,9 +1458,7 @@ def test_appends_to_end_of_past_without_overwrite(tmp_path: Path, monkeypatch) -
 
     module = Archive()
     ctx = _ctx_for(now_path)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     module.modified(ctx, system)
 
     expected = "--- 12.04\nsomethiung\n\n--- 01.05.2026\nmore coffe\n"
@@ -1523,9 +1480,7 @@ def test_appends_to_existing_archive_day_without_duplicate_header(
 
     module = Archive()
     ctx = _ctx_for(now_path)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1554,9 +1509,7 @@ def test_inserts_into_existing_archive_day_before_next_day(
 
     module = Archive()
     ctx = _ctx_for(now_path)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1582,9 +1535,7 @@ def test_skips_append_when_exact_archive_entry_already_exists(
 
     module = Archive()
     ctx = _ctx_for(now_path)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1607,9 +1558,7 @@ def test_does_not_skip_append_on_partial_archive_text_match(
 
     module = Archive()
     ctx = _ctx_for(now_path)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1630,9 +1579,7 @@ def test_normalizes_blank_lines_before_archiving(tmp_path: Path, monkeypatch) ->
 
     module = Archive()
     ctx = _ctx_for(now_path)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1658,9 +1605,7 @@ def test_keeps_first_line_with_demon_lucy_flags_when_archiving(
 
     module = Archive()
     ctx = _ctx_for(now_path)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1707,9 +1652,7 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
     monkeypatch.setattr(file_time.subprocess, "run", _fake_run)
 
     ctx = _ctx_for(now_path)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
@@ -1749,9 +1692,7 @@ def test_archive_header_uses_git_commit_date_for_dirty_forced_file(
         manual_route="global",
         global_dest_path="archive.md",
     )
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
 
     ignore = module.modified(ctx, system)
 
@@ -1779,9 +1720,7 @@ def test_force_fs_flag_skips_git_even_in_repo(tmp_path: Path, monkeypatch) -> No
     )
 
     ctx = _ctx_for(now_path, force_fs=True)
-    system = System(
-        event=FileModifiedEvent(str(now_path)), global_template=[], modules=[module]
-    )
+    system = _system(module)
     ignore = module.modified(ctx, system)
 
     assert ignore is None

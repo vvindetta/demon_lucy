@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.models import KnownArg, Template
 from demon_lucy.lib.path import find_parent_with
-from demon_lucy.lib.runtime_system import RuntimeSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -24,8 +22,8 @@ class Linker(AbstractModule):
     priority: int = 22
 
     template: Template = [
-        ArgTemplate(
-            name="--linker-root",
+        KnownArg(
+            name="linker-root",
             value_type=bool,
             default=False,
             description=(
@@ -33,65 +31,55 @@ class Linker(AbstractModule):
                 "filename. Windows falls back to a hard link when symlink "
                 "privilege is unavailable."
             ),
-            required=False,
         ),
-        ArgTemplate(
-            name="--linker-auto-clean-root-links",
+        KnownArg(
+            name="linker-auto-clean-root-links",
             value_type=bool,
             default=False,
             description=(
-                "If enabled and --linker-root is not set, delete managed root "
-                "links."
+                "If enabled and --linker-root is not set, delete managed root links."
             ),
-            required=False,
         ),
-        ArgTemplate(
-            name="--linker-ignore",
+        KnownArg(
+            name="linker-ignore",
             value_type=str,
             default=[],
             description="Ignore files/links for linker actions. Supports basename or absolute/repo-relative path.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--linker-auto-update-md-links",
+        KnownArg(
+            name="linker-auto-update-md-links",
             value_type=bool,
             default=False,
             description="If enabled, keep markdown links and target files in sync both ways: moved files update links, edited links move target files.",
-            required=False,
         ),
     ]
 
     @staticmethod
     def _merge_ignore_maps(
-        left: Optional[IgnoreMap],
-        right: Optional[IgnoreMap],
-    ) -> Optional[IgnoreMap]:
+        left: IgnoreMap | None,
+        right: IgnoreMap | None,
+    ) -> IgnoreMap | None:
         if not left and not right:
             return None
         merged: IgnoreMap = {}
         for source in (left or {}, right or {}):
             for path_value, times in source.items():
-                if not times:
-                    continue
-                merged[path_value] = merged.get(path_value, 0) + int(times)
+                merged[path_value] = merged.get(path_value, 0) + times
         return merged or None
 
     def _apply(
         self,
-        *,
-        path: str,
-        config: dict,
-        runtime_system: RuntimeSystem,
-        event_id: str = "",
-    ) -> Optional[IgnoreMap]:
-        use_link_top = bool(config["linker_root"])
-        auto_cleanup = bool(config["linker_auto_clean_root_links"])
-        ignore_selectors = list(config["linker_ignore"])
+        ctx: Context,
+        system: System,
+    ) -> IgnoreMap | None:
+        use_link_top = ctx.args.require("linker-root").value
+        auto_cleanup = ctx.args.require("linker-auto-clean-root-links").value
+        ignore_selectors = ctx.args.require("linker-ignore").value
 
         if not use_link_top and not auto_cleanup:
             return None
 
-        source_path = str(Path(path).absolute())
+        source_path = str(Path(ctx.path).absolute())
         if Path(source_path).is_dir():
             return None
 
@@ -104,56 +92,40 @@ class Linker(AbstractModule):
                 source_path=source_path,
                 repo_root=repo_root,
                 ignore_selectors=ignore_selectors,
-                runtime_system=runtime_system,
-                event_id=event_id,
+                operating_system=system.operating_system,
+                event_id=ctx.event_id,
             )
 
-        if auto_cleanup:
-            return cleanup_top_links(
-                repo_root=repo_root,
-                source_path=source_path,
-                ignore_selectors=ignore_selectors,
-                template=self.template,
-                runtime_system=runtime_system,
-            )
-
-        return None
-
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(
-            path=ctx.path,
-            config=ctx.config,
-            runtime_system=system.runtime_system,
-            event_id=system.event_id,
+        return cleanup_top_links(
+            repo_root=repo_root,
+            source_path=source_path,
+            ignore_selectors=ignore_selectors,
+            template=self.template,
+            operating_system=system.operating_system,
         )
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        _ = system
-        link_changed = self._apply(
-            path=ctx.path,
-            config=ctx.config,
-            runtime_system=system.runtime_system,
-            event_id=system.event_id,
-        )
+    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._apply(ctx, system)
+
+    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
+        link_changed = self._apply(ctx, system)
         edited_links_changed = None
-        if bool(ctx.config["linker_auto_update_md_links"]):
+        if ctx.args.require("linker-auto-update-md-links").value:
             edited_links_changed = move_targets_for_edited_links(
                 markdown_path=ctx.path,
-                config=ctx.config,
+                ignore_selectors=ctx.args.require("linker-ignore").value,
             )
         return self._merge_ignore_maps(link_changed, edited_links_changed)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        link_changed = self._apply(
-            path=ctx.path,
-            config=ctx.config,
-            runtime_system=system.runtime_system,
-            event_id=system.event_id,
-        )
+    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
+        link_changed = self._apply(ctx, system)
         moved_links_changed = None
-        if bool(ctx.config["linker_auto_update_md_links"]):
+        if (
+            ctx.event is not None
+            and ctx.args.require("linker-auto-update-md-links").value
+        ):
             moved_links_changed = update_moved_links(
-                event=system.event,
-                config=ctx.config,
+                event=ctx.event,
+                ignore_selectors=ctx.args.require("linker-ignore").value,
             )
         return self._merge_ignore_maps(link_changed, moved_links_changed)

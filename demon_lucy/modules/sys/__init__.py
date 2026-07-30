@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import (
-    ArgTemplate,
-    flag_to_dest,
-)
+from demon_lucy.lib.args.models import ArgSource, KnownArg
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
@@ -24,49 +21,44 @@ class Sys(AbstractModule):
     priority: int = 2
 
     template = [
-        ArgTemplate(
-            name="--neofetch",
+        KnownArg(
+            name="neofetch",
             value_type=bool,
             default=False,
             description="Print Demon Lucy runtime information.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--mods",
+        KnownArg(
+            name="mods",
             value_type=bool,
             default=False,
             description="Print loaded modules and their priorities.",
         ),
-        ArgTemplate(
-            name="--ping",
+        KnownArg(
+            name="ping",
             value_type=bool,
             default=False,
             description="Health-check: sends notification and writes pong.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--config",
+        KnownArg(
+            name="config",
             value_type=bool,
             default=False,
             description="Print config values that differ from defaults (and where they were set).",
-            required=False,
         ),
-        ArgTemplate(
-            name="--man",
+        KnownArg(
+            name="man",
             value_type=str,
             default=[],
             description="Print one argument with description (example: --man mods or --man --mods).",
-            required=False,
         ),
-        ArgTemplate(
-            name="--help",
+        KnownArg(
+            name="help",
             value_type=bool,
             default=False,
             description="Print Sys module command help.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--event",
+        KnownArg(
+            name="event",
             value_type=bool,
             default=False,
             description="Print current filesystem event details.",
@@ -76,12 +68,6 @@ class Sys(AbstractModule):
     @staticmethod
     def _type_name(type_value: Any) -> str:
         return getattr(type_value, "__name__", str(type_value))
-
-    def _defaults_map(self, system: System) -> dict[str, Any]:
-        defaults: dict[str, Any] = {}
-        for item in system.global_template:
-            defaults[flag_to_dest(item.name)] = item.default
-        return defaults
 
     @staticmethod
     def _command_help_lines() -> List[str]:
@@ -110,34 +96,22 @@ class Sys(AbstractModule):
         safe_notify(
             "sys-ping",
             "++pong!",
-            config=ctx.config,
+            args=ctx.args,
             title="Demon Lucy ping",
             use_rare_mode=False,
         )
 
     @staticmethod
     def _normalize_arg_name(raw: str) -> str:
-        text = (raw or "").strip()
+        text = raw.strip()
         if not text:
             return ""
         return text.lstrip("-").strip().lower()
 
-    @staticmethod
-    def _flag_from_config_key(key: str) -> str:
-        return "--" + key.replace("_", "-")
-
-    @staticmethod
-    def _type_from_config_value(value: Any) -> type:
-        if isinstance(value, list):
-            return str
-        if value is None:
-            return str
-        return type(value)
-
     def _expand_man_requests(self, requested_names: List[str]) -> List[str]:
         expanded: List[str] = []
-        for raw in requested_names or []:
-            for chunk in str(raw).split("/"):
+        for raw in requested_names:
+            for chunk in raw.split("/"):
                 normalized = self._normalize_arg_name(chunk)
                 if normalized:
                     expanded.append(normalized)
@@ -146,30 +120,24 @@ class Sys(AbstractModule):
     def _module_flags_by_request_name(
         self,
         system: System,
-        config: dict[str, Any] | None = None,
     ) -> dict[str, set[str]]:
         mapping: dict[str, set[str]] = {}
 
         for module in system.modules:
-            module_name = self._normalize_arg_name(getattr(module, "name", ""))
+            module_name = self._normalize_arg_name(module.name)
             if not module_name:
                 continue
 
             module_keys = {module_name, module_name.replace("_", "-")}
-            module_flags: set[str] = set()
-
-            for template_item in getattr(module, "template", []) or []:
-                module_flags.add(
-                    self._normalize_arg_name(template_item.name.lstrip("-"))
-                )
-                module_flags.add(
-                    self._normalize_arg_name(flag_to_dest(template_item.name))
-                )
+            module_flags = {
+                self._normalize_arg_name(template_item.name)
+                for template_item in module.template
+            }
 
             for key in module_keys:
                 mapping.setdefault(key, set()).update(module_flags)
 
-        system_flags = self._system_flag_names(system, config)
+        system_flags = self._system_flag_names(system)
         if system_flags:
             mapping["sys"] = set(system_flags)
 
@@ -178,75 +146,34 @@ class Sys(AbstractModule):
     def _system_flag_names(
         self,
         system: System,
-        config: dict[str, Any] | None = None,
     ) -> set[str]:
-        flags: set[str] = set()
-        for template_item in system.global_template:
-            normalized_flag = self._normalize_arg_name(template_item.name.lstrip("-"))
-            if not normalized_flag.startswith("sys-"):
-                continue
-            flags.add(normalized_flag)
-            flags.add(self._normalize_arg_name(flag_to_dest(template_item.name)))
-        for key in sorted((config or {}).keys()):
-            if not key.startswith("sys_"):
-                continue
-            flags.add(self._normalize_arg_name(key))
-            flags.add(self._normalize_arg_name(self._flag_from_config_key(key)))
-        return flags
-
-    def _manual_template_items(
-        self,
-        system: System,
-        config: dict[str, Any] | None = None,
-    ) -> list[ArgTemplate]:
-        items: list[ArgTemplate] = []
-        seen_destinations: set[str] = set()
-        for template_item in system.global_template:
-            destination = flag_to_dest(template_item.name)
-            if destination in seen_destinations:
-                continue
-            seen_destinations.add(destination)
-            items.append(template_item)
-        for key, value in sorted((config or {}).items()):
-            if not key.startswith("sys_"):
-                continue
-            if key in seen_destinations:
-                continue
-            seen_destinations.add(key)
-            items.append(
-                ArgTemplate(
-                    name=self._flag_from_config_key(key),
-                    value_type=self._type_from_config_value(value),
-                    default=None,
-                    description="System arg from runtime config.",
-                )
-            )
-        return items
+        return {
+            template_item.name
+            for template_item in system.global_template
+            if template_item.name.startswith("sys-")
+        }
 
     def _man_one_lines(
         self,
         system: System,
         requested_names: List[str],
-        config: dict[str, Any] | None = None,
     ) -> List[str]:
         requested = self._expand_man_requests(requested_names)
         if not requested:
             return ["* (missing name: use --man <name> or --man --flag)\n"]
 
         requested_set = set(requested)
-        module_flags_map = self._module_flags_by_request_name(system, config)
+        module_flags_map = self._module_flags_by_request_name(system)
         for request_name in list(requested_set):
             requested_set.update(module_flags_map.get(request_name, set()))
         matched: List[str] = []
 
-        for item in self._manual_template_items(system, config):
-            flag_name = item.name.lstrip("-").lower()
-            dest_name = flag_to_dest(item.name).lower()
-            if flag_name in requested_set or dest_name in requested_set:
+        for item in system.global_template:
+            if item.name.lower() in requested_set:
                 type_name = self._type_name(item.value_type)
                 description = (item.description or "").strip()
                 matched.append(
-                    f"* {item.name}: {description} "
+                    f"* --{item.name}: {description} "
                     f"(type={type_name}, default={item.default})\n"
                 )
 
@@ -254,14 +181,6 @@ class Sys(AbstractModule):
             return matched
 
         return [f"* (unknown arg: {', '.join(requested)})\n"]
-
-    def _man_lines(
-        self,
-        system: System,
-        requests: List[str],
-        config: dict[str, Any] | None = None,
-    ) -> List[str]:
-        return self._man_one_lines(system, requests, config)
 
     def _build_block(
         self,
@@ -288,14 +207,16 @@ class Sys(AbstractModule):
             lines.append("\n")
 
         if "neofetch" in selected_opts:
-            watch_paths = ctx.config["sys_watch_paths"]
+            watch_paths = ctx.args.require("sys-watch-paths").value
             lines.extend(
                 neofetch_lines(
-                    run_mode=system.run_mode,
-                    runtime_system=system.runtime_system,
+                    run_mode=ctx.run_mode,
+                    operating_system=system.operating_system,
                     module_count=len(system.modules),
                     watch_path_count=len(watch_paths),
-                    opened_events_disabled=ctx.config["sys_disable_opened_events"],
+                    opened_events_disabled=ctx.args.require(
+                        "sys-disable-opened-events"
+                    ).value,
                     git_sync_age=git_sync_age_text(ctx.path),
                     runtime_uptime_seconds=max(
                         0.0,
@@ -315,27 +236,22 @@ class Sys(AbstractModule):
             lines.append("\n")
 
         if "man" in selected_opts:
-            lines.extend(self._man_lines(system, man_requests, ctx.config))
+            lines.extend(self._man_one_lines(system, man_requests))
             lines.append("\n")
 
         if "config" in selected_opts:
-            defaults = self._defaults_map(system)
             printed_any = False
 
-            for key in sorted(ctx.config.keys()):
-                current_value = ctx.config[key]
-                default_value = defaults.get(key, None)
-
-                if key in defaults and current_value == default_value:
+            for argument in sorted(ctx.args.known, key=lambda item: item.name):
+                if argument.value == argument.default:
                     continue
 
-                source = (
-                    "file:" + ",".join(map(str, ctx.arg_lines.get(key, [])))
-                    if key in ctx.arg_lines
-                    else "config/default"
-                )
+                source = argument.source.value if argument.source else "unknown"
+                if argument.source is ArgSource.FILE:
+                    source += ":" + ",".join(map(str, argument.lines))
                 lines.append(
-                    f"* {key} = {current_value} (default={default_value}, src={source})\n"
+                    f"* {argument.name} = {argument.value} "
+                    f"(default={argument.default}, src={source})\n"
                 )
                 printed_any = True
 
@@ -345,7 +261,7 @@ class Sys(AbstractModule):
             lines.append("\n")
 
         if "event" in selected_opts:
-            event = system.event
+            event = ctx.event
             lines.append(f"* type: {getattr(event, 'event_type', None)}\n")
             lines.append(f"* is_directory: {getattr(event, 'is_directory', None)}\n")
             lines.append(f"* src_path: {getattr(event, 'src_path', None)}\n")
@@ -355,7 +271,7 @@ class Sys(AbstractModule):
 
         return lines
 
-    def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def _apply(self, *, ctx: Context, system: System) -> IgnoreMap | None:
         line_to_opts: dict[int, set[str]] = {}
         line_to_remove_flags: dict[int, List[str]] = {}
         line_to_man_requests: dict[int, List[str]] = {}
@@ -364,36 +280,35 @@ class Sys(AbstractModule):
             line_to_opts.setdefault(lineno_1based, set()).add(option_name)
             line_to_remove_flags.setdefault(lineno_1based, []).append(remove_flag)
 
-        if ctx.config["neofetch"]:
-            for lineno_1based in ctx.arg_lines.get("neofetch") or []:
-                add_option(int(lineno_1based), "neofetch", "--neofetch")
+        if ctx.args.require("neofetch").value:
+            for line_number in ctx.args.require("neofetch").lines:
+                add_option(line_number, "neofetch", "--neofetch")
 
-        if ctx.config["mods"]:
-            for lineno_1based in ctx.arg_lines.get("mods") or []:
-                add_option(int(lineno_1based), "mods", "--mods")
+        if ctx.args.require("mods").value:
+            for line_number in ctx.args.require("mods").lines:
+                add_option(line_number, "mods", "--mods")
 
-        if ctx.config.get("ping"):
-            for lineno_1based in ctx.arg_lines.get("ping") or []:
-                add_option(int(lineno_1based), "ping", "--ping")
+        if ctx.args.require("ping").value:
+            for line_number in ctx.args.require("ping").lines:
+                add_option(line_number, "ping", "--ping")
 
-        if ctx.config["config"]:
-            for lineno_1based in ctx.arg_lines.get("config") or []:
-                add_option(int(lineno_1based), "config", "--config")
+        if ctx.args.require("config").value:
+            for line_number in ctx.args.require("config").lines:
+                add_option(line_number, "config", "--config")
 
-        if ctx.config["help"]:
-            for lineno_1based in ctx.arg_lines.get("help") or []:
-                add_option(int(lineno_1based), "help", "--help")
+        if ctx.args.require("help").value:
+            for line_number in ctx.args.require("help").lines:
+                add_option(line_number, "help", "--help")
 
-        if ctx.config["event"]:
-            for lineno_1based in ctx.arg_lines.get("event") or []:
-                add_option(int(lineno_1based), "event", "--event")
+        if ctx.args.require("event").value:
+            for line_number in ctx.args.require("event").lines:
+                add_option(line_number, "event", "--event")
 
-        man_lines = ctx.arg_lines.get("man") or []
-        for man_value, lineno_1based in zip(ctx.config["man"], man_lines):
-            lineno_int = int(lineno_1based)
-            add_option(lineno_int, "man", "--man")
+        man_arg = ctx.args.require("man")
+        for man_value, line_number in zip(man_arg.value, man_arg.lines):
+            add_option(line_number, "man", "--man")
             if man_value.strip():
-                line_to_man_requests.setdefault(lineno_int, []).append(
+                line_to_man_requests.setdefault(line_number, []).append(
                     man_value.strip()
                 )
 
@@ -465,14 +380,11 @@ class Sys(AbstractModule):
 
         return {ctx.path: 1}
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._apply(ctx=ctx, system=system)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._apply(ctx=ctx, system=system)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
-
-    def deleted(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._apply(ctx=ctx, system=system)

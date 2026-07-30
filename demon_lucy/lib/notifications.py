@@ -39,9 +39,7 @@ def _prune_error_notify_history(now: float, window_seconds: float) -> None:
 def _resolve_notification_provider(
     args: ParsedArgs,
 ) -> NotificationProvider:
-    provider: NotificationProvider = args.require(
-        "sys-notification-provider"
-    ).value
+    provider: NotificationProvider = args.require("sys-notification-provider").value
     if provider is not NotificationProvider.AUTO:
         return provider
     if shutil.which("termux-notification"):
@@ -108,15 +106,11 @@ def safe_notify(
         if use_rare_mode:
             backoff_base_seconds = max(
                 min_interval_seconds,
-                args.require(
-                    "sys-notification-error-backoff-base-seconds"
-                ).value,
+                args.require("sys-notification-error-backoff-base-seconds").value,
             )
             backoff_max_seconds = max(
                 backoff_base_seconds,
-                args.require(
-                    "sys-notification-error-backoff-max-seconds"
-                ).value,
+                args.require("sys-notification-error-backoff-max-seconds").value,
             )
             burst_limit = max(
                 0,
@@ -124,9 +118,7 @@ def safe_notify(
             )
             burst_window_seconds = max(
                 0.0,
-                args.require(
-                    "sys-notification-error-burst-window-seconds"
-                ).value,
+                args.require("sys-notification-error-burst-window-seconds").value,
             )
 
             if burst_limit > 0 and burst_window_seconds > 0.0:

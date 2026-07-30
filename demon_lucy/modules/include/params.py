@@ -4,27 +4,24 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
+from demon_lucy.lib.args.models import ArgParam, KnownArg, Template
 from demon_lucy.lib.args.parser import (
-    ArgTemplate,
-    Template,
     is_valid_flag_token,
-    normalize_template_params,
+    normalize_arg_params,
     split_arg_line,
 )
 
 
 INCLUDE_TEMPLATE: Template = [
-    ArgTemplate(
-        name="--include",
+    KnownArg(
+        name="include",
         value_type=str,
         default=[],
         description="Render a complete file inside a dynamic block. Format: --include file.",
-        params=(
-            ArgTemplate(name="source", required=True),
-        ),
+        params=(ArgParam(name="source", required=True),),
     ),
-    ArgTemplate(
-        name="--include-find",
+    KnownArg(
+        name="include-find",
         value_type=str,
         default=[],
         description=(
@@ -32,12 +29,12 @@ INCLUDE_TEMPLATE: Template = [
             "--include-find file-or-directory keyword."
         ),
         params=(
-            ArgTemplate(name="source", required=True),
-            ArgTemplate(name="keyword", required=True),
+            ArgParam(name="source", required=True),
+            ArgParam(name="keyword", required=True),
         ),
     ),
-    ArgTemplate(
-        name="--include-depth",
+    KnownArg(
+        name="include-depth",
         value_type=int,
         default=3,
         description="Maximum nested include render depth. Default: 3.",
@@ -53,12 +50,11 @@ class IncludeParams:
     keyword: str | None = None
 
 
-def include_arg_template(arg: str) -> ArgTemplate:
+def include_arg_template(arg: str) -> KnownArg:
     if arg not in INCLUDE_DYNAMIC_ARGS:
         raise ValueError(f"unsupported include arg: {arg}")
-    flag = f"--{arg}"
     for item in INCLUDE_TEMPLATE:
-        if item.name == flag:
+        if item.name == arg:
             return item
     raise ValueError(f"unsupported include arg: {arg}")
 
@@ -68,7 +64,7 @@ def normalize_include_params(
     values: Mapping[str, object],
 ) -> IncludeParams:
     arg_template = include_arg_template(arg)
-    normalized = normalize_template_params(values, arg_template.params)
+    normalized = normalize_arg_params(values, arg_template.params)
     keyword = cast(str | None, normalized.get("keyword"))
     if keyword is not None and not keyword:
         raise ValueError("include find keyword must not be empty")

@@ -6,8 +6,9 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
+from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.path import abs_expand_path
 
 
@@ -69,9 +70,9 @@ def _get_vosk_model(model_path: str) -> Any:
         return _VOSK_MODEL_CACHE[path]
 
 
-def _recorder_command(config: Mapping[str, Any]) -> list[str]:
-    recorder_path = str(config["voice_recorder_path"]).strip()
-    sample_rate = max(1, int(config["voice_sample_rate"]))
+def _recorder_command(args: ParsedArgs) -> list[str]:
+    recorder_path = args.require("voice-recorder-path").value
+    sample_rate = max(1, args.require("voice-sample-rate").value)
 
     return [
         recorder_path,
@@ -107,12 +108,12 @@ def _stop_recorder(process: subprocess.Popen[bytes]) -> None:
         process.wait()
 
 
-def _open_recorder(config: Mapping[str, Any]) -> subprocess.Popen[bytes]:
-    recorder_path = str(config["voice_recorder_path"]).strip()
+def _open_recorder(args: ParsedArgs) -> subprocess.Popen[bytes]:
+    recorder_path = args.require("voice-recorder-path").value
 
     try:
         process = subprocess.Popen(
-            _recorder_command(config),
+            _recorder_command(args),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -144,7 +145,7 @@ def _decode_vosk_result(payload: str) -> str:
 
 def _recognize_stream(
     *,
-    config: Mapping[str, Any],
+    args: ParsedArgs,
     model: Any,
     model_path: str,
     sample_rate: int,
@@ -157,11 +158,11 @@ def _recognize_stream(
             reason="missing_dependency",
         ) from exc
 
-    timeout_seconds = max(1, int(config["voice_timeout_seconds"]))
+    timeout_seconds = max(1, args.require("voice-timeout-seconds").value)
     deadline = time.monotonic() + timeout_seconds
     chunks: list[str] = []
     recognizer = KaldiRecognizer(model, sample_rate)
-    process = _open_recorder(config)
+    process = _open_recorder(args)
 
     try:
         while time.monotonic() < deadline:
@@ -196,20 +197,20 @@ def _recognize_stream(
     )
 
 
-def listen_once(config: Mapping[str, Any]) -> TranscriptResult:
-    model_path = str(config["voice_offline_vosk_model_path"]).strip()
+def listen_once(args: ParsedArgs) -> TranscriptResult:
+    model_path = args.require("voice-offline-vosk-model-path").value.strip()
     if not model_path:
         raise VoiceError(
             "Missing --voice-offline-vosk-model-path.",
             reason="missing_model_path",
         )
 
-    sample_rate = max(1, int(config["voice_sample_rate"]))
+    sample_rate = max(1, args.require("voice-sample-rate").value)
     model = _get_vosk_model(model_path)
 
     try:
         return _recognize_stream(
-            config=config,
+            args=args,
             model=model,
             model_path=model_path,
             sample_rate=sample_rate,

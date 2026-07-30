@@ -9,14 +9,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.models import KnownArg, ParsedArgs, Template
+from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.git_state import (
     read_sync_success_timestamp,
     repo_process_lock_is_active,
 )
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import find_parent_with
-from demon_lucy.lib.runtime_system import RuntimeSystem
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -57,115 +58,107 @@ class Status(
     _SECONDS_TICK_INTERVAL_SECONDS = 1.0
 
     template: Template = [
-        ArgTemplate(
-            name="--status",
+        KnownArg(
+            name="status",
             value_type=str,
             default=[],
             description="Filename status tokens. Examples: --status date OR --status time date OR --status time-with-seconds OR --status git OR --status git update",
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-banner",
+        KnownArg(
+            name="status-banner",
             value_type=str,
             default="",
             description='Animated filename banner text. Example: --status-banner "Work sentence"',
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-banner-speed-milliseconds",
+        KnownArg(
+            name="status-banner-speed-milliseconds",
             value_type=int,
             default=500,
             description="Animated banner speed in milliseconds per step. Default: 500",
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-banner-max-characters",
+        KnownArg(
+            name="status-banner-max-characters",
             value_type=int,
             default=0,
             description="Max visible banner width. 0 = unlimited. Default: 0",
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-prefix",
+        KnownArg(
+            name="status-prefix",
             value_type=str,
             default="",
             description="Prefix text inserted at the very beginning of the filename status. Example: --status-prefix 'Inbox: '",
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-animation",
+        KnownArg(
+            name="status-animation",
             value_type=str,
             default=[],
             description='Animation frames for filename status. Example: --status-animation "loading" "loading." "loading.."',
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-animation-speed-milliseconds",
+        KnownArg(
+            name="status-animation-speed-milliseconds",
             value_type=int,
             default=500,
             description="Animation frame switch speed in milliseconds. Default: 500",
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-tick-interval-seconds",
+        KnownArg(
+            name="status-tick-interval-seconds",
             value_type=float,
             default=60.0,
             description="Base ticker interval for status updates in seconds. Default: 60.0",
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-git-fast-tick-interval-seconds",
+        KnownArg(
+            name="status-git-fast-tick-interval-seconds",
             value_type=float,
             default=0.5,
             description="Fast ticker interval for --status git update in seconds. Default: 0.5",
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-git-fast-tick-window-seconds",
+        KnownArg(
+            name="status-git-fast-tick-window-seconds",
             value_type=float,
             default=120.0,
             description="Duration of fast ticker mode after git update activity in seconds. Default: 120.0",
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-git-sync-prefix-cycle-pause-seconds",
+        KnownArg(
+            name="status-git-sync-prefix-cycle-pause-seconds",
             value_type=float,
             default=1.0,
             description="Pause between git-sync prefix animation cycles in seconds. Default: 1.0",
-            required=False,
         ),
-        ArgTemplate(
-            name="--status-opened-events",
+        KnownArg(
+            name="status-opened-events",
             value_type=bool,
             default=False,
             description="Enable status updates for opened events.",
-            required=False,
         ),
     ]
 
     def __init__(self) -> None:
         super().__init__()
-        defaults = self._template_defaults()
-        self._default_banner_speed_ms = int(
-            defaults["status_banner_speed_milliseconds"]
-        )
-        self._default_banner_max_chars = int(defaults["status_banner_max_characters"])
-        self._default_animation_speed_ms = int(
-            defaults["status_animation_speed_milliseconds"]
-        )
-        self._tick_interval_seconds = float(defaults["status_tick_interval_seconds"])
-        self._git_fast_tick_interval_seconds = float(
-            defaults["status_git_fast_tick_interval_seconds"]
-        )
-        self._git_fast_tick_window_seconds = float(
-            defaults["status_git_fast_tick_window_seconds"]
-        )
-        self._git_sync_prefix_cycle_pause_seconds = float(
-            defaults["status_git_sync_prefix_cycle_pause_seconds"]
-        )
+        defaults = parse_args(args=[], template=self.template)
+        self._default_banner_speed_ms = defaults.require(
+            "status-banner-speed-milliseconds"
+        ).value
+        self._default_banner_max_chars = defaults.require(
+            "status-banner-max-characters"
+        ).value
+        self._default_animation_speed_ms = defaults.require(
+            "status-animation-speed-milliseconds"
+        ).value
+        self._tick_interval_seconds = defaults.require(
+            "status-tick-interval-seconds"
+        ).value
+        self._git_fast_tick_interval_seconds = defaults.require(
+            "status-git-fast-tick-interval-seconds"
+        ).value
+        self._git_fast_tick_window_seconds = defaults.require(
+            "status-git-fast-tick-window-seconds"
+        ).value
+        self._git_sync_prefix_cycle_pause_seconds = defaults.require(
+            "status-git-sync-prefix-cycle-pause-seconds"
+        ).value
         self._git_repo_lock_wait_timeout_seconds: float | None = None
         self._git_repo_lock_stale_seconds: float | None = None
-        self._runtime_system: RuntimeSystem | None = None
+        self._operating_system: OperatingSystem | None = None
         self._targets: dict[str, _StatusTarget] = {}
         self._track_lock = threading.Lock()
         self._rename_lock = threading.Lock()
@@ -234,30 +227,30 @@ class Status(
         if (
             self._git_repo_lock_wait_timeout_seconds is None
             or self._git_repo_lock_stale_seconds is None
-            or self._runtime_system is None
+            or self._operating_system is None
         ):
             return False
         return repo_process_lock_is_active(
             repo_root,
             wait_timeout_seconds=self._git_repo_lock_wait_timeout_seconds,
             stale_seconds=self._git_repo_lock_stale_seconds,
-            runtime_system=self._runtime_system,
+            operating_system=self._operating_system,
         )
 
     def _update_git_repo_lock_settings(
         self,
-        config: dict,
-        runtime_system: RuntimeSystem,
+        args: ParsedArgs,
+        operating_system: OperatingSystem,
     ) -> None:
         self._git_repo_lock_wait_timeout_seconds = max(
             0.0,
-            config["sys_git_repo_lock_wait_timeout_seconds"],
+            args.require("sys-git-repo-lock-wait-timeout-seconds").value,
         )
         self._git_repo_lock_stale_seconds = max(
             0.0,
-            config["sys_git_repo_lock_stale_seconds"],
+            args.require("sys-git-repo-lock-stale-seconds").value,
         )
-        self._runtime_system = runtime_system
+        self._operating_system = operating_system
 
     def _build_tokens(
         self,
@@ -308,9 +301,8 @@ class Status(
             if banner_frame:
                 tokens.append(banner_frame)
 
-        prefix_text = str(status_prefix or "")
-        if prefix_text and tokens:
-            tokens[0] = f"{prefix_text}{tokens[0]}"
+        if status_prefix and tokens:
+            tokens[0] = f"{status_prefix}{tokens[0]}"
 
         return tokens
 
@@ -330,9 +322,7 @@ class Status(
                     out.append(ch)
             return "".join(out)
 
-        base_prefix = str(status_prefix or "")
-        if not base_prefix:
-            base_prefix = "Sync "
+        base_prefix = status_prefix or "Sync "
 
         if not fast_mode:
             with self._track_lock:
@@ -435,7 +425,7 @@ class Status(
                 if last_switch_seconds <= 0.0:
                     target.animation_last_switch_seconds = now_seconds
                 else:
-                    speed_seconds = max(1, int(ascii_speed_ms)) / 1000.0
+                    speed_seconds = max(1, ascii_speed_ms) / 1000.0
                     if now_seconds - last_switch_seconds >= speed_seconds:
                         if current_index < len(ascii_frames) - 1:
                             current_index += 1
@@ -465,8 +455,10 @@ class Status(
             banner_max_chars = self._default_banner_max_chars
         if ascii_animation_speed_ms is None:
             ascii_animation_speed_ms = self._default_animation_speed_ms
-        animation_frames = list(ascii_animation_frames or [])
-        animation_speed_ms = max(1, int(ascii_animation_speed_ms))
+        animation_frames = (
+            list(ascii_animation_frames) if ascii_animation_frames is not None else []
+        )
+        animation_speed_ms = max(1, ascii_animation_speed_ms)
         needs_background_updates = self._needs_background_updates(parts, banner_text)
         with self._track_lock:
             if not needs_background_updates and not animation_frames:
@@ -474,11 +466,11 @@ class Status(
                 return
 
             target = self._targets.setdefault(abs_path, _StatusTarget())
-            target.status_prefix = str(status_prefix or "")
+            target.status_prefix = status_prefix
 
             if animation_frames:
                 previous_animation = target.animation
-                next_animation = (list(animation_frames), animation_speed_ms)
+                next_animation = (animation_frames, animation_speed_ms)
                 if previous_animation != next_animation:
                     target.animation_frame_index = 0
                     target.animation_last_switch_seconds = 0.0
@@ -496,8 +488,8 @@ class Status(
             if needs_background_updates:
                 target.parts = list(parts)
                 if banner_text:
-                    safe_speed_ms = max(1, int(banner_speed_ms))
-                    safe_max_chars = max(0, int(banner_max_chars))
+                    safe_speed_ms = max(1, banner_speed_ms)
+                    safe_max_chars = max(0, banner_max_chars)
                     previous_banner = target.banner
                     next_banner = (banner_text, safe_speed_ms, safe_max_chars)
                     if previous_banner != next_banner:
@@ -603,8 +595,8 @@ class Status(
                     ascii_frames = list(ascii_animation_state[0])
                     ascii_speed_ms = int(ascii_animation_state[1])
 
-            runtime_system = self._runtime_system
-            if runtime_system is None:
+            operating_system = self._operating_system
+            if operating_system is None:
                 continue
 
             self._apply(
@@ -617,7 +609,7 @@ class Status(
                 ascii_animation_frames=ascii_frames,
                 ascii_animation_speed_ms=ascii_speed_ms,
                 advance_ascii_frame=bool(ascii_frames),
-                runtime_system=runtime_system,
+                operating_system=operating_system,
             )
 
     def _ticker_interval_seconds(self) -> float:
@@ -684,7 +676,7 @@ class Status(
     def _bootstrap_from_root_status_directories(
         self,
         watch_paths: list[str],
-        runtime_system: RuntimeSystem,
+        operating_system: OperatingSystem,
     ) -> Optional[IgnoreMap]:
         root_status_directories = self._discover_root_status_directories(watch_paths)
         if not root_status_directories:
@@ -739,7 +731,7 @@ class Status(
                         ascii_animation_frames=ascii_animation_frames,
                         ascii_animation_speed_ms=ascii_animation_speed_ms,
                         advance_ascii_frame=True,
-                        runtime_system=runtime_system,
+                        operating_system=operating_system,
                     )
                     merged = self._merge_ignore_maps(merged, changed)
         return merged
@@ -747,7 +739,7 @@ class Status(
     def _bootstrap_once(
         self,
         watch_paths: list[str],
-        runtime_system: RuntimeSystem,
+        operating_system: OperatingSystem,
     ) -> Optional[IgnoreMap]:
         if self._bootstrap_done:
             return None
@@ -758,7 +750,7 @@ class Status(
             # .status files need one lazy scan to revive ticker/animations.
             changed = self._bootstrap_from_root_status_directories(
                 watch_paths,
-                runtime_system,
+                operating_system,
             )
             self._bootstrap_done = True
             return changed
@@ -768,7 +760,7 @@ class Status(
         path: str,
         parts: list[str],
         *,
-        runtime_system: RuntimeSystem,
+        operating_system: OperatingSystem,
         banner_text: str | None = None,
         banner_offset: int = 0,
         banner_max_chars: int | None = None,
@@ -786,11 +778,16 @@ class Status(
             if os.path.isdir(old_path) or not os.path.exists(old_path):
                 return None
 
+            if status_prefix is None:
+                with self._track_lock:
+                    target = self._targets.get(old_path)
+                    status_prefix = target.status_prefix if target is not None else ""
+
             base_name = os.path.basename(old_path)
             stem, _ext = os.path.splitext(base_name)
             existing_tokens, _clean_stem = self._split_status_prefix(
                 stem=stem,
-                status_prefix=str(status_prefix or ""),
+                status_prefix=status_prefix,
             )
             if banner_text is None:
                 with self._track_lock:
@@ -801,10 +798,6 @@ class Status(
                             banner_text = banner_state[0]
                             banner_max_chars = banner_state[2]
                             banner_offset = target.banner_offset
-            if status_prefix is None:
-                with self._track_lock:
-                    target = self._targets.get(old_path)
-                    status_prefix = target.status_prefix if target is not None else ""
             if ascii_animation_frames is None:
                 with self._track_lock:
                     target = self._targets.get(old_path)
@@ -813,7 +806,7 @@ class Status(
                     )
                 if tracked_ascii_animation:
                     ascii_animation_frames = list(tracked_ascii_animation[0])
-                    ascii_animation_speed_ms = int(tracked_ascii_animation[1])
+                    ascii_animation_speed_ms = tracked_ascii_animation[1]
 
             fast_mode = False
             if "git_update" in parts:
@@ -826,13 +819,13 @@ class Status(
                     fast_mode = False
                 status_prefix = self._animated_git_sync_prefix(
                     old_path,
-                    status_prefix=str(status_prefix or ""),
+                    status_prefix=status_prefix,
                     fast_mode=fast_mode,
                 )
 
             ascii_frame_text = self._pick_animation_frame(
                 path=old_path,
-                ascii_frames=list(ascii_animation_frames or []),
+                ascii_frames=ascii_animation_frames or [],
                 ascii_speed_ms=ascii_animation_speed_ms,
                 advance_frame=advance_ascii_frame,
             )
@@ -845,7 +838,7 @@ class Status(
                 banner_text=banner_text,
                 banner_offset=banner_offset,
                 banner_max_chars=banner_max_chars,
-                status_prefix=str(status_prefix or ""),
+                status_prefix=status_prefix,
             )
             if not tokens:
                 return None
@@ -858,7 +851,7 @@ class Status(
             safe_new_name = self._make_filename_candidate(
                 dir_path,
                 new_name,
-                runtime_system=runtime_system,
+                operating_system=operating_system,
             )
             new_path = self._pick_available_new_path(
                 old_path=old_path,
@@ -880,37 +873,41 @@ class Status(
             return {old_path: 1, new_path: 1}
 
     def _handle_event(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        self._update_git_repo_lock_settings(ctx.config, system.runtime_system)
+        self._update_git_repo_lock_settings(ctx.args, system.operating_system)
         self._tick_interval_seconds = max(
-            0.1, float(ctx.config["status_tick_interval_seconds"])
+            0.1,
+            ctx.args.require("status-tick-interval-seconds").value,
         )
         self._git_fast_tick_interval_seconds = max(
-            0.1, float(ctx.config["status_git_fast_tick_interval_seconds"])
+            0.1,
+            ctx.args.require("status-git-fast-tick-interval-seconds").value,
         )
         self._git_fast_tick_window_seconds = max(
-            0.1, float(ctx.config["status_git_fast_tick_window_seconds"])
+            0.1,
+            ctx.args.require("status-git-fast-tick-window-seconds").value,
         )
         self._git_sync_prefix_cycle_pause_seconds = max(
-            0.0, float(ctx.config["status_git_sync_prefix_cycle_pause_seconds"])
+            0.0,
+            ctx.args.require("status-git-sync-prefix-cycle-pause-seconds").value,
         )
         bootstrap_changed = self._bootstrap_once(
-            list(ctx.config["sys_watch_paths"]),
-            system.runtime_system,
+            ctx.args.require("sys-watch-paths").value,
+            system.operating_system,
         )
         self._restart_tracked_animation_cycles(ctx.path)
-        parts = self._parse_status_parts(list(ctx.config["status"]))
+        parts = self._parse_status_parts(ctx.args.require("status").value)
         banner_text, banner_speed_ms, banner_max_chars = (
             self._normalize_banner_settings(
-                ctx.config["status_banner"],
-                ctx.config["status_banner_speed_milliseconds"],
-                ctx.config["status_banner_max_characters"],
+                ctx.args.require("status-banner").value,
+                ctx.args.require("status-banner-speed-milliseconds").value,
+                ctx.args.require("status-banner-max-characters").value,
             )
         )
-        status_prefix = str(ctx.config["status_prefix"])
+        status_prefix = ctx.args.require("status-prefix").value
         ascii_animation_frames, ascii_animation_speed_ms = (
             self._normalize_animation_settings(
-                ctx.config["status_animation"],
-                ctx.config["status_animation_speed_milliseconds"],
+                ctx.args.require("status-animation").value,
+                ctx.args.require("status-animation-speed-milliseconds").value,
             )
         )
         if banner_text and not status_prefix:
@@ -938,7 +935,7 @@ class Status(
             ascii_animation_frames=ascii_animation_frames,
             ascii_animation_speed_ms=ascii_animation_speed_ms,
             advance_ascii_frame=True,
-            runtime_system=system.runtime_system,
+            operating_system=system.operating_system,
         )
         return self._merge_ignore_maps(bootstrap_changed, current_changed)
 
@@ -952,7 +949,10 @@ class Status(
         return self._handle_event(ctx, system)
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        parts = self._parse_status_parts(list(ctx.config["status"]))
-        if not ctx.config["status_opened_events"] and "git_update" not in parts:
+        parts = self._parse_status_parts(ctx.args.require("status").value)
+        if (
+            not ctx.args.require("status-opened-events").value
+            and "git_update" not in parts
+        ):
             return None
         return self._handle_event(ctx, system)

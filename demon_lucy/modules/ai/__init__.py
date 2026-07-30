@@ -7,11 +7,15 @@ from collections import defaultdict
 from typing import Optional
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.models import KnownArg, Template
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path
-from demon_lucy.lib.text_file import detect_newline, normalize_newlines, write_text_atomic
+from demon_lucy.lib.text_file import (
+    detect_newline,
+    normalize_newlines,
+    write_text_atomic,
+)
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -27,36 +31,29 @@ class Ai(AbstractModule):
     name: str = "ai"
     priority: int = 24
     template: Template = [
-        ArgTemplate(
-            name="--ai",
+        KnownArg(
+            name="ai",
             value_type=str,
             default=[],
             description="Experimental: edit the current file with local Codex.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--ai-timeout-seconds",
+        KnownArg(
+            name="ai-timeout-seconds",
             value_type=int,
             default=900,
             description="Maximum time for one Codex run. Default: 900 seconds.",
-            required=False,
         ),
     ]
 
     @staticmethod
     def _prompts_by_line(ctx: Context) -> list[tuple[int, str]]:
-        values = ctx.config["ai"]
-        line_numbers = ctx.arg_lines.get("ai") or []
-        if not isinstance(values, list) or not line_numbers:
+        argument = ctx.args.require("ai")
+        if not argument.lines:
             return []
 
         grouped: dict[int, list[str]] = defaultdict(list)
-        for value, raw_line_number in zip(values, line_numbers):
-            try:
-                line_number = int(raw_line_number)
-            except (TypeError, ValueError):
-                continue
-            text = str(value).strip()
+        for value, line_number in zip(argument.value, argument.lines):
+            text = value.strip()
             if text:
                 grouped[line_number].append(text)
 
@@ -83,12 +80,12 @@ class Ai(AbstractModule):
         safe_notify(
             f"ai:{path}",
             f"AI could not update {os.path.basename(path)}: {reason}",
-            config=ctx.config,
+            args=ctx.args,
             use_rare_mode=True,
         )
 
-    def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        if getattr(system.event, "is_directory", False):
+    def _apply(self, ctx: Context) -> Optional[IgnoreMap]:
+        if getattr(ctx.event, "is_directory", False):
             return None
 
         prompts_by_line = self._prompts_by_line(ctx)
@@ -103,7 +100,7 @@ class Ai(AbstractModule):
             logger.error(
                 log_record(
                     "ai.run_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=path,
                     reason="source_unreadable",
                     error=exc,
@@ -118,7 +115,7 @@ class Ai(AbstractModule):
         logger.info(
             log_record(
                 "ai.run_start",
-                id=system.event_id,
+                id=ctx.event_id,
                 path=path,
                 prompts=len(prompts_by_line),
             )
@@ -128,13 +125,13 @@ class Ai(AbstractModule):
                 source_path=path,
                 source_content=source_without_commands,
                 prompt=prompt,
-                timeout_seconds=ctx.config["ai_timeout_seconds"],
+                timeout_seconds=ctx.args.require("ai-timeout-seconds").value,
             )
         except CodexRunError as exc:
             logger.error(
                 log_record(
                     "ai.run_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=path,
                     reason=exc.reason,
                     error=exc,
@@ -151,7 +148,7 @@ class Ai(AbstractModule):
             logger.error(
                 log_record(
                     "ai.run_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=path,
                     reason="source_recheck_failed",
                     error=exc,
@@ -165,7 +162,7 @@ class Ai(AbstractModule):
             logger.warning(
                 log_record(
                     "ai.run_skipped",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=path,
                     reason="source_changed_during_run",
                     duration_ms=(time.monotonic() - started_at) * 1000.0,
@@ -183,7 +180,7 @@ class Ai(AbstractModule):
             logger.error(
                 log_record(
                     "ai.run_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=path,
                     reason="source_write_failed",
                     error=exc,
@@ -196,7 +193,7 @@ class Ai(AbstractModule):
         logger.info(
             log_record(
                 "ai.run_done",
-                id=system.event_id,
+                id=ctx.event_id,
                 path=path,
                 duration_ms=(time.monotonic() - started_at) * 1000.0,
             )
@@ -204,10 +201,10 @@ class Ai(AbstractModule):
         return {path: 1}
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)

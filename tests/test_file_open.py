@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from demon_lucy.lib import file_open
+from demon_lucy.lib.operating_system import OperatingSystem
 
 
 def test_posix_open_adds_no_follow_flag(monkeypatch) -> None:
@@ -23,14 +24,12 @@ def test_posix_open_adds_no_follow_flag(monkeypatch) -> None:
     file_descriptor = file_open.open_file_no_follow(
         "note.md",
         os.O_WRONLY | os.O_CREAT,
-        runtime_system="linux",
+        operating_system=OperatingSystem.LINUX,
         mode=0o640,
     )
 
     assert file_descriptor == 17
-    assert calls == [
-        ("note.md", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o640)
-    ]
+    assert calls == [("note.md", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o640)]
 
 
 def test_secure_open_rejects_truncate_before_open(monkeypatch) -> None:
@@ -47,7 +46,7 @@ def test_secure_open_rejects_truncate_before_open(monkeypatch) -> None:
         file_open.open_file_no_follow(
             "note.md",
             os.O_WRONLY | os.O_TRUNC,
-            runtime_system="linux",
+            operating_system=OperatingSystem.LINUX,
         )
 
     assert opened is False
@@ -112,7 +111,7 @@ def test_windows_open_rejects_reparse_point(monkeypatch) -> None:
         file_open.open_file_no_follow(
             "note.md",
             os.O_RDONLY,
-            runtime_system="windows",
+            operating_system=OperatingSystem.WINDOWS,
         )
 
     assert error.value.errno == errno.ELOOP
@@ -130,7 +129,7 @@ def test_windows_open_transfers_valid_handle_to_file_descriptor(monkeypatch) -> 
     file_descriptor = file_open.open_file_no_follow(
         "note.md",
         os.O_WRONLY | os.O_CREAT,
-        runtime_system="windows",
+        operating_system=OperatingSystem.WINDOWS,
     )
 
     assert file_descriptor == 23

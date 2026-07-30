@@ -9,6 +9,9 @@ import pytest
 from demon_lucy.modules.linker import root as linker_root
 from watchdog.events import FileModifiedEvent, FileMovedEvent
 
+from demon_lucy.lib.args.models import ParsedArgs
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.linker import Linker
 from demon_lucy.modules.linker.markdown import rewrite_inline_links_for_moved_target
@@ -45,17 +48,82 @@ def _git_add(repo: Path, *paths: Path) -> None:
     )
 
 
-def _linker_config(
+def _linker_args(
     *,
+    root: bool = False,
+    auto_cleanup: bool = False,
     auto_update: bool = True,
     ignore: list[str] | None = None,
-) -> dict[str, object]:
-    return {
-        "linker_root": False,
-        "linker_auto_clean_root_links": False,
-        "linker_ignore": ignore or [],
-        "linker_auto_update_md_links": auto_update,
-    }
+) -> ParsedArgs:
+    tokens: list[str] = []
+    if root:
+        tokens.append("--linker-root")
+    if auto_cleanup:
+        tokens.append("--linker-auto-clean-root-links")
+    if auto_update:
+        tokens.append("--linker-auto-update-md-links")
+    if ignore:
+        tokens.extend(["--linker-ignore", *ignore])
+    return parse_args(tokens, Linker.template)
+
+
+def _context(
+    path: Path,
+    *,
+    root: bool = False,
+    auto_cleanup: bool = False,
+    auto_update: bool = True,
+    ignore: list[str] | None = None,
+    event: FileModifiedEvent | FileMovedEvent | None = None,
+    event_id: str = "test",
+) -> Context:
+    return Context(
+        path=str(path),
+        args=_linker_args(
+            root=root,
+            auto_cleanup=auto_cleanup,
+            auto_update=auto_update,
+            ignore=ignore,
+        ),
+        run_mode="oneshot",
+        event_id=event_id,
+        event=event,
+    )
+
+
+def _system(
+    module: Linker,
+    operating_system: OperatingSystem = OperatingSystem.LINUX,
+) -> System:
+    return System(
+        global_template=Linker.template,
+        modules=[module],
+        operating_system=operating_system,
+    )
+
+
+def _apply(
+    module: Linker,
+    *,
+    path: Path,
+    operating_system: OperatingSystem = OperatingSystem.LINUX,
+    root: bool = False,
+    auto_cleanup: bool = False,
+    ignore: list[str] | None = None,
+    event_id: str = "test",
+):
+    result = module.created(
+        _context(
+            path,
+            root=root,
+            auto_cleanup=auto_cleanup,
+            auto_update=False,
+            ignore=ignore,
+            event_id=event_id,
+        ),
+        _system(module, operating_system),
+    )
+    return result
 
 
 def test_apply_creates_link_in_repo_root(tmp_path: Path):
@@ -66,14 +134,10 @@ def test_apply_creates_link_in_repo_root(tmp_path: Path):
     note.write_text("hello\n--linker-root\n", encoding="utf-8")
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": True,
-            "linker_auto_clean_root_links": False,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        root=True,
     )
 
     link_path = repo / "daily.md"
@@ -101,15 +165,12 @@ def test_windows_uses_hardlink_when_symlink_privilege_is_unavailable(
     monkeypatch.setattr(linker_root.os, "symlink", reject_symlink)
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="windows",
+    changed = _apply(
+        module,
+        path=note,
+        operating_system=OperatingSystem.WINDOWS,
         event_id="evt-test",
-        path=str(note),
-        config={
-            "linker_root": True,
-            "linker_auto_clean_root_links": False,
-            "linker_ignore": [],
-        },
+        root=True,
     )
 
     link_path = repo / "daily.md"
@@ -142,15 +203,12 @@ def test_windows_does_not_use_hardlink_for_other_symlink_errors(
     monkeypatch.setattr(linker_root.os, "symlink", reject_symlink)
     monkeypatch.setattr(linker_root.os, "link", track_hardlink)
 
-    changed = Linker()._apply(
-        runtime_system="windows",
+    changed = _apply(
+        Linker(),
+        path=note,
+        operating_system=OperatingSystem.WINDOWS,
         event_id="evt-test",
-        path=str(note),
-        config={
-            "linker_root": True,
-            "linker_auto_clean_root_links": False,
-            "linker_ignore": [],
-        },
+        root=True,
     )
 
     assert changed is None
@@ -165,14 +223,9 @@ def test_apply_returns_none_when_flag_is_disabled(tmp_path: Path):
     note.write_text("x\n", encoding="utf-8")
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": False,
-            "linker_auto_clean_root_links": False,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=note,
     )
 
     assert changed is None
@@ -185,14 +238,10 @@ def test_apply_returns_none_when_file_is_already_in_repo_root(tmp_path: Path):
     note.write_text("x\n", encoding="utf-8")
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": True,
-            "linker_auto_clean_root_links": False,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        root=True,
     )
 
     assert changed is None
@@ -208,14 +257,10 @@ def test_apply_returns_none_when_target_exists_as_file(tmp_path: Path):
     top_target.write_text("occupied\n", encoding="utf-8")
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": True,
-            "linker_auto_clean_root_links": False,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        root=True,
     )
 
     assert changed is None
@@ -232,14 +277,10 @@ def test_apply_returns_none_when_same_symlink_already_exists(tmp_path: Path):
     os.symlink(os.path.relpath(note, repo), top_target)
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": True,
-            "linker_auto_clean_root_links": False,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        root=True,
     )
 
     assert changed is None
@@ -252,14 +293,10 @@ def test_apply_returns_none_outside_repo(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(linker_mod, "find_parent_with", lambda _p, _m: None)
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": True,
-            "linker_auto_clean_root_links": False,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        root=True,
     )
 
     assert changed is None
@@ -282,14 +319,10 @@ def test_auto_cleanup_removes_symlinks_from_repo_root(tmp_path: Path):
     keep_file.write_text("keep\n", encoding="utf-8")
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": False,
-            "linker_auto_clean_root_links": True,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        auto_cleanup=True,
     )
 
     assert changed is not None
@@ -308,14 +341,11 @@ def test_windows_auto_cleanup_removes_current_source_hardlink(tmp_path: Path):
     hardlink_path = repo / "daily.md"
     os.link(note, hardlink_path)
 
-    changed = Linker()._apply(
-        runtime_system="windows",
-        path=str(note),
-        config={
-            "linker_root": False,
-            "linker_auto_clean_root_links": True,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        Linker(),
+        path=note,
+        operating_system=OperatingSystem.WINDOWS,
+        auto_cleanup=True,
     )
 
     assert changed == {str(hardlink_path.absolute()): 1}
@@ -331,14 +361,10 @@ def test_linux_auto_cleanup_does_not_remove_hardlinks(tmp_path: Path):
     hardlink_path = repo / "daily.md"
     os.link(note, hardlink_path)
 
-    changed = Linker()._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": False,
-            "linker_auto_clean_root_links": True,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        Linker(),
+        path=note,
+        auto_cleanup=True,
     )
 
     assert changed is None
@@ -355,14 +381,11 @@ def test_auto_cleanup_skipped_when_link_top_is_set(tmp_path: Path):
     os.symlink(os.path.relpath(note, repo), stale_link)
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": True,
-            "linker_auto_clean_root_links": True,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        root=True,
+        auto_cleanup=True,
     )
 
     assert changed == {str((repo / "x.md").absolute()): 1}
@@ -376,14 +399,10 @@ def test_auto_cleanup_returns_none_when_no_links(tmp_path: Path):
     note.write_text("x\n", encoding="utf-8")
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": False,
-            "linker_auto_clean_root_links": True,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        auto_cleanup=True,
     )
 
     assert changed is None
@@ -396,14 +415,11 @@ def test_apply_skips_link_creation_when_source_matches_ignore_basename(tmp_path:
     note.write_text("x\n", encoding="utf-8")
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": True,
-            "linker_auto_clean_root_links": False,
-            "linker_ignore": ["secret.md"],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        root=True,
+        ignore=["secret.md"],
     )
 
     assert changed is None
@@ -425,14 +441,11 @@ def test_auto_cleanup_keeps_ignored_symlink_by_name(tmp_path: Path):
     os.symlink(os.path.relpath(other, repo), delete_link)
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(note),
-        config={
-            "linker_root": False,
-            "linker_auto_clean_root_links": True,
-            "linker_ignore": ["x.md"],
-        },
+    changed = _apply(
+        module,
+        path=note,
+        auto_cleanup=True,
+        ignore=["x.md"],
     )
 
     assert changed == {str(delete_link.absolute()): 1}
@@ -455,14 +468,10 @@ def test_auto_cleanup_keeps_symlink_when_target_has_linker_root_flag(tmp_path: P
     os.symlink(os.path.relpath(delete_note, repo), delete_link)
 
     module = Linker()
-    changed = module._apply(
-        runtime_system="linux",
-        path=str(delete_note),
-        config={
-            "linker_root": False,
-            "linker_auto_clean_root_links": True,
-            "linker_ignore": [],
-        },
+    changed = _apply(
+        module,
+        path=delete_note,
+        auto_cleanup=True,
     )
 
     assert changed == {str(delete_link.absolute()): 1}
@@ -491,18 +500,11 @@ def test_moved_updates_markdown_link_paths_only(tmp_path: Path):
     )
 
     module = Linker()
-    config = {
-        "linker_root": False,
-        "linker_auto_clean_root_links": False,
-        "linker_ignore": [],
-        "linker_auto_update_md_links": True,
-    }
-    ctx = Context(path=str(new_path), config=config, arg_lines={})
-    system = System(
+    ctx = _context(
+        new_path,
         event=FileMovedEvent(str(old_path), str(new_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.moved(ctx, system)
 
@@ -522,9 +524,7 @@ def test_moved_link_rewrite_preserves_line_endings(
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
     markdown_path = notes_dir / "index.md"
-    markdown_path.write_bytes(
-        newline.join((b"[good day](day.md)", b"text", b""))
-    )
+    markdown_path.write_bytes(newline.join((b"[good day](day.md)", b"text", b"")))
 
     changed = rewrite_inline_links_for_moved_target(
         markdown_path=str(markdown_path),
@@ -555,12 +555,11 @@ def test_modified_markdown_link_move_renames_target_file_and_creates_dir(
     index_path.write_text("[good day](log/day.md)\n", encoding="utf-8")
 
     module = Linker()
-    ctx = Context(path=str(index_path), config=_linker_config(), arg_lines={})
-    system = System(
+    ctx = _context(
+        index_path,
         event=FileModifiedEvent(str(index_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
@@ -592,12 +591,11 @@ def test_modified_markdown_link_move_skips_when_target_exists(tmp_path: Path):
     index_path.write_text("[good day](log/day.md)\n", encoding="utf-8")
 
     module = Linker()
-    ctx = Context(path=str(index_path), config=_linker_config(), arg_lines={})
-    system = System(
+    ctx = _context(
+        index_path,
         event=FileModifiedEvent(str(index_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
@@ -619,16 +617,12 @@ def test_modified_markdown_link_move_skips_when_flag_disabled(tmp_path: Path):
     index_path.write_text("[good day](log/day.md)\n", encoding="utf-8")
 
     module = Linker()
-    ctx = Context(
-        path=str(index_path),
-        config=_linker_config(auto_update=False),
-        arg_lines={},
-    )
-    system = System(
+    ctx = _context(
+        index_path,
+        auto_update=False,
         event=FileModifiedEvent(str(index_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
@@ -650,12 +644,11 @@ def test_modified_markdown_anchor_change_does_not_move_target(tmp_path: Path):
     index_path.write_text("[good day](day.md#new)\n", encoding="utf-8")
 
     module = Linker()
-    ctx = Context(path=str(index_path), config=_linker_config(), arg_lines={})
-    system = System(
+    ctx = _context(
+        index_path,
         event=FileModifiedEvent(str(index_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.modified(ctx, system)
 
@@ -679,18 +672,12 @@ def test_moved_skips_markdown_rewrite_for_ignored_targets(tmp_path: Path):
     index_path.write_text("[good day](day.md)\n", encoding="utf-8")
 
     module = Linker()
-    config = {
-        "linker_root": False,
-        "linker_auto_clean_root_links": False,
-        "linker_ignore": ["index.md"],
-        "linker_auto_update_md_links": True,
-    }
-    ctx = Context(path=str(new_path), config=config, arg_lines={})
-    system = System(
+    ctx = _context(
+        new_path,
+        ignore=["index.md"],
         event=FileMovedEvent(str(old_path), str(new_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.moved(ctx, system)
 
@@ -717,18 +704,11 @@ def test_moved_updates_link_in_middle_of_line(tmp_path: Path):
     )
 
     module = Linker()
-    config = {
-        "linker_root": False,
-        "linker_auto_clean_root_links": False,
-        "linker_ignore": [],
-        "linker_auto_update_md_links": True,
-    }
-    ctx = Context(path=str(new_path), config=config, arg_lines={})
-    system = System(
+    ctx = _context(
+        new_path,
         event=FileMovedEvent(str(old_path), str(new_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.moved(ctx, system)
 
@@ -755,18 +735,12 @@ def test_moved_does_not_update_when_flag_is_disabled(tmp_path: Path):
     index_path.write_text("[good day](day.md)\n", encoding="utf-8")
 
     module = Linker()
-    config = {
-        "linker_root": False,
-        "linker_auto_clean_root_links": False,
-        "linker_ignore": [],
-        "linker_auto_update_md_links": False,
-    }
-    ctx = Context(path=str(new_path), config=config, arg_lines={})
-    system = System(
+    ctx = _context(
+        new_path,
+        auto_update=False,
         event=FileMovedEvent(str(old_path), str(new_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.moved(ctx, system)
 
@@ -790,18 +764,11 @@ def test_moved_skips_update_for_txt_target(tmp_path: Path):
     index_path.write_text("[good day](day.txt)\n", encoding="utf-8")
 
     module = Linker()
-    config = {
-        "linker_root": False,
-        "linker_auto_clean_root_links": False,
-        "linker_ignore": [],
-        "linker_auto_update_md_links": True,
-    }
-    ctx = Context(path=str(new_path), config=config, arg_lines={})
-    system = System(
+    ctx = _context(
+        new_path,
         event=FileMovedEvent(str(old_path), str(new_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.moved(ctx, system)
 
@@ -825,18 +792,11 @@ def test_moved_skips_update_in_txt_source_file(tmp_path: Path):
     index_path.write_text("[good day](day.md)\n", encoding="utf-8")
 
     module = Linker()
-    config = {
-        "linker_root": False,
-        "linker_auto_clean_root_links": False,
-        "linker_ignore": [],
-        "linker_auto_update_md_links": True,
-    }
-    ctx = Context(path=str(new_path), config=config, arg_lines={})
-    system = System(
+    ctx = _context(
+        new_path,
         event=FileMovedEvent(str(old_path), str(new_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.moved(ctx, system)
 
@@ -860,18 +820,11 @@ def test_moved_skips_update_for_unsupported_extension(tmp_path: Path):
     index_path.write_text("[good day](day.log)\n", encoding="utf-8")
 
     module = Linker()
-    config = {
-        "linker_root": False,
-        "linker_auto_clean_root_links": False,
-        "linker_ignore": [],
-        "linker_auto_update_md_links": True,
-    }
-    ctx = Context(path=str(new_path), config=config, arg_lines={})
-    system = System(
+    ctx = _context(
+        new_path,
         event=FileMovedEvent(str(old_path), str(new_path)),
-        global_template=[],
-        modules=[module],
     )
+    system = _system(module)
 
     changed = module.moved(ctx, system)
 

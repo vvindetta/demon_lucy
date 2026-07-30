@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.args.parser import is_valid_flag_token, split_arg_line
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
@@ -66,12 +67,12 @@ class Graph(AbstractModule):
         return commands
 
     @staticmethod
-    def _candidate_lines(arg_lines: dict) -> list[int]:
+    def _candidate_lines(args: ParsedArgs) -> list[int]:
         return sorted(
             {
-                int(value)
-                for key in ("graph", "graph_regex")
-                for value in (arg_lines.get(key) or [])
+                line
+                for name in ("graph", "graph-regex")
+                for line in args.require(name).lines
             },
             reverse=True,
         )
@@ -106,8 +107,8 @@ class Graph(AbstractModule):
             )
         return blocks
 
-    def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        candidate_lines = self._candidate_lines(ctx.arg_lines)
+    def _apply(self, ctx: Context) -> Optional[IgnoreMap]:
+        candidate_lines = self._candidate_lines(ctx.args)
         if not candidate_lines:
             return None
 
@@ -120,7 +121,7 @@ class Graph(AbstractModule):
             logger.warning(
                 log_record(
                     "graph.skip",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     reason="file_unreadable",
                     error=exc,
@@ -130,7 +131,9 @@ class Graph(AbstractModule):
 
         lines = original_text.splitlines(keepends=True)
         newline = detect_newline(original_text)
-        show_allowed_values = not ctx.config["sys_dynamic_block_hide_allowed_values"]
+        show_allowed_values = not ctx.args.require(
+            "sys-dynamic-block-hide-allowed-values"
+        ).value
         rendered_commands = 0
         for line_number in candidate_lines:
             index = line_number - 1
@@ -147,7 +150,7 @@ class Graph(AbstractModule):
                 logger.warning(
                     log_record(
                         "graph.command_failed",
-                        id=system.event_id,
+                        id=ctx.event_id,
                         path=ctx.path,
                         line=line_number,
                         reason="render_failed",
@@ -169,7 +172,7 @@ class Graph(AbstractModule):
             logger.error(
                 log_record(
                     "graph.write_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     error=exc,
                 )
@@ -177,7 +180,7 @@ class Graph(AbstractModule):
             safe_notify(
                 f"graph-write:{ctx.path}",
                 f"Graph write failed for {ctx.path}: {exc}",
-                config=ctx.config,
+                args=ctx.args,
                 use_rare_mode=True,
             )
             return None
@@ -185,7 +188,7 @@ class Graph(AbstractModule):
         logger.info(
             log_record(
                 "graph.render_done",
-                id=system.event_id,
+                id=ctx.event_id,
                 path=ctx.path,
                 graphs=rendered_commands,
             )
@@ -193,10 +196,10 @@ class Graph(AbstractModule):
         return {ctx.path: 1}
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)

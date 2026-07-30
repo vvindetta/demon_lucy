@@ -3,18 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from watchdog.events import FileModifiedEvent
-
 from demon_lucy.lib.args.parser import parse_args
-from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.abstract_module import System
 from demon_lucy.modules.cmd import Cmd, CmdStream
+from tests.args_support import make_context
 
 
 def test_cmd_stream_default_is_typed_enum() -> None:
-    config, unknown = parse_args(args=[], template=Cmd.template)
+    parsed = parse_args(args=[], template=Cmd.template)
 
-    assert unknown == []
-    assert config["cmd_stream"] is CmdStream.BOTH
+    assert parsed.unknown == ()
+    assert parsed.require("cmd-stream").value is CmdStream.BOTH
 
 
 @pytest.mark.parametrize(
@@ -32,10 +31,11 @@ def test_collect_runs_groups_tokens_by_line(
     tokens: list[str], lines: list[int], expected: list[tuple[int, list[str]]]
 ):
     module = Cmd()
-    ctx = Context(
-        path="/tmp/x.md",
-        config={"cmd": tokens},
-        arg_lines={"cmd": lines},
+    ctx = make_context(
+        "/tmp/x.md",
+        Cmd.template,
+        {"cmd": tokens},
+        lines={"cmd": lines},
     )
 
     runs = module._collect_runs(ctx)
@@ -62,18 +62,18 @@ def test_apply_replaces_command_line_with_output_block(tmp_path: Path, monkeypat
     module = Cmd()
     monkeypatch.setattr(module, "_run_cmd", lambda **_kwargs: (0, "OUT\n", ""))
 
-    ctx = Context(
-        path=str(note),
-        config={
+    ctx = make_context(
+        str(note),
+        Cmd.template,
+        {
             "cmd": ["echo", "hello"],
-            "cmd_timeout_seconds": 5,
-            "cmd_output_max_bytes": 1000,
-            "cmd_stream": CmdStream.BOTH,
+            "cmd-timeout-seconds": 5,
+            "cmd-output-max-bytes": 1000,
+            "cmd-stream": CmdStream.BOTH,
         },
-        arg_lines={"cmd": [1, 1]},
+        lines={"cmd": (1, 1)},
     )
     system = System(
-        event=FileModifiedEvent(str(note)),
         global_template=[],
         modules=[module],
     )

@@ -7,61 +7,53 @@ import pytest
 import main_oneshot as oneshot_mod
 from demon_lucy.lib.args.models import (
     ArgSource,
-    KnownArg,
     ParsedArgs,
     UnknownArg,
 )
 from demon_lucy.lib.args.parser import parse_args
+from tests.args_support import make_args
 
 
 def test_oneshot_event_default_is_typed_enum() -> None:
     parsed = parse_args(args=[], template=oneshot_mod.ONESHOT_STARTUP_TEMPLATE)
 
     assert parsed.unknown == ()
-    assert (
-        parsed.require("oneshot-event").value
-        is oneshot_mod.OneShotEvent.MODIFIED
-    )
+    assert parsed.require("oneshot-event").value is oneshot_mod.OneShotEvent.MODIFIED
 
 
-def _base_config(tmp_path: Path) -> dict:
+def _base_values(tmp_path: Path) -> dict[str, object]:
     return {
-        "oneshot_event": oneshot_mod.OneShotEvent.MODIFIED,
-        "oneshot_paths": [str(tmp_path / "note.md")],
-        "oneshot_move_src_path": "",
-        "oneshot_move_dest_path": "",
-        "sys_modules": [],
-        "sys_modules_exclude": [],
-        "sys_watch_paths": [],
-        "sys_disable_opened_events": False,
-        "sys_log_level": "warning",
+        "oneshot-event": oneshot_mod.OneShotEvent.MODIFIED,
+        "oneshot-paths": [str(tmp_path / "note.md")],
+        "oneshot-move-src-path": "",
+        "oneshot-move-dest-path": "",
+        "sys-modules": [],
+        "sys-modules-exclude": [],
     }
 
 
 def _startup_args(
-    config: dict,
+    values: dict[str, object],
     *,
     unknown_args: list[str] | None = None,
 ) -> ParsedArgs:
-    return ParsedArgs(
-        known=tuple(
-            KnownArg(
-                name=f"{key.replace('_', '-')}",
-                value=value,
-                source=ArgSource.CLI,
-            )
-            for key, value in config.items()
-        ),
-        unknown=tuple(
-            UnknownArg(token=token, source=ArgSource.CLI)
-            for token in unknown_args or []
+    return make_args(
+        oneshot_mod.ONESHOT_STARTUP_TEMPLATE,
+        values,
+        source=ArgSource.CLI,
+    ).merged_with(
+        ParsedArgs(
+            unknown=tuple(
+                UnknownArg(token=token, source=ArgSource.CLI)
+                for token in unknown_args or []
+            ),
         ),
     )
 
 
 def test_build_event_plan_supports_single_event(tmp_path: Path):
-    config = _base_config(tmp_path)
-    plan = oneshot_mod._build_event_plan(_startup_args(config))
+    values = _base_values(tmp_path)
+    plan = oneshot_mod._build_event_plan(_startup_args(values))
 
     assert len(plan) == 1
     path_value, event = plan[0]
@@ -70,12 +62,12 @@ def test_build_event_plan_supports_single_event(tmp_path: Path):
 
 
 def test_build_event_plan_requires_paths_for_non_moved_event(tmp_path: Path):
-    config = _base_config(tmp_path)
-    config["oneshot_event"] = oneshot_mod.OneShotEvent.DELETED
-    config["oneshot_paths"] = []
+    values = _base_values(tmp_path)
+    values["oneshot-event"] = oneshot_mod.OneShotEvent.DELETED
+    values["oneshot-paths"] = []
 
     with pytest.raises(ValueError, match="requires --oneshot-paths"):
-        oneshot_mod._build_event_plan(_startup_args(config))
+        oneshot_mod._build_event_plan(_startup_args(values))
 
 
 def test_run_oneshot_passes_oneshot_run_mode(tmp_path: Path, monkeypatch):
@@ -103,8 +95,8 @@ def test_run_oneshot_passes_oneshot_run_mode(tmp_path: Path, monkeypatch):
     )
     monkeypatch.setattr(oneshot_mod, "ModuleManager", _FakeManager)
 
-    config = _base_config(tmp_path)
-    exit_code = oneshot_mod.run_oneshot(startup_args=_startup_args(config))
+    values = _base_values(tmp_path)
+    exit_code = oneshot_mod.run_oneshot(startup_args=_startup_args(values))
 
     assert exit_code == 0
     assert captured["run_mode"] == "oneshot"
@@ -143,11 +135,11 @@ def test_run_oneshot_without_paths_runs_cli_flow(
     )
     monkeypatch.setattr(oneshot_mod, "ModuleManager", _FakeManager)
 
-    config = _base_config(tmp_path)
-    config["oneshot_paths"] = []
+    values = _base_values(tmp_path)
+    values["oneshot-paths"] = []
     exit_code = oneshot_mod.run_oneshot(
         startup_args=_startup_args(
-            config,
+            values,
             unknown_args=["--workspace-init", str(tmp_path / "Notes")],
         ),
     )
@@ -186,11 +178,52 @@ def test_run_oneshot_without_paths_errors_when_no_module_arg_runs(
     )
     monkeypatch.setattr(oneshot_mod, "ModuleManager", _FakeManager)
 
-    config = _base_config(tmp_path)
-    config["oneshot_paths"] = []
+    values = _base_values(tmp_path)
+    values["oneshot-paths"] = []
 
     with pytest.raises(ValueError, match="requires at least one module argument"):
-        oneshot_mod.run_oneshot(startup_args=_startup_args(config))
+        oneshot_mod.run_oneshot(
+            startup_args=_startup_args(
+                values,
+                unknown_args=["--workspace-init", str(tmp_path / "Notes")],
+            )
+        )
+
+
+def test_run_oneshot_without_paths_or_module_args_requires_event_paths(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(oneshot_mod, "configure_logging", lambda _args: None)
+    monkeypatch.setattr(
+        oneshot_mod,
+        "select_demon_lucy_modules",
+        lambda include_names, exclude_names: [],
+    )
+    values = _base_values(tmp_path)
+    values["oneshot-paths"] = []
+
+    with pytest.raises(ValueError, match="requires --oneshot-paths"):
+        oneshot_mod.run_oneshot(startup_args=_startup_args(values))
+
+
+def test_run_oneshot_runs_workspace_cli_without_target_file(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "Notes"
+    values = _base_values(tmp_path)
+    values["oneshot-paths"] = []
+    values["sys-modules"] = ["workspace"]
+    args = _startup_args(
+        values,
+        unknown_args=["--workspace-init", str(workspace)],
+    )
+    monkeypatch.setattr(oneshot_mod, "configure_logging", lambda _args: None)
+
+    assert oneshot_mod.run_oneshot(startup_args=args) == 0
+    assert (workspace / ".lucy" / "config.txt").is_file()
+    assert (workspace / "welcome.md").is_file()
 
 
 def test_main_returns_2_when_startup_args_are_invalid(monkeypatch):

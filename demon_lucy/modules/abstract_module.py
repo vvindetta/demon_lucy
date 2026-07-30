@@ -32,9 +32,7 @@ class System:
 
     global_template: Template
     modules: list["AbstractModule"]
-    operating_system: OperatingSystem = field(
-        default_factory=detect_operating_system
-    )
+    operating_system: OperatingSystem = field(default_factory=detect_operating_system)
     runtime_started_at_monotonic: float = field(default_factory=time.monotonic)
 
 
@@ -55,7 +53,6 @@ class Context:
     run_mode: RunMode
     event_id: str
     event: FileSystemEvent | None = None
-
 
 class AbstractModule(ABC):
     """

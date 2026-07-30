@@ -5,16 +5,68 @@ from pathlib import Path
 import pytest
 
 import demon_lucy.modules.plasma_widget as plasma_mod
+from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.modules.abstract_module import Context
-from demon_lucy.modules.plasma_widget.mirror_mapper import (
-    _bold_items_to_plasma_html,
+from demon_lucy.modules.plasma_widget import PlasmaWidget
+from demon_lucy.modules.plasma_widget.config import PLASMA_WIDGET_TEMPLATE
+from demon_lucy.modules.plasma_widget.markdown_codec import (
+    _doc_hash,
+    _doc_to_md,
+    _md_to_doc,
 )
-from demon_lucy.modules.plasma_widget import DocLine, PlasmaWidget
+from demon_lucy.modules.plasma_widget.mirror_mapper import (
+    _apply_mirror_items_to_doc,
+    _apply_mirror_lines_to_doc,
+    _bold_items_to_plasma_html,
+    _bold_lines_to_plasma_html,
+    _extract_bold_items_from_doc,
+    _items_hash,
+    _mirror_html_to_items,
+    _mirror_html_to_lines,
+)
+from demon_lucy.modules.plasma_widget.model import DocLine, _normalize_md
+from demon_lucy.modules.plasma_widget.plasma_html_codec import (
+    _doc_to_plasma_html,
+    _html_to_doc,
+)
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
-_NOTIFY_CFG = {
-    "sys_notification_provider": "termuxapi",
-    "sys_notification_min_interval_seconds": 10.0,
-}
+_TEMPLATE = [*DEMON_LUCY_STARTUP_TEMPLATE, *PLASMA_WIDGET_TEMPLATE]
+_NOTIFY_ARGS = parse_args(
+    args=[
+        "--sys-notification-provider",
+        "termuxapi",
+        "--sys-notification-min-interval-seconds",
+        "10",
+    ],
+    template=_TEMPLATE,
+)
+
+
+def _context(
+    *,
+    path: str,
+    widget_path: str,
+    markdown_path: str,
+    bold_widget_path: str | None = None,
+    css_style: bool = False,
+) -> Context:
+    tokens = [
+        "--plasma-widget-path",
+        widget_path,
+        "--plasma-markdown-note-path",
+        markdown_path,
+    ]
+    if bold_widget_path is not None:
+        tokens.extend(["--plasma-bold-widget-path", bold_widget_path])
+    if css_style:
+        tokens.append("--plasma-css-style")
+    return Context(
+        path=path,
+        args=parse_args(args=tokens, template=_TEMPLATE),
+        run_mode="daemon",
+        event_id="evt-test",
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -24,33 +76,31 @@ def _reset_plasma_globals(monkeypatch):
 
 
 def _canonicalize_md(md_text: str) -> str:
-    return plasma_mod._doc_to_md(
-        plasma_mod._md_to_doc(plasma_mod._normalize_md(md_text))
-    )
+    return _doc_to_md(_md_to_doc(_normalize_md(md_text)))
 
 
 def _roundtrip_once(md_text: str, *, css_style: bool) -> str:
-    doc_from_md = plasma_mod._md_to_doc(plasma_mod._normalize_md(md_text))
-    html = plasma_mod._doc_to_plasma_html(doc_from_md, css_style=css_style)
-    doc_from_html = plasma_mod._html_to_doc(html)
-    return plasma_mod._doc_to_md(doc_from_html)
+    doc_from_md = _md_to_doc(_normalize_md(md_text))
+    html = _doc_to_plasma_html(doc_from_md, css_style=css_style)
+    doc_from_html = _html_to_doc(html)
+    return _doc_to_md(doc_from_html)
 
 
 def test_md_doc_roundtrip_preserves_checkbox_and_bold():
     md = "- [ ] **Task**\nPlain line"
-    doc = plasma_mod._md_to_doc(md)
+    doc = _md_to_doc(md)
 
     assert doc[0].kind == "li"
     assert doc[0].state == "unchecked"
     assert doc[1].kind == "p"
-    assert plasma_mod._doc_to_md(doc) == md
+    assert _doc_to_md(doc) == md
 
 
 def test_doc_to_plasma_html_mode_switch_changes_structure():
     doc = [DocLine(kind="li", state="unchecked", segs=[("Task", False)])]
 
-    plain_html = plasma_mod._doc_to_plasma_html(doc, css_style=False)
-    css_html = plasma_mod._doc_to_plasma_html(doc, css_style=True)
+    plain_html = _doc_to_plasma_html(doc, css_style=False)
+    css_html = _doc_to_plasma_html(doc, css_style=True)
 
     assert "<ul>" not in plain_html
     assert "- [ ] Task" in plain_html
@@ -65,8 +115,8 @@ def test_apply_mirror_items_to_doc_replaces_bold_lines_and_appends_new():
         DocLine(kind="li", state="checked", segs=[("old2", True)]),
     ]
 
-    updated = plasma_mod._apply_mirror_items_to_doc(main_doc, ["new1", "new2", "new3"])
-    rendered = plasma_mod._doc_to_md(updated)
+    updated = _apply_mirror_items_to_doc(main_doc, ["new1", "new2", "new3"])
+    rendered = _doc_to_md(updated)
 
     assert "plain" in rendered
     assert "**new1**" in rendered
@@ -82,8 +132,8 @@ def test_apply_mirror_items_to_doc_removes_lines_deleted_in_mirror():
         DocLine(kind="p", state=None, segs=[("tail", False)]),
     ]
 
-    updated = plasma_mod._apply_mirror_items_to_doc(main_doc, ["new1"])
-    rendered = plasma_mod._doc_to_md(updated)
+    updated = _apply_mirror_items_to_doc(main_doc, ["new1"])
+    rendered = _doc_to_md(updated)
 
     assert "plain" in rendered
     assert "**new1**" in rendered
@@ -98,19 +148,19 @@ def test_apply_mirror_lines_ignores_blank_lines_in_markdown():
         DocLine(kind="p", state=None, segs=[("old2", True)]),
     ]
 
-    updated = plasma_mod._apply_mirror_lines_to_doc(
+    updated = _apply_mirror_lines_to_doc(
         main_doc,
         ["new1", "", "", "", "", "new2"],
     )
 
-    assert plasma_mod._doc_to_md(updated) == "**new1**\n**new2**"
+    assert _doc_to_md(updated) == "**new1**\n**new2**"
 
 
 def test_mirror_html_output_preserves_blank_lines_but_items_filter_them():
-    html = plasma_mod._bold_lines_to_plasma_html(["a", "", "", "b"])
+    html = _bold_lines_to_plasma_html(["a", "", "", "b"])
 
-    assert plasma_mod._mirror_html_to_lines(html) == ["a", "", "", "b"]
-    assert plasma_mod._mirror_html_to_items(html) == ["a", "b"]
+    assert _mirror_html_to_lines(html) == ["a", "", "", "b"]
+    assert _mirror_html_to_items(html) == ["a", "b"]
 
 
 def test_bold_mirror_blank_only_edit_does_not_update_markdown_spacing():
@@ -119,14 +169,14 @@ def test_bold_mirror_blank_only_edit_does_not_update_markdown_spacing():
         DocLine(kind="p", state=None, segs=[("b", True)]),
     ]
     state = plasma_mod.SyncState(
-        doc_hash=plasma_mod._doc_hash(main_doc),
-        bold_items_hash=plasma_mod._items_hash(["a", "b"]),
+        doc_hash=_doc_hash(main_doc),
+        bold_items_hash=_items_hash(["a", "b"]),
         css_style=False,
     )
 
     plan = plasma_mod.plan_from_bold_mirror(
         state=state,
-        mirror_html_current=plasma_mod._doc_to_plasma_html(
+        mirror_html_current=_doc_to_plasma_html(
             [
                 DocLine(kind="p", state=None, segs=[("a", True)]),
                 DocLine(kind="p", state=None, segs=[]),
@@ -135,7 +185,7 @@ def test_bold_mirror_blank_only_edit_does_not_update_markdown_spacing():
             css_style=False,
         ),
         mirror_exists=True,
-        widget_html_current=plasma_mod._doc_to_plasma_html(main_doc, css_style=False),
+        widget_html_current=_doc_to_plasma_html(main_doc, css_style=False),
         markdown_text_current="**a**\n**b**",
         css_style=False,
     )
@@ -147,7 +197,7 @@ def test_bold_mirror_blank_only_edit_does_not_update_markdown_spacing():
 
 
 def test_markdown_sync_preserves_existing_mirror_blank_separators():
-    mirror_html = plasma_mod._bold_lines_to_plasma_html(["old-a", "", "old-b"])
+    mirror_html = _bold_lines_to_plasma_html(["old-a", "", "old-b"])
     doc = [
         DocLine(kind="p", state=None, segs=[("new-a", True)]),
         DocLine(kind="p", state=None, segs=[("new-b", True)]),
@@ -160,15 +210,15 @@ def test_markdown_sync_preserves_existing_mirror_blank_separators():
 
     plan = plasma_mod.plan_from_markdown(
         state=state,
-        markdown_text=plasma_mod._doc_to_md(doc),
+        markdown_text=_doc_to_md(doc),
         markdown_exists=True,
-        widget_html_current=plasma_mod._doc_to_plasma_html(doc, css_style=False),
+        widget_html_current=_doc_to_plasma_html(doc, css_style=False),
         mirror_html_current=mirror_html,
         css_style=False,
     )
 
     assert plan.mirror_html is not None
-    assert plasma_mod._mirror_html_to_lines(plan.mirror_html) == [
+    assert _mirror_html_to_lines(plan.mirror_html) == [
         "new-a",
         "",
         "new-b",
@@ -183,11 +233,9 @@ def test_apply_mirror_insert_appends_new_bold_line_to_end():
         DocLine(kind="p", state=None, segs=[("tail", False)]),
     ]
 
-    updated = plasma_mod._apply_mirror_lines_to_doc(main_doc, ["a", "x", "b"])
+    updated = _apply_mirror_lines_to_doc(main_doc, ["a", "x", "b"])
 
-    assert plasma_mod._doc_to_md(updated) == (
-        "**a**\nplain between\n**b**\ntail\n**x**"
-    )
+    assert _doc_to_md(updated) == ("**a**\nplain between\n**b**\ntail\n**x**")
 
 
 def test_apply_mirror_reorders_existing_bold_lines_without_append():
@@ -198,20 +246,20 @@ def test_apply_mirror_reorders_existing_bold_lines_without_append():
         DocLine(kind="p", state=None, segs=[("- reset account", True)]),
     ]
 
-    updated = plasma_mod._apply_mirror_lines_to_doc(
+    updated = _apply_mirror_lines_to_doc(
         main_doc,
         ["work", "read book", "- reply", "- reset account"],
     )
-    assert plasma_mod._doc_to_md(updated) == (
-        "**work**\n" "**read book**\n" "**- reply**\n" "**- reset account**"
+    assert _doc_to_md(updated) == (
+        "**work**\n**read book**\n**- reply**\n**- reset account**"
     )
 
-    updated = plasma_mod._apply_mirror_lines_to_doc(
+    updated = _apply_mirror_lines_to_doc(
         main_doc,
         ["- reset account", "read book", "work", "- reply"],
     )
-    assert plasma_mod._doc_to_md(updated) == (
-        "**- reset account**\n" "**read book**\n" "**work**\n" "**- reply**"
+    assert _doc_to_md(updated) == (
+        "**- reset account**\n**read book**\n**work**\n**- reply**"
     )
 
 
@@ -220,15 +268,12 @@ def test_cfg_parses_paths_and_boolean_values(tmp_path: Path):
     md = tmp_path / "note.md"
     mirror = tmp_path / "mirror.html"
 
-    ctx = Context(
+    ctx = _context(
         path=str(md),
-        config={
-            "plasma_widget_path": str(widget),
-            "plasma_markdown_note_path": str(md),
-            "plasma_bold_widget_path": str(mirror),
-            "plasma_css_style": True,
-        },
-        arg_lines={},
+        widget_path=str(widget),
+        markdown_path=str(md),
+        bold_widget_path=str(mirror),
+        css_style=True,
     )
 
     module = PlasmaWidget()
@@ -251,7 +296,7 @@ def test_from_markdown_writes_widget_and_mirror(tmp_path: Path):
         widget_path=str(widget),
         bold_widget_path=str(mirror),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert ignore is not None
@@ -269,16 +314,11 @@ def test_handle_markdown_bootstrap_writes_missing_main_widget(tmp_path: Path):
 
     module = PlasmaWidget()
     ignore = module._handle(
-        Context(
+        _context(
             path=str(md),
-            config={
-                **_NOTIFY_CFG,
-                "plasma_widget_path": str(widget),
-                "plasma_markdown_note_path": str(md),
-                "plasma_bold_widget_path": str(mirror),
-                "plasma_css_style": False,
-            },
-            arg_lines={},
+            widget_path=str(widget),
+            markdown_path=str(md),
+            bold_widget_path=str(mirror),
         )
     )
 
@@ -286,23 +326,16 @@ def test_handle_markdown_bootstrap_writes_missing_main_widget(tmp_path: Path):
     assert str(widget.resolve()) in ignore
     assert str(mirror.resolve()) in ignore
     assert (
-        plasma_mod._doc_to_md(
-            plasma_mod._html_to_doc(widget.read_text(encoding="utf-8"))
-        )
-        == "Line\n**Bold**"
+        _doc_to_md(_html_to_doc(widget.read_text(encoding="utf-8"))) == "Line\n**Bold**"
     )
-    assert plasma_mod._mirror_html_to_items(mirror.read_text(encoding="utf-8")) == [
-        "Bold"
-    ]
+    assert _mirror_html_to_items(mirror.read_text(encoding="utf-8")) == ["Bold"]
 
 
 def test_from_main_plasma_updates_markdown(tmp_path: Path):
     widget = tmp_path / "widget.html"
     md = tmp_path / "todo.md"
     doc = [DocLine(kind="p", state=None, segs=[("Hello", True)])]
-    widget.write_text(
-        plasma_mod._doc_to_plasma_html(doc, css_style=False), encoding="utf-8"
-    )
+    widget.write_text(_doc_to_plasma_html(doc, css_style=False), encoding="utf-8")
 
     module = PlasmaWidget()
     ignore = module._from_main_plasma(
@@ -311,7 +344,7 @@ def test_from_main_plasma_updates_markdown(tmp_path: Path):
         bold_widget_path=None,
         css_style=False,
         html_path=str(widget),
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert ignore is not None
@@ -321,7 +354,7 @@ def test_from_main_plasma_updates_markdown(tmp_path: Path):
 
 def test_empty_main_plasma_restores_from_markdown_instead_of_clearing():
     markdown = "Line\n**Bold**"
-    empty_widget = plasma_mod._doc_to_plasma_html([], css_style=False)
+    empty_widget = _doc_to_plasma_html([], css_style=False)
     state = plasma_mod.bootstrap_state(markdown, empty_widget)
 
     plan = plasma_mod.plan_from_main_plasma(
@@ -336,7 +369,7 @@ def test_empty_main_plasma_restores_from_markdown_instead_of_clearing():
     assert plan.blocked_empty_source == "main_plasma"
     assert plan.markdown_text is None
     assert plan.widget_html is not None
-    assert plasma_mod._doc_to_md(plasma_mod._html_to_doc(plan.widget_html)) == markdown
+    assert _doc_to_md(_html_to_doc(plan.widget_html)) == markdown
 
 
 def test_partial_main_plasma_restores_from_markdown_instead_of_truncating():
@@ -354,7 +387,7 @@ def test_partial_main_plasma_restores_from_markdown_instead_of_truncating():
         DocLine(kind="p", state=None, segs=[("Keep bold", True)]),
         DocLine(kind="p", state=None, segs=[("plain tail should stay", False)]),
     ]
-    partial_widget = plasma_mod._doc_to_plasma_html(partial_doc, css_style=False)
+    partial_widget = _doc_to_plasma_html(partial_doc, css_style=False)
     state = plasma_mod.bootstrap_state(markdown, partial_widget)
 
     plan = plasma_mod.plan_from_main_plasma(
@@ -369,7 +402,7 @@ def test_partial_main_plasma_restores_from_markdown_instead_of_truncating():
     assert plan.blocked_shrinking_source == "main_plasma"
     assert plan.markdown_text is None
     assert plan.widget_html is not None
-    assert plasma_mod._doc_to_md(plasma_mod._html_to_doc(plan.widget_html)) == markdown
+    assert _doc_to_md(_html_to_doc(plan.widget_html)) == markdown
 
 
 def test_from_main_plasma_empty_source_preserves_markdown_and_restores_targets(
@@ -381,10 +414,10 @@ def test_from_main_plasma_empty_source_preserves_markdown_and_restores_targets(
     mirror = tmp_path / "mirror.html"
     md.write_text("Line\n**Bold**", encoding="utf-8")
     widget.write_text(
-        plasma_mod._doc_to_plasma_html([], css_style=False),
+        _doc_to_plasma_html([], css_style=False),
         encoding="utf-8",
     )
-    mirror.write_text(plasma_mod._bold_lines_to_plasma_html([]), encoding="utf-8")
+    mirror.write_text(_bold_lines_to_plasma_html([]), encoding="utf-8")
 
     notifications = []
 
@@ -399,7 +432,7 @@ def test_from_main_plasma_empty_source_preserves_markdown_and_restores_targets(
         bold_widget_path=str(mirror),
         css_style=False,
         html_path=str(widget),
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert ignore is not None
@@ -408,22 +441,17 @@ def test_from_main_plasma_empty_source_preserves_markdown_and_restores_targets(
     assert str(md.resolve()) not in ignore
     assert md.read_text(encoding="utf-8") == "Line\n**Bold**"
     assert (
-        plasma_mod._doc_to_md(
-            plasma_mod._html_to_doc(widget.read_text(encoding="utf-8"))
-        )
-        == "Line\n**Bold**"
+        _doc_to_md(_html_to_doc(widget.read_text(encoding="utf-8"))) == "Line\n**Bold**"
     )
-    assert plasma_mod._mirror_html_to_items(mirror.read_text(encoding="utf-8")) == [
-        "Bold"
-    ]
+    assert _mirror_html_to_items(mirror.read_text(encoding="utf-8")) == ["Bold"]
     assert notifications
     assert notifications[0][0] == f"plasma-empty-source:{md.resolve()}"
 
 
 def test_empty_bold_mirror_with_empty_main_restores_from_markdown():
     markdown = "**Keep**\nplain"
-    empty_widget = plasma_mod._doc_to_plasma_html([], css_style=False)
-    empty_mirror = plasma_mod._bold_lines_to_plasma_html([])
+    empty_widget = _doc_to_plasma_html([], css_style=False)
+    empty_mirror = _bold_lines_to_plasma_html([])
     state = plasma_mod.bootstrap_state(markdown, empty_widget)
 
     plan = plasma_mod.plan_from_bold_mirror(
@@ -438,9 +466,9 @@ def test_empty_bold_mirror_with_empty_main_restores_from_markdown():
     assert plan.blocked_empty_source == "bold_mirror"
     assert plan.markdown_text is None
     assert plan.widget_html is not None
-    assert plasma_mod._doc_to_md(plasma_mod._html_to_doc(plan.widget_html)) == markdown
+    assert _doc_to_md(_html_to_doc(plan.widget_html)) == markdown
     assert plan.mirror_html is not None
-    assert plasma_mod._mirror_html_to_items(plan.mirror_html) == ["Keep"]
+    assert _mirror_html_to_items(plan.mirror_html) == ["Keep"]
 
 
 def test_bold_mirror_uses_markdown_structure_when_main_plasma_is_truncated(
@@ -466,7 +494,7 @@ def test_bold_mirror_uses_markdown_structure_when_main_plasma_is_truncated(
 
     md_path.write_text(markdown, encoding="utf-8")
     widget_path.write_text(
-        plasma_mod._doc_to_plasma_html(truncated_doc, css_style=False),
+        _doc_to_plasma_html(truncated_doc, css_style=False),
         encoding="utf-8",
     )
     mirror_path.write_text(_bold_items_to_plasma_html(["Keep bold"]), encoding="utf-8")
@@ -476,19 +504,14 @@ def test_bold_mirror_uses_markdown_structure_when_main_plasma_is_truncated(
         markdown_path=str(md_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert ignore is not None
     assert str(widget_path.resolve()) in ignore
     assert str(md_path.resolve()) not in ignore
     assert md_path.read_text(encoding="utf-8") == markdown
-    assert (
-        plasma_mod._doc_to_md(
-            plasma_mod._html_to_doc(widget_path.read_text(encoding="utf-8"))
-        )
-        == markdown
-    )
+    assert _doc_to_md(_html_to_doc(widget_path.read_text(encoding="utf-8"))) == markdown
 
 
 @pytest.mark.parametrize(
@@ -551,7 +574,7 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
                 widget_path=str(widget_path),
                 bold_widget_path=str(mirror_path),
                 css_style=False,
-                config=_NOTIFY_CFG,
+                args=_NOTIFY_ARGS,
             )
             module._from_main_plasma(
                 widget_path=str(widget_path),
@@ -559,24 +582,22 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
                 bold_widget_path=str(mirror_path),
                 css_style=False,
                 html_path=str(widget_path),
-                config=_NOTIFY_CFG,
+                args=_NOTIFY_ARGS,
             )
             module._from_bold_mirror(
                 widget_path=str(widget_path),
                 markdown_path=str(md_path),
                 bold_widget_path=str(mirror_path),
                 css_style=False,
-                config=_NOTIFY_CFG,
+                args=_NOTIFY_ARGS,
             )
 
             current_md = md_path.read_text(encoding="utf-8")
             assert current_md == last_expected_md
 
-            widget_doc = plasma_mod._html_to_doc(
-                widget_path.read_text(encoding="utf-8")
-            )
-            expected_items = plasma_mod._extract_bold_items_from_doc(widget_doc)
-            mirror_items = plasma_mod._mirror_html_to_items(
+            widget_doc = _html_to_doc(widget_path.read_text(encoding="utf-8"))
+            expected_items = _extract_bold_items_from_doc(widget_doc)
+            mirror_items = _mirror_html_to_items(
                 mirror_path.read_text(encoding="utf-8")
             )
             assert mirror_items == expected_items
@@ -591,7 +612,7 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     module._from_main_plasma(
         widget_path=str(widget_path),
@@ -599,14 +620,14 @@ def test_sync_ring_many_texts_keeps_final_state_deterministic(tmp_path: Path):
         bold_widget_path=str(mirror_path),
         css_style=False,
         html_path=str(widget_path),
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     module._from_bold_mirror(
         widget_path=str(widget_path),
         markdown_path=str(md_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert md_path.read_text(encoding="utf-8") == final_md == last_expected_md
@@ -627,7 +648,7 @@ def test_css_toggle_rewrites_widget_structure_on_same_doc(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     plain_html = widget_path.read_text(encoding="utf-8")
     assert "<ul>" not in plain_html
@@ -638,7 +659,7 @@ def test_css_toggle_rewrites_widget_structure_on_same_doc(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=True,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     css_html = widget_path.read_text(encoding="utf-8")
 
@@ -661,12 +682,12 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     # Main edit wins when main event is processed last.
     widget_path.write_text(
-        plasma_mod._doc_to_plasma_html(
+        _doc_to_plasma_html(
             [DocLine(kind="p", state=None, segs=[("from main", True)])],
             css_style=False,
         ),
@@ -678,7 +699,7 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
         bold_widget_path=str(mirror_path),
         css_style=False,
         html_path=str(widget_path),
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     assert md_path.read_text(encoding="utf-8") == "**from main**"
 
@@ -692,13 +713,13 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
         markdown_path=str(md_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     assert md_path.read_text(encoding="utf-8") == "**from mirror**"
 
     # Main edit wins again if processed last.
     widget_path.write_text(
-        plasma_mod._doc_to_plasma_html(
+        _doc_to_plasma_html(
             [DocLine(kind="p", state=None, segs=[("from main again", True)])],
             css_style=False,
         ),
@@ -710,7 +731,7 @@ def test_last_event_wins_between_main_and_mirror(tmp_path: Path):
         bold_widget_path=str(mirror_path),
         css_style=False,
         html_path=str(widget_path),
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     assert md_path.read_text(encoding="utf-8") == "**from main again**"
 
@@ -727,7 +748,7 @@ def test_mirror_deleted_line_does_not_reappear_after_sync(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     mirror_path.write_text(
@@ -739,7 +760,7 @@ def test_mirror_deleted_line_does_not_reappear_after_sync(tmp_path: Path):
         markdown_path=str(md_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     assert md_path.read_text(encoding="utf-8") == "**one**"
 
@@ -749,11 +770,9 @@ def test_mirror_deleted_line_does_not_reappear_after_sync(tmp_path: Path):
         bold_widget_path=str(mirror_path),
         css_style=False,
         html_path=str(widget_path),
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
-    mirror_items = plasma_mod._mirror_html_to_items(
-        mirror_path.read_text(encoding="utf-8")
-    )
+    mirror_items = _mirror_html_to_items(mirror_path.read_text(encoding="utf-8"))
     assert mirror_items == ["one"]
 
 
@@ -770,7 +789,7 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     # mirror -> main/md: remove "b", add "c"
@@ -783,22 +802,20 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
         markdown_path=str(md_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     assert md_path.read_text(encoding="utf-8") == "**a**\n**c**"
 
-    widget_doc = plasma_mod._html_to_doc(widget_path.read_text(encoding="utf-8"))
-    assert plasma_mod._extract_bold_items_from_doc(widget_doc) == ["a", "c"]
-    assert plasma_mod._mirror_html_to_items(
-        mirror_path.read_text(encoding="utf-8")
-    ) == [
+    widget_doc = _html_to_doc(widget_path.read_text(encoding="utf-8"))
+    assert _extract_bold_items_from_doc(widget_doc) == ["a", "c"]
+    assert _mirror_html_to_items(mirror_path.read_text(encoding="utf-8")) == [
         "a",
         "c",
     ]
 
     # main -> md/mirror: replace all bold lines with "z"
     widget_path.write_text(
-        plasma_mod._doc_to_plasma_html(
+        _doc_to_plasma_html(
             [DocLine(kind="p", state=None, segs=[("z", True)])],
             css_style=False,
         ),
@@ -810,12 +827,10 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
         bold_widget_path=str(mirror_path),
         css_style=False,
         html_path=str(widget_path),
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     assert md_path.read_text(encoding="utf-8") == "**z**"
-    assert plasma_mod._mirror_html_to_items(
-        mirror_path.read_text(encoding="utf-8")
-    ) == ["z"]
+    assert _mirror_html_to_items(mirror_path.read_text(encoding="utf-8")) == ["z"]
 
     # markdown -> main/mirror: remove "z", add "x","y"
     md_path.write_text("**x**\n**y**\n", encoding="utf-8")
@@ -824,13 +839,11 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
-    widget_doc = plasma_mod._html_to_doc(widget_path.read_text(encoding="utf-8"))
-    assert plasma_mod._extract_bold_items_from_doc(widget_doc) == ["x", "y"]
-    assert plasma_mod._mirror_html_to_items(
-        mirror_path.read_text(encoding="utf-8")
-    ) == [
+    widget_doc = _html_to_doc(widget_path.read_text(encoding="utf-8"))
+    assert _extract_bold_items_from_doc(widget_doc) == ["x", "y"]
+    assert _mirror_html_to_items(mirror_path.read_text(encoding="utf-8")) == [
         "x",
         "y",
     ]
@@ -845,7 +858,7 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     module._from_main_plasma(
         widget_path=str(widget_path),
@@ -853,14 +866,14 @@ def test_bidirectional_add_delete_sync_consistency(tmp_path: Path):
         bold_widget_path=str(mirror_path),
         css_style=False,
         html_path=str(widget_path),
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     module._from_bold_mirror(
         widget_path=str(widget_path),
         markdown_path=str(md_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert md_path.read_text(encoding="utf-8") == md_before
@@ -909,7 +922,7 @@ def test_module_state_is_isolated_per_file_pair_with_same_content(tmp_path: Path
         widget_path=str(widget_a),
         bold_widget_path=None,
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
     ignore_b = module._from_markdown(
         sync_key=(str(widget_b.resolve()), str(md_b.resolve()), None),
@@ -917,7 +930,7 @@ def test_module_state_is_isolated_per_file_pair_with_same_content(tmp_path: Path
         widget_path=str(widget_b),
         bold_widget_path=None,
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert ignore_a is not None
@@ -973,7 +986,7 @@ def test_state_does_not_advance_when_write_fails(tmp_path: Path, monkeypatch):
         widget_path=str(widget_path),
         bold_widget_path=None,
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert ignore is None
@@ -1015,7 +1028,7 @@ def test_read_error_is_not_treated_as_empty_input(tmp_path: Path, monkeypatch):
         widget_path=str(widget_path),
         bold_widget_path=None,
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert ignore is None
@@ -1056,20 +1069,13 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
     def fail_mirror_write(
         path: str,
         content: str,
-        *,
-        notify_errors: bool = True,
     ) -> bool:
         if (
             plasma_mod.canonical_path(path) == str(mirror_path.resolve())
             and content != mirror_old
-            and notify_errors
         ):
             return False
-        return real_write(
-            path,
-            content,
-            notify_errors=notify_errors,
-        )
+        return real_write(path, content)
 
     monkeypatch.setattr(plasma_mod, "_write_text_atomic", fail_mirror_write)
 
@@ -1079,7 +1085,7 @@ def test_multi_file_write_failure_rolls_back_previous_file(tmp_path: Path, monke
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert ignore is None
@@ -1131,26 +1137,18 @@ def test_multi_file_write_failure_reports_failed_rollback_once(
     def fail_mirror_write_and_widget_rollback(
         path: str,
         content: str,
-        *,
-        notify_errors: bool = True,
     ) -> bool:
         if (
             plasma_mod.canonical_path(path) == str(mirror_path.resolve())
             and content != mirror_old
-            and notify_errors
         ):
             return False
         if (
             plasma_mod.canonical_path(path) == str(widget_path.resolve())
             and content == "old-widget"
-            and not notify_errors
         ):
             return False
-        return real_write(
-            path,
-            content,
-            notify_errors=notify_errors,
-        )
+        return real_write(path, content)
 
     monkeypatch.setattr(
         plasma_mod, "_write_text_atomic", fail_mirror_write_and_widget_rollback
@@ -1162,7 +1160,7 @@ def test_multi_file_write_failure_reports_failed_rollback_once(
         widget_path=str(widget_path),
         bold_widget_path=str(mirror_path),
         css_style=False,
-        config=_NOTIFY_CFG,
+        args=_NOTIFY_ARGS,
     )
 
     assert ignore is None

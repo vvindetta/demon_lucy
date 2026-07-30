@@ -5,47 +5,31 @@ from pathlib import Path
 from watchdog.events import FileModifiedEvent
 
 import demon_lucy.modules.alias as alias_mod
-from demon_lucy.lib.args.parser import ArgTemplate, parse_args
+from demon_lucy.lib.args.models import KnownArg
+from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.alias import Alias
 from demon_lucy.modules.alias.rules import AliasRule, parse_rule
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from tests.args_support import make_context
 
 
-_NOTIFICATION_CONFIG = {
-    "sys_notification_provider": "disable",
-    "sys_notification_min_interval_seconds": 0.0,
-    "sys_notification_error_backoff_base_seconds": 0.0,
-    "sys_notification_error_backoff_max_seconds": 0.0,
-    "sys_notification_error_burst_limit": 0,
-    "sys_notification_error_burst_window_seconds": 0.0,
-}
-
-
-def _config(args: list[str]) -> dict[str, object]:
-    parsed, unknown = parse_args(args=args, template=Alias.template)
-    assert unknown == []
-    parsed.update(_NOTIFICATION_CONFIG)
-    return parsed
-
-
-def _system(module: Alias, path: Path, global_template=None) -> System:
+def _system(module: Alias, global_template=None) -> System:
     return System(
-        event=FileModifiedEvent(str(path)),
         global_template=global_template
         or Alias.template
         + [
-            ArgTemplate(name="--banner", description="banner"),
-            ArgTemplate(
-                name="--formatter-todo",
+            KnownArg(name="banner", description="banner"),
+            KnownArg(
+                name="formatter-todo",
                 value_type=bool,
                 default=False,
                 description="todo",
             ),
-            ArgTemplate(name="--rename", description="rename"),
+            KnownArg(name="rename", description="rename"),
         ],
         modules=[module],
-        event_id="evt-test",
     )
 
 
@@ -54,19 +38,18 @@ def test_alias_rewrites_note_flags_to_canonical_flags(tmp_path: Path):
     note.write_text('--b "Daily notes" --todo\nbody\n', encoding="utf-8")
 
     module = Alias()
-    ctx = Context(
-        path=str(note),
-        config=_config(
-            [
-                "--alias",
+    ctx = make_context(
+        str(note),
+        Alias.template,
+        {
+            "alias": [
                 "b=--banner {args}",
                 "todo=--formatter-todo",
-            ]
-        ),
-        arg_lines={},
+            ],
+        },
     )
 
-    changed = module.modified(ctx, _system(module, note))
+    changed = module.modified(ctx, _system(module))
 
     assert changed == {str(note): 1}
     assert note.read_text(encoding="utf-8") == (
@@ -79,13 +62,13 @@ def test_alias_passes_inline_value_to_args_placeholder(tmp_path: Path):
     note.write_text("--rn=done.md\n", encoding="utf-8")
 
     module = Alias()
-    ctx = Context(
-        path=str(note),
-        config=_config(["--alias", "rn=--rename {args}"]),
-        arg_lines={},
+    ctx = make_context(
+        str(note),
+        Alias.template,
+        {"alias": ["rn=--rename {args}"]},
     )
 
-    changed = module.modified(ctx, _system(module, note))
+    changed = module.modified(ctx, _system(module))
 
     assert changed == {str(note): 1}
     assert note.read_text(encoding="utf-8") == "--rename done.md\n"
@@ -109,13 +92,16 @@ def test_alias_dry_run_does_not_write(tmp_path: Path):
     note.write_text("--b Hello\n", encoding="utf-8")
 
     module = Alias()
-    ctx = Context(
-        path=str(note),
-        config=_config(["--alias", "b=--banner {args}", "--alias-dry-run"]),
-        arg_lines={},
+    ctx = make_context(
+        str(note),
+        Alias.template,
+        {
+            "alias": ["b=--banner {args}"],
+            "alias-dry-run": True,
+        },
     )
 
-    changed = module.modified(ctx, _system(module, note))
+    changed = module.modified(ctx, _system(module))
 
     assert changed is None
     assert note.read_text(encoding="utf-8") == "--b Hello\n"
@@ -131,22 +117,21 @@ def test_alias_rejects_system_target_without_rewrite(
     monkeypatch.setattr(
         alias_mod,
         "safe_notify",
-        lambda name, message, config, **_kwargs: notifications.append((name, message)),
+        lambda name, message, args, **_kwargs: notifications.append((name, message)),
     )
 
     module = Alias()
-    ctx = Context(
-        path=str(note),
-        config=_config(["--alias", "x=--sys-log-level {args}"]),
-        arg_lines={},
+    ctx = make_context(
+        str(note),
+        Alias.template,
+        {"alias": ["x=--sys-log-level {args}"]},
     )
     system = _system(
         module,
-        note,
         global_template=Alias.template
         + [
-            ArgTemplate(
-                name="--sys-log-level",
+            KnownArg(
+                name="sys-log-level",
                 value_type=str,
                 default="warning",
                 description="log level",
@@ -169,20 +154,19 @@ def test_alias_rejects_cmd_target_without_rewrite(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         alias_mod,
         "safe_notify",
-        lambda name, message, config, **_kwargs: notifications.append((name, message)),
+        lambda name, message, args, **_kwargs: notifications.append((name, message)),
     )
 
     module = Alias()
-    ctx = Context(
-        path=str(note),
-        config=_config(["--alias", "run=--cmd {args}"]),
-        arg_lines={},
+    ctx = make_context(
+        str(note),
+        Alias.template,
+        {"alias": ["run=--cmd {args}"]},
     )
     system = _system(
         module,
-        note,
         global_template=Alias.template
-        + [ArgTemplate(name="--cmd", value_type=str, default=[], description="cmd")],
+        + [KnownArg(name="cmd", value_type=str, default=[], description="cmd")],
     )
 
     changed = module.modified(ctx, system)
@@ -196,13 +180,13 @@ def test_alias_rejects_cmd_target_without_rewrite(tmp_path: Path, monkeypatch):
 class _Recorder(AbstractModule):
     name = "recorder"
     priority = 10
-    template = [ArgTemplate(name="--banner", description="banner")]
+    template = [KnownArg(name="banner", description="banner")]
 
     def __init__(self):
         self.banner_value = None
 
     def modified(self, ctx: Context, system: System):
-        self.banner_value = ctx.config["banner"]
+        self.banner_value = ctx.args.require("banner").value
         return None
 
 
@@ -212,11 +196,10 @@ def test_alias_rewrite_is_reparsed_before_next_module(tmp_path: Path):
     recorder = _Recorder()
     manager = ModuleManager(
         modules=[recorder, Alias()],
-        args=["--alias", "b=--banner {args}"],
-        system_config={
-            "sys_ignore_paths": [],
-            **_NOTIFICATION_CONFIG,
-        },
+        startup_args=parse_args(
+            args=["--alias", "b=--banner {args}"],
+            template=DEMON_LUCY_STARTUP_TEMPLATE,
+        ),
     )
 
     changed = manager.run(str(note), FileModifiedEvent(str(note)), event_id="evt-test")

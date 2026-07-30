@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-
+from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.path import resolve_file_source_path
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlock
 from demon_lucy.lib.dynamic_blocks.parser import format_fenced_body
@@ -56,7 +55,7 @@ def render_graph(
 def render_graph_dynamic_block(
     block: DynamicBlock,
     target_path: str,
-    _config: Mapping[str, object],
+    _args: ParsedArgs,
 ) -> str:
     params = normalize_graph_params(block.arg, block.params)
     return render_graph(params, target_path=target_path)

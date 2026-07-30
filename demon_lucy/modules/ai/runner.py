@@ -61,7 +61,7 @@ def _codex_command(
         "--cd",
         workdir,
         "--config",
-        f'default_permissions={_toml_string(_PROFILE_NAME)}',
+        f"default_permissions={_toml_string(_PROFILE_NAME)}",
         "--config",
         f'permissions.{_PROFILE_NAME}.filesystem={{":minimal"="read"}}',
         "--config",

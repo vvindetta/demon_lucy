@@ -5,13 +5,33 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileMovedEvent
 
-from demon_lucy.lib.args.parser import ArgTemplate
-from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.lib.args.models import KnownArg
+from demon_lucy.modules.abstract_module import System
 from demon_lucy.modules.formatter import Formatter
 from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
     format_fenced_body,
 )
+from tests.args_support import make_args, make_context
+
+
+def _run_formatter(
+    module: Formatter,
+    *,
+    path: str,
+    values: dict[str, object],
+    lines: dict[str, list[int]] | None = None,
+    global_template: list[KnownArg] | None = None,
+):
+    return module._apply(
+        path=path,
+        args=make_args(
+            module.template,
+            values,
+            lines=lines,
+        ),
+        global_template=global_template or module.template,
+    )
 
 
 def _count_leading_blank_lines(lines: list[str]) -> int:
@@ -49,13 +69,14 @@ def test_apply_todo_flag_controls_checkbox_formatting(
     note.write_text("- task\n- [ ] already\ntext\n", encoding="utf-8")
 
     module = Formatter()
-    changed = module._apply(
+    changed = _run_formatter(
+        module,
         path=str(note),
-        config={
-            "formatter_todo": enabled,
-            "formatter_blank": [],
+        values={
+            "formatter-todo": enabled,
+            "formatter-blank": [],
         },
-        arg_lines={},
+        lines={},
     )
 
     assert (changed is not None) is expected_changed
@@ -67,13 +88,14 @@ def test_apply_preserves_line_endings(tmp_path: Path, newline: bytes):
     note = tmp_path / "todo.md"
     note.write_bytes(newline.join((b"- task", b"text", b"")))
 
-    changed = Formatter()._apply(
+    changed = _run_formatter(
+        Formatter(),
         path=str(note),
-        config={
-            "formatter_todo": True,
-            "formatter_blank": [],
+        values={
+            "formatter-todo": True,
+            "formatter-blank": [],
         },
-        arg_lines={},
+        lines={},
     )
 
     assert changed == {str(note.resolve()): 1}
@@ -89,14 +111,15 @@ def test_apply_todo_does_not_change_dynamic_block_lists(tmp_path: Path):
     note = tmp_path / "note.md"
     note.write_text(block + "- task\n", encoding="utf-8")
 
-    changed = Formatter()._apply(
+    changed = _run_formatter(
+        Formatter(),
         path=str(note),
-        config={
-            "formatter_todo": True,
-            "formatter_blank": [],
-            "formatter_date": False,
+        values={
+            "formatter-todo": True,
+            "formatter-blank": [],
+            "formatter-date": False,
         },
-        arg_lines={},
+        lines={},
     )
 
     assert changed == {str(note.resolve()): 1}
@@ -115,14 +138,15 @@ def test_apply_date_does_not_change_dynamic_block_body(tmp_path: Path):
     note = tmp_path / "note.md"
     note.write_text("--- 9.01.2030\n" + block + "--- 10\n", encoding="utf-8")
 
-    changed = Formatter()._apply(
+    changed = _run_formatter(
+        Formatter(),
         path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": [],
-            "formatter_date": True,
+        values={
+            "formatter-todo": False,
+            "formatter-blank": [],
+            "formatter-date": True,
         },
-        arg_lines={},
+        lines={},
     )
 
     assert changed == {str(note.resolve()): 1}
@@ -176,14 +200,15 @@ def test_apply_completes_only_next_archive_dates(
     note = tmp_path / "archive.md"
     note.write_text(initial_text, encoding="utf-8")
 
-    changed = Formatter()._apply(
+    changed = _run_formatter(
+        Formatter(),
         path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": [],
-            "formatter_date": True,
+        values={
+            "formatter-todo": False,
+            "formatter-blank": [],
+            "formatter-date": True,
         },
-        arg_lines={},
+        lines={},
     )
 
     assert changed == {str(note.resolve()): 1}
@@ -191,38 +216,40 @@ def test_apply_completes_only_next_archive_dates(
 
 
 @pytest.mark.parametrize(
-    ("prefix", "arg_lines"),
+    ("prefix", "argument_lines"),
     [
-        ("--formatter-date\n", {"formatter_date": [1]}),
+        ("--formatter-date\n", {"formatter-date": [1]}),
         ("", {}),
     ],
 )
 def test_apply_date_remains_enabled_for_future_updates(
     tmp_path: Path,
     prefix: str,
-    arg_lines: dict,
+    argument_lines: dict,
 ) -> None:
     note = tmp_path / "archive.md"
     note.write_text(prefix + "--- 9.01.2030\n--- 10\n", encoding="utf-8")
-    config = {
-        "formatter_todo": False,
-        "formatter_blank": [],
-        "formatter_date": True,
+    values = {
+        "formatter-todo": False,
+        "formatter-blank": [],
+        "formatter-date": True,
     }
 
-    first_changed = Formatter()._apply(
+    first_changed = _run_formatter(
+        Formatter(),
         path=str(note),
-        config=config,
-        arg_lines=arg_lines,
+        values=values,
+        lines=argument_lines,
     )
     note.write_text(
         note.read_text(encoding="utf-8") + "--- 11\n",
         encoding="utf-8",
     )
-    second_changed = Formatter()._apply(
+    second_changed = _run_formatter(
+        Formatter(),
         path=str(note),
-        config=config,
-        arg_lines=arg_lines,
+        values=values,
+        lines=argument_lines,
     )
 
     assert first_changed == {str(note.resolve()): 1}
@@ -247,14 +274,15 @@ def test_apply_leaves_ambiguous_date_sequences_unchanged(
     note = tmp_path / "archive.md"
     note.write_text(initial_text, encoding="utf-8")
 
-    changed = Formatter()._apply(
+    changed = _run_formatter(
+        Formatter(),
         path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": [],
-            "formatter_date": True,
+        values={
+            "formatter-todo": False,
+            "formatter-blank": [],
+            "formatter-date": True,
         },
-        arg_lines={},
+        lines={},
     )
 
     assert changed is None
@@ -269,8 +297,7 @@ def test_apply_leaves_ambiguous_date_sequences_unchanged(
             "--- 10\n--- 11\n--- 9.01.2030\n--- 12.01.2030\n",
         ),
         (
-            "--- 9.01.2030\n--- 11\n--- 31.02.2030\n--- 1\n"
-            "--- 5.03.2030\n--- 8\n",
+            "--- 9.01.2030\n--- 11\n--- 31.02.2030\n--- 1\n--- 5.03.2030\n--- 8\n",
             "--- 9.01.2030\n--- 11.01.2030\n--- 31.02.2030\n--- 1\n"
             "--- 5.03.2030\n--- 8.03.2030\n",
         ),
@@ -292,14 +319,15 @@ def test_apply_date_resumes_after_next_full_date(
     note = tmp_path / "archive.md"
     note.write_text(initial_text, encoding="utf-8")
 
-    changed = Formatter()._apply(
+    changed = _run_formatter(
+        Formatter(),
         path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": [],
-            "formatter_date": True,
+        values={
+            "formatter-todo": False,
+            "formatter-blank": [],
+            "formatter-date": True,
         },
-        arg_lines={},
+        lines={},
     )
 
     assert changed == {str(note.resolve()): 1}
@@ -311,14 +339,15 @@ def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
     note = tmp_path / "archive.md"
     note.write_text(initial_text, encoding="utf-8")
 
-    changed = Formatter()._apply(
+    changed = _run_formatter(
+        Formatter(),
         path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": [],
-            "formatter_date": True,
+        values={
+            "formatter-todo": False,
+            "formatter-blank": [],
+            "formatter-date": True,
         },
-        arg_lines={},
+        lines={},
     )
 
     assert changed is None
@@ -326,12 +355,12 @@ def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    ("config", "initial_text", "expected_leading", "expected_trailing"),
+    ("values", "initial_text", "expected_leading", "expected_trailing"),
     [
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["down"],
+                "formatter-todo": False,
+                "formatter-blank": ["down"],
             },
             "title\nbody\n\n",
             0,
@@ -339,8 +368,8 @@ def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["up"],
+                "formatter-todo": False,
+                "formatter-blank": ["up"],
             },
             "\n  \ntitle\nbody\n",
             30,
@@ -348,8 +377,8 @@ def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["up", "down"],
+                "formatter-todo": False,
+                "formatter-blank": ["up", "down"],
             },
             "\n\ntitle\nbody\n\n",
             30,
@@ -357,8 +386,8 @@ def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["up", "20"],
+                "formatter-todo": False,
+                "formatter-blank": ["up", "20"],
             },
             "\n\ntitle\nbody\n\n",
             20,
@@ -366,8 +395,8 @@ def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["down", "7"],
+                "formatter-todo": False,
+                "formatter-blank": ["down", "7"],
             },
             "title\nbody\n\n",
             0,
@@ -375,8 +404,8 @@ def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
         ),
         (
             {
-                "formatter_todo": False,
-                "formatter_blank": ["both", "12"],
+                "formatter-todo": False,
+                "formatter-blank": ["both", "12"],
             },
             "\n\ntitle\nbody\n\n",
             12,
@@ -386,7 +415,7 @@ def test_apply_never_rewrites_full_archive_dates(tmp_path: Path):
 )
 def test_apply_adds_blank_lines_by_flags(
     tmp_path: Path,
-    config: dict[str, object],
+    values: dict[str, object],
     initial_text: str,
     expected_leading: int,
     expected_trailing: int,
@@ -395,7 +424,7 @@ def test_apply_adds_blank_lines_by_flags(
     note.write_text(initial_text, encoding="utf-8")
 
     module = Formatter()
-    changed = module._apply(path=str(note), config=config, arg_lines={})
+    changed = _run_formatter(module, path=str(note), values=values, lines={})
 
     assert changed == {str(note.resolve()): 1}
 
@@ -409,13 +438,13 @@ def test_apply_is_idempotent_on_second_run(tmp_path: Path):
     note.write_text("title\nbody\n", encoding="utf-8")
 
     module = Formatter()
-    config = {
-        "formatter_todo": False,
-        "formatter_blank": ["up", "down"],
+    values = {
+        "formatter-todo": False,
+        "formatter-blank": ["up", "down"],
     }
 
-    first = module._apply(path=str(note), config=config, arg_lines={})
-    second = module._apply(path=str(note), config=config, arg_lines={})
+    first = _run_formatter(module, path=str(note), values=values, lines={})
+    second = _run_formatter(module, path=str(note), values=values, lines={})
 
     assert first == {str(note.resolve()): 1}
     assert second is None
@@ -426,13 +455,14 @@ def test_apply_returns_none_for_blank_only_file(tmp_path: Path):
     note.write_text("\n\n\n", encoding="utf-8")
 
     module = Formatter()
-    changed = module._apply(
+    changed = _run_formatter(
+        module,
         path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": ["up", "down"],
+        values={
+            "formatter-todo": False,
+            "formatter-blank": ["up", "down"],
         },
-        arg_lines={},
+        lines={},
     )
 
     assert changed is None
@@ -444,15 +474,16 @@ def test_blank_up_keeps_first_line_with_flags_in_place(tmp_path: Path):
     note.write_text("--archive-pair\nalpha\n", encoding="utf-8")
 
     module = Formatter()
-    changed = module._apply(
+    changed = _run_formatter(
+        module,
         path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": ["up"],
+        values={
+            "formatter-todo": False,
+            "formatter-blank": ["up"],
         },
-        arg_lines={},
+        lines={},
         global_template=module.template
-        + [ArgTemplate(name="--archive-pair", value_type=str, default=[])],
+        + [KnownArg(name="archive-pair", value_type=str, default=[])],
     )
 
     assert changed == {str(note.resolve()): 1}
@@ -471,18 +502,19 @@ def test_apply_removes_formatter_flags_and_preserves_other_flags(tmp_path: Path)
     )
 
     module = Formatter()
-    changed = module._apply(
+    changed = _run_formatter(
+        module,
         path=str(note),
-        config={
-            "formatter_todo": True,
-            "formatter_blank": ["up", "2"],
+        values={
+            "formatter-todo": True,
+            "formatter-blank": ["up", "2"],
         },
-        arg_lines={
-            "formatter_blank": [1, 1],
-            "formatter_todo": [1],
+        lines={
+            "formatter-blank": [1, 1],
+            "formatter-todo": [1],
         },
         global_template=module.template
-        + [ArgTemplate(name="--archive-pair", value_type=str, default=[])],
+        + [KnownArg(name="archive-pair", value_type=str, default=[])],
     )
 
     assert changed == {str(note.resolve()): 1}
@@ -494,13 +526,14 @@ def test_apply_removes_formatter_only_command_line(tmp_path: Path):
     note.write_text("--formatter-todo\n- task\n", encoding="utf-8")
 
     module = Formatter()
-    changed = module._apply(
+    changed = _run_formatter(
+        module,
         path=str(note),
-        config={
-            "formatter_todo": True,
-            "formatter_blank": [],
+        values={
+            "formatter-todo": True,
+            "formatter-blank": [],
         },
-        arg_lines={"formatter_todo": [1]},
+        lines={"formatter-todo": [1]},
         global_template=module.template,
     )
 
@@ -519,20 +552,21 @@ def test_apply_autocompletes_argument_prefixes(tmp_path: Path):
     )
 
     module = Formatter()
-    changed = module._apply(
+    changed = _run_formatter(
+        module,
         path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": [],
-            "formatter_autocomplete": True,
+        values={
+            "formatter-todo": False,
+            "formatter-blank": [],
+            "formatter-autocomplete": True,
         },
-        arg_lines={"formatter_autocomplete": [1]},
+        lines={"formatter-autocomplete": [1]},
         global_template=module.template
         + [
-            ArgTemplate(name="--archive", value_type=bool, default=False),
-            ArgTemplate(name="--archive-pair", value_type=str, default=[]),
-            ArgTemplate(name="--graph", value_type=str, default=[]),
-            ArgTemplate(name="--graph-regex", value_type=str, default=[]),
+            KnownArg(name="archive", value_type=bool, default=False),
+            KnownArg(name="archive-pair", value_type=str, default=[]),
+            KnownArg(name="graph", value_type=str, default=[]),
+            KnownArg(name="graph-regex", value_type=str, default=[]),
         ],
     )
 
@@ -550,14 +584,15 @@ def test_apply_autocompletes_to_common_argument_prefix(tmp_path: Path):
     note.write_text("--formatter-autocomplete --formatter\n", encoding="utf-8")
 
     module = Formatter()
-    changed = module._apply(
+    changed = _run_formatter(
+        module,
         path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": [],
-            "formatter_autocomplete": True,
+        values={
+            "formatter-todo": False,
+            "formatter-blank": [],
+            "formatter-autocomplete": True,
         },
-        arg_lines={"formatter_autocomplete": [1]},
+        lines={"formatter-autocomplete": [1]},
         global_template=module.template,
     )
 
@@ -574,40 +609,40 @@ def test_apply_autocomplete_remains_enabled_for_future_updates(tmp_path: Path):
         encoding="utf-8",
     )
     module = Formatter()
-    config = {
-        "formatter_todo": False,
-        "formatter_blank": [],
-        "formatter_autocomplete": True,
+    values = {
+        "formatter-todo": False,
+        "formatter-blank": [],
+        "formatter-autocomplete": True,
     }
-    arg_lines = {"formatter_autocomplete": [1]}
+    argument_lines = {"formatter-autocomplete": [1]}
     global_template = module.template + [
-        ArgTemplate(name="--graph", value_type=str, default=[]),
-        ArgTemplate(name="--banner", value_type=str, default=[]),
+        KnownArg(name="graph", value_type=str, default=[]),
+        KnownArg(name="banner", value_type=str, default=[]),
     ]
 
-    first_changed = module._apply(
+    first_changed = _run_formatter(
+        module,
         path=str(note),
-        config=config,
-        arg_lines=arg_lines,
+        values=values,
+        lines=argument_lines,
         global_template=global_template,
     )
     note.write_text(
         note.read_text(encoding="utf-8") + "--ban title\n",
         encoding="utf-8",
     )
-    second_changed = module._apply(
+    second_changed = _run_formatter(
+        module,
         path=str(note),
-        config=config,
-        arg_lines=arg_lines,
+        values=values,
+        lines=argument_lines,
         global_template=global_template,
     )
 
     assert first_changed == {str(note.resolve()): 1}
     assert second_changed == {str(note.resolve()): 1}
     assert note.read_text(encoding="utf-8") == (
-        "--formatter-autocomplete\n"
-        "--graph past.md sleep\n"
-        "--banner title\n"
+        "--formatter-autocomplete\n--graph past.md sleep\n--banner title\n"
     )
 
 
@@ -636,17 +671,17 @@ def test_event_methods_delegate_to_apply(
         lambda **kwargs: called.append(kwargs["path"]) or {kwargs["path"]: 1},
     )
 
-    ctx = Context(
-        path=str(note),
-        config={
-            "formatter_todo": False,
-            "formatter_blank": ["down"],
+    ctx = make_context(
+        str(note),
+        module.template,
+        {
+            "formatter-todo": False,
+            "formatter-blank": ["down"],
         },
-        arg_lines={},
+        event=event_factory(str(note)),
     )
     system = System(
-        event=event_factory(str(note)),
-        global_template=[],
+        global_template=module.template,
         modules=[module],
     )
 

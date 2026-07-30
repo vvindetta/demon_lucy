@@ -1,28 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Protocol
-
-from demon_lucy.lib.args.parser import flag_to_dest
-
-
-class _StatusParsingHost(Protocol):
-    template: Any
-    _default_banner_speed_ms: int
-    _default_banner_max_chars: int
-    _default_animation_speed_ms: int
-
 
 class StatusParsingMixin:
-    @classmethod
-    def _template_defaults(cls: type[_StatusParsingHost]) -> dict[str, Any]:
-        defaults: dict[str, Any] = {}
-        for item in cls.template:
-            if isinstance(item.default, list):
-                defaults[flag_to_dest(item.name)] = list(item.default)
-            else:
-                defaults[flag_to_dest(item.name)] = item.default
-        return defaults
-
     @staticmethod
     def _is_date_token(token: str) -> bool:
         return (
@@ -66,9 +45,8 @@ class StatusParsingMixin:
     ) -> tuple[dict[str, str], str]:
         tokens: dict[str, str] = {}
         text = stem.replace("\u200b", " ").strip().replace(" | ", " ")
-        normalized_prefix = str(status_prefix or "")
-        if normalized_prefix and text.startswith(normalized_prefix):
-            text = text[len(normalized_prefix) :].lstrip()
+        if status_prefix and text.startswith(status_prefix):
+            text = text[len(status_prefix) :].lstrip()
         parts = text.split()
         consumed = 0
 
@@ -101,7 +79,7 @@ class StatusParsingMixin:
 
     @staticmethod
     def _normalize_status_token(raw: str) -> str:
-        return str(raw).strip().lower().replace("_", "-")
+        return raw.strip().lower()
 
     def _parse_status_parts(self, values: list[str]) -> list[str]:
         parts: list[str] = []
@@ -161,46 +139,24 @@ class StatusParsingMixin:
 
         return parts
 
+    @staticmethod
     def _normalize_banner_settings(
-        self: _StatusParsingHost,
-        text_value: Any,
-        speed_ms_value: Any,
-        max_chars_value: Any,
+        text: str,
+        speed_milliseconds: int,
+        max_characters: int,
     ) -> tuple[str | None, int, int]:
-        banner_text = "" if text_value is None else str(text_value)
-        try:
-            speed_ms = int(speed_ms_value)
-        except (TypeError, ValueError):
-            speed_ms = self._default_banner_speed_ms
-        try:
-            max_chars = int(max_chars_value)
-        except (TypeError, ValueError):
-            max_chars = self._default_banner_max_chars
+        return (
+            text or None,
+            max(1, speed_milliseconds),
+            max(0, max_characters),
+        )
 
-        safe_speed_ms = max(1, speed_ms)
-        safe_max_chars = max(0, max_chars)
-        if banner_text == "":
-            return None, safe_speed_ms, safe_max_chars
-        return banner_text, safe_speed_ms, safe_max_chars
-
+    @staticmethod
     def _normalize_animation_settings(
-        self: _StatusParsingHost,
-        frames_value: Any,
-        speed_ms_value: Any,
+        frames: list[str],
+        speed_milliseconds: int,
     ) -> tuple[list[str], int]:
-        raw_frames: list[Any]
-        if frames_value is None:
-            raw_frames = []
-        elif isinstance(frames_value, (list, tuple)):
-            raw_frames = list(frames_value)
-        else:
-            raw_frames = [frames_value]
-
-        frames = [str(frame) for frame in raw_frames if str(frame) != ""]
-
-        try:
-            speed_ms = int(speed_ms_value)
-        except (TypeError, ValueError):
-            speed_ms = self._default_animation_speed_ms
-        safe_speed_ms = max(1, speed_ms)
-        return frames, safe_speed_ms
+        return [frame for frame in frames if frame], max(
+            1,
+            speed_milliseconds,
+        )

@@ -13,7 +13,7 @@ class ArgSource(StrEnum):
 @dataclass(frozen=True, kw_only=True)
 class ArgParam:
     name: str
-    value_type: type = str
+    value_type: type[Any] = str
     default: Any = None
     required: bool = False
 
@@ -21,7 +21,7 @@ class ArgParam:
 @dataclass(frozen=True, kw_only=True)
 class KnownArg:
     name: str
-    value_type: type = str
+    value_type: type[Any] = str
     default: Any = None
     description: str = ""
     required: bool = False
@@ -59,18 +59,10 @@ class ParsedArgs:
         return argument
 
     def known_from(self, source: ArgSource) -> tuple[KnownArg, ...]:
-        return tuple(
-            argument
-            for argument in self.known
-            if argument.source is source
-        )
+        return tuple(argument for argument in self.known if argument.source is source)
 
     def unknown_from(self, source: ArgSource) -> tuple[UnknownArg, ...]:
-        return tuple(
-            argument
-            for argument in self.unknown
-            if argument.source is source
-        )
+        return tuple(argument for argument in self.unknown if argument.source is source)
 
     def merged_with(self, overwrite: Self) -> Self:
         known = {argument.name: argument for argument in self.known}

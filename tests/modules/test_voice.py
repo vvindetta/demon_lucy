@@ -9,35 +9,65 @@ from watchdog.events import FileModifiedEvent
 
 import demon_lucy.modules.voice as voice_mod
 import demon_lucy.modules.voice.providers as voice_providers
+from demon_lucy.lib.args.models import ArgSource, ParsedArgs
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.voice import Voice
 from demon_lucy.modules.voice.providers import TranscriptResult, VoiceError, listen_once
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
 
-def _config(args: list[str] | None = None) -> dict[str, object]:
-    parsed, unknown = parse_args(args=args or [], template=Voice.template)
-    assert unknown == []
-    parsed.update(
-        {
-            "sys_notification_provider": "disable",
-            "sys_notification_min_interval_seconds": 0.0,
-            "sys_notification_error_backoff_base_seconds": 0.0,
-            "sys_notification_error_backoff_max_seconds": 0.0,
-            "sys_notification_error_burst_limit": 0,
-            "sys_notification_error_burst_window_seconds": 0.0,
-        }
+_TEMPLATE = [*DEMON_LUCY_STARTUP_TEMPLATE, *Voice.template]
+_NOTIFICATION_TOKENS = [
+    "--sys-notification-provider",
+    "disable",
+    "--sys-notification-min-interval-seconds",
+    "0",
+    "--sys-notification-error-backoff-base-seconds",
+    "0",
+    "--sys-notification-error-backoff-max-seconds",
+    "0",
+    "--sys-notification-error-burst-limit",
+    "0",
+    "--sys-notification-error-burst-window-seconds",
+    "0",
+]
+
+
+def _args(
+    tokens: list[str] | None = None,
+    *,
+    line: int | None = None,
+) -> ParsedArgs:
+    parsed = parse_args(args=_NOTIFICATION_TOKENS, template=_TEMPLATE)
+    if not tokens:
+        return parsed
+    return parsed.merged_with(
+        parse_args(
+            args=tokens,
+            template=_TEMPLATE,
+            source=ArgSource.FILE if line is not None else ArgSource.CLI,
+            include_defaults=False,
+            line=line,
+        )
     )
-    return parsed
 
 
-def _system(module: Voice, path: Path) -> System:
-    return System(
-        event=FileModifiedEvent(str(path)),
-        global_template=Voice.template,
-        modules=[module],
+def _context(path: Path, args: ParsedArgs) -> Context:
+    return Context(
+        path=str(path),
+        args=args,
+        run_mode="daemon",
         event_id="evt-test",
+        event=FileModifiedEvent(str(path)),
+    )
+
+
+def _system(module: Voice) -> System:
+    return System(
+        global_template=_TEMPLATE,
+        modules=[module],
     )
 
 
@@ -48,7 +78,7 @@ def test_voice_replaces_flag_inline(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         voice_mod,
         "listen_once",
-        lambda _config: TranscriptResult(
+        lambda _args: TranscriptResult(
             text="privet mir",
             provider="offline-vosk",
             model="/models/ru",
@@ -56,9 +86,9 @@ def test_voice_replaces_flag_inline(tmp_path: Path, monkeypatch):
     )
 
     module = Voice()
-    ctx = Context(path=str(note), config=_config(), arg_lines={"voice": [2]})
+    ctx = _context(note, _args(["--voice"], line=2))
 
-    changed = module.modified(ctx, _system(module, note))
+    changed = module.modified(ctx, _system(module))
 
     assert changed == {str(note.resolve()): 1}
     assert note.read_text(encoding="utf-8") == "before\nprivet mir\n"
@@ -71,7 +101,7 @@ def test_voice_inline_works_through_module_manager(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         voice_mod,
         "listen_once",
-        lambda _config: TranscriptResult(
+        lambda _args: TranscriptResult(
             text="hello",
             provider="offline-vosk",
             model="/models/ru",
@@ -80,12 +110,14 @@ def test_voice_inline_works_through_module_manager(tmp_path: Path, monkeypatch):
 
     manager = ModuleManager(
         modules=[Voice()],
-        args=["--voice-offline-vosk-model-path", "/models/ru"],
-        system_config={
-            "sys_notification_provider": "disable",
-            "sys_notification_min_interval_seconds": 0.0,
-            "sys_ignore_paths": [],
-        },
+        startup_args=parse_args(
+            args=[
+                *_NOTIFICATION_TOKENS,
+                "--voice-offline-vosk-model-path",
+                "/models/ru",
+            ],
+            template=DEMON_LUCY_STARTUP_TEMPLATE,
+        ),
     )
 
     changed = manager.run(str(note), FileModifiedEvent(str(note)), event_id="evt-test")
@@ -104,9 +136,9 @@ def test_voice_ignores_config_flags_without_inline_voice(tmp_path: Path, monkeyp
     monkeypatch.setattr(voice_mod, "listen_once", fail_listen)
 
     module = Voice()
-    ctx = Context(path=str(note), config=_config(), arg_lines={})
+    ctx = _context(note, _args())
 
-    assert module.modified(ctx, _system(module, note)) is None
+    assert module.modified(ctx, _system(module)) is None
     assert (
         note.read_text(encoding="utf-8")
         == "--voice-offline-vosk-model-path /models/ru\n"
@@ -120,7 +152,7 @@ def test_voice_empty_transcript_keeps_flag(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         voice_mod,
         "listen_once",
-        lambda _config: TranscriptResult(
+        lambda _args: TranscriptResult(
             text="",
             provider="offline-vosk",
             model="/models/ru",
@@ -128,15 +160,15 @@ def test_voice_empty_transcript_keeps_flag(tmp_path: Path, monkeypatch):
     )
 
     module = Voice()
-    ctx = Context(path=str(note), config=_config(), arg_lines={"voice": [1]})
+    ctx = _context(note, _args(["--voice"], line=1))
 
-    assert module.modified(ctx, _system(module, note)) is None
+    assert module.modified(ctx, _system(module)) is None
     assert note.read_text(encoding="utf-8") == "--voice\n"
 
 
 def test_voice_provider_requires_model_path():
     with pytest.raises(VoiceError, match="voice-offline-vosk-model-path"):
-        listen_once(_config())
+        listen_once(_args())
 
 
 def test_voice_provider_streams_until_vosk_endpoint(monkeypatch):
@@ -207,7 +239,7 @@ def test_voice_provider_streams_until_vosk_endpoint(monkeypatch):
     )
 
     result = listen_once(
-        _config(
+        _args(
             [
                 "--voice-offline-vosk-model-path",
                 "/models/ru",

@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.models import KnownArg, ParsedArgs
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.ascii_art import (
     LUCY_EYE_CLASSIC,
     LUCY_EYE_DOUBLE,
@@ -13,21 +15,28 @@ from demon_lucy.lib.ascii_art import (
     LUCY_EYE_POINTED,
     LUCY_EYE_VERTICAL,
 )
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import Context, RunMode, System
 from demon_lucy.modules.graph import Graph
 from demon_lucy.modules.sys import Sys
 from demon_lucy.modules.sys import neofetch as neofetch_module
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
+_TEMPLATE = [*DEMON_LUCY_STARTUP_TEMPLATE, *Sys.template]
+_BASE_TOKENS = [
+    "--sys-notification-provider",
+    "disable",
+    "--sys-notification-min-interval-seconds",
+    "0",
+]
+
 
 class _StatusLikeModule:
     name = "status"
     template = [
-        ArgTemplate(
-            name="--status", value_type=str, default=[], description="status args"
-        ),
-        ArgTemplate(
-            name="--status-banner",
+        KnownArg(name="status", value_type=str, default=[], description="status args"),
+        KnownArg(
+            name="status-banner",
             value_type=str,
             default="",
             description="status banner",
@@ -35,24 +44,34 @@ class _StatusLikeModule:
     ]
 
 
-def _base_config() -> dict[str, object]:
-    return {
-        "neofetch": False,
-        "mods": False,
-        "ping": False,
-        "help": False,
-        "config": False,
-        "event": False,
-        "man": [],
-        "sys_watch_paths": [],
-        "sys_disable_opened_events": False,
-        "sys_notification_provider": "disable",
-        "sys_notification_min_interval_seconds": 0.0,
-        "sys_notification_error_backoff_base_seconds": 0.0,
-        "sys_notification_error_backoff_max_seconds": 0.0,
-        "sys_notification_error_burst_limit": 0,
-        "sys_notification_error_burst_window_seconds": 0.0,
-    }
+def _args_for(path: Path, extra_tokens: list[str] | None = None) -> ParsedArgs:
+    args = parse_args(args=_BASE_TOKENS, template=_TEMPLATE).merged_with(
+        parse_note_args(str(path), _TEMPLATE)
+    )
+    if not extra_tokens:
+        return args
+    return args.merged_with(
+        parse_args(
+            args=extra_tokens,
+            template=_TEMPLATE,
+            include_defaults=False,
+        )
+    )
+
+
+def _context(
+    path: Path,
+    *,
+    extra_tokens: list[str] | None = None,
+    run_mode: RunMode = "daemon",
+) -> Context:
+    return Context(
+        path=str(path),
+        args=_args_for(path, extra_tokens),
+        run_mode=run_mode,
+        event_id="evt-test",
+        event=FileModifiedEvent(str(path)),
+    )
 
 
 def test_lucy_eye_art_variants_are_available() -> None:
@@ -61,11 +80,11 @@ def test_lucy_eye_art_variants_are_available() -> None:
     assert LUCY_EYE_DOUBLE == (
         "            ___.......___",
         "      _..--'      ||     '--.._",
-        "<---'             ||           '--->",
+        "  <--'            ||           '-->",
         "      '--..__     ||    __..--'",
         "              '-------'",
     )
-    assert LUCY_EYE_GLOW[2] == "  <---'           (*)           '--->"
+    assert LUCY_EYE_GLOW[2] == "   <--'           (*)            '-->"
     assert LUCY_EYE_CLASSIC == (
         "          _______________",
         "     _..-'       |       '-.._",
@@ -82,7 +101,7 @@ def test_help_lists_neofetch_last() -> None:
 def test_neofetch_lines_show_lucy_runtime_information() -> None:
     lines = neofetch_module.neofetch_lines(
         run_mode="daemon",
-        runtime_system="linux",
+        operating_system=OperatingSystem.LINUX,
         module_count=14,
         watch_path_count=2,
         opened_events_disabled=False,
@@ -92,7 +111,7 @@ def test_neofetch_lines_show_lucy_runtime_information() -> None:
     assert lines == [
         "            ___.......___\n",
         "      _..--'      ||     '--.._\n",
-        "<---'             ||           '--->\n",
+        "  <--'            ||           '-->\n",
         "      '--..__     ||    __..--'\n",
         "              '-------'\n",
         "\n",
@@ -176,7 +195,7 @@ def test_neofetch_opened_event_state_on_windows(
     text = "".join(
         neofetch_module.neofetch_lines(
             run_mode=run_mode,
-            runtime_system="windows",
+            operating_system=OperatingSystem.WINDOWS,
             module_count=1,
             watch_path_count=1,
             opened_events_disabled=disabled,
@@ -192,24 +211,14 @@ def test_neofetch_command_writes_runtime_block(tmp_path: Path) -> None:
     note.write_text("--neofetch\n", encoding="utf-8")
 
     module = Sys()
-    config = _base_config()
-    config.update(
-        {
-            "neofetch": True,
-            "sys_watch_paths": ["notes", "work"],
-        }
-    )
-    ctx = Context(
-        path=str(note),
-        config=config,
-        arg_lines={"neofetch": [1]},
+    ctx = _context(
+        note,
+        extra_tokens=["--sys-watch-paths", "notes", "work"],
     )
     system = System(
-        event=FileModifiedEvent(str(note)),
-        global_template=Sys.template,
+        global_template=_TEMPLATE,
         modules=[module],
-        run_mode="daemon",
-        runtime_system="linux",
+        operating_system=OperatingSystem.LINUX,
     )
 
     changed = module.modified(ctx, system)
@@ -228,13 +237,12 @@ def test_neofetch_command_writes_runtime_block(tmp_path: Path) -> None:
 def test_man_lines_specific_name_and_flag():
     module = Sys()
     system = System(
-        event=FileModifiedEvent("/tmp/x"),
         global_template=[
-            ArgTemplate(
-                name="--mods", value_type=bool, default=False, description="mods help"
+            KnownArg(
+                name="mods", value_type=bool, default=False, description="mods help"
             ),
-            ArgTemplate(
-                name="--formatter-todo",
+            KnownArg(
+                name="formatter-todo",
                 value_type=bool,
                 default=False,
                 description="formatter todo help",
@@ -243,8 +251,8 @@ def test_man_lines_specific_name_and_flag():
         modules=[],
     )
 
-    flag_lines = module._man_lines(system, ["--mods"])
-    one_lines = module._man_lines(system, ["formatter_todo"])
+    flag_lines = module._man_one_lines(system, ["--mods"])
+    one_lines = module._man_one_lines(system, ["formatter-todo"])
 
     assert any("--mods:" in line for line in flag_lines)
     assert any("--formatter-todo:" in line for line in one_lines)
@@ -253,25 +261,24 @@ def test_man_lines_specific_name_and_flag():
 def test_man_lines_module_name_expands_to_module_flags():
     module = Sys()
     system = System(
-        event=FileModifiedEvent("/tmp/x"),
         global_template=[
-            ArgTemplate(
-                name="--status", value_type=str, default=[], description="status args"
+            KnownArg(
+                name="status", value_type=str, default=[], description="status args"
             ),
-            ArgTemplate(
-                name="--status-banner",
+            KnownArg(
+                name="status-banner",
                 value_type=str,
                 default="",
                 description="status banner",
             ),
-            ArgTemplate(
-                name="--mods", value_type=bool, default=False, description="mods help"
+            KnownArg(
+                name="mods", value_type=bool, default=False, description="mods help"
             ),
         ],
         modules=[_StatusLikeModule()],
     )
 
-    lines = module._man_lines(system, ["status"])
+    lines = module._man_one_lines(system, ["status"])
 
     assert any("--status:" in line for line in lines)
     assert any("--status-banner:" in line for line in lines)
@@ -281,13 +288,13 @@ def test_man_lines_module_name_expands_to_module_flags():
 def test_man_lines_sys_keyword_expands_to_system_flags():
     module = Sys()
     system = System(
-        event=FileModifiedEvent("/tmp/x"),
         global_template=[
-            ArgTemplate(
-                name="--mods", value_type=bool, default=False, description="mods help"
+            *DEMON_LUCY_STARTUP_TEMPLATE,
+            KnownArg(
+                name="mods", value_type=bool, default=False, description="mods help"
             ),
-            ArgTemplate(
-                name="--sys-modules-priority",
+            KnownArg(
+                name="sys-modules-priority",
                 value_type=str,
                 default=[],
                 description="module priority help",
@@ -296,15 +303,7 @@ def test_man_lines_sys_keyword_expands_to_system_flags():
         modules=[module],
     )
 
-    lines = module._man_lines(
-        system,
-        ["sys"],
-        {
-            "sys_watch_paths": ["/tmp/notes"],
-            "sys_log_level": "info",
-            "oneshot_event": "modified",
-        },
-    )
+    lines = module._man_one_lines(system, ["sys"])
 
     assert any("--sys-watch-paths:" in line for line in lines)
     assert any("--sys-log-level:" in line for line in lines)
@@ -315,21 +314,12 @@ def test_man_lines_sys_keyword_expands_to_system_flags():
 
 def test_man_lines_sys_uses_startup_template_defaults():
     module = Sys()
-    config = _base_config()
-    config.update(
-        {
-            "sys_notification_provider": "auto",
-            "sys_notification_min_interval_seconds": 10.0,
-            "sys_opened_event_cooldown_seconds": 60,
-        }
-    )
     system = System(
-        event=FileModifiedEvent("/tmp/x"),
         global_template=DEMON_LUCY_STARTUP_TEMPLATE + Sys.template,
         modules=[module],
     )
 
-    lines = module._man_lines(system, ["sys"], config)
+    lines = module._man_one_lines(system, ["sys"])
 
     assert any(
         "--sys-notification-provider:" in line and "default=auto" in line
@@ -343,20 +333,13 @@ def test_man_lines_sys_uses_startup_template_defaults():
         "--sys-opened-event-cooldown-seconds:" in line and "default=60" in line
         for line in lines
     )
-    assert all("System arg from runtime config." not in line for line in lines)
 
 
 @pytest.mark.parametrize(
-    ("first_line", "config_patch", "arg_lines", "global_template", "expected_lines"),
+    ("first_line", "expected_lines"),
     [
         (
             "--mods --help\nbody\n",
-            {"mods": True, "help": True},
-            {"mods": [1], "help": [1]},
-            [
-                ArgTemplate(name="--mods", value_type=bool, default=False),
-                ArgTemplate(name="--help", value_type=bool, default=False),
-            ],
             [
                 "--- mods+help ---\n",
                 "* --mods: print loaded modules and their priorities\n",
@@ -364,16 +347,6 @@ def test_man_lines_sys_uses_startup_template_defaults():
         ),
         (
             "--ping\n",
-            {"ping": True},
-            {"ping": [1]},
-            [
-                ArgTemplate(
-                    name="--ping",
-                    value_type=bool,
-                    default=False,
-                    description="Health-check command: prints pong.",
-                )
-            ],
             ["++pong!\n"],
         ),
     ],
@@ -381,25 +354,15 @@ def test_man_lines_sys_uses_startup_template_defaults():
 def test_apply_inserts_block_for_first_line_flags(
     tmp_path: Path,
     first_line: str,
-    config_patch: dict[str, object],
-    arg_lines: dict[str, list[int]],
-    global_template: Template,
     expected_lines: list[str],
 ):
     note = tmp_path / "note.md"
     note.write_text(first_line, encoding="utf-8")
 
     module = Sys()
-    config = _base_config()
-    config.update(config_patch)
-    ctx = Context(
-        path=str(note),
-        config=config,
-        arg_lines=arg_lines,
-    )
+    ctx = _context(note)
     system = System(
-        event=FileModifiedEvent(str(note)),
-        global_template=global_template,
+        global_template=_TEMPLATE,
         modules=[module],
     )
 
@@ -416,16 +379,9 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
     note.write_text("head\n--man man\n", encoding="utf-8")
 
     module = Sys()
-    config = _base_config()
-    config["man"] = ["man"]
-    ctx = Context(
-        path=str(note),
-        config=config,
-        arg_lines={"man": [2]},
-    )
+    ctx = _context(note)
     system = System(
-        event=FileModifiedEvent(str(note)),
-        global_template=[ArgTemplate(name="--man", description="manual")],
+        global_template=[KnownArg(name="man", description="manual")],
         modules=[],
     )
 
@@ -440,7 +396,6 @@ def test_apply_non_first_line_replacement_with_man(tmp_path: Path):
 def test_man_graph_description_is_direct() -> None:
     module = Sys()
     system = System(
-        event=FileModifiedEvent("note.md"),
         global_template=Graph.template,
         modules=[Graph()],
     )
@@ -473,16 +428,9 @@ def test_ping_sends_lucy_notification(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("demon_lucy.modules.sys.safe_notify", fake_safe_notify)
 
     module = Sys()
-    config = _base_config()
-    config["ping"] = True
-    ctx = Context(
-        path=str(note),
-        config=config,
-        arg_lines={"ping": [1]},
-    )
+    ctx = _context(note)
     system = System(
-        event=FileModifiedEvent(str(note)),
-        global_template=Sys.template,
+        global_template=_TEMPLATE,
         modules=[module],
     )
 
@@ -494,7 +442,7 @@ def test_ping_sends_lucy_notification(tmp_path: Path, monkeypatch):
         {
             "name": "sys-ping",
             "message": "++pong!",
-            "config": config,
+            "args": ctx.args,
             "title": "Demon Lucy ping",
             "use_rare_mode": False,
         }

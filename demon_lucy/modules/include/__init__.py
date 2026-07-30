@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, cast
+from typing import Optional
 
 from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
@@ -39,11 +39,11 @@ class Include(AbstractModule):
         "include-find": render_include_dynamic_block,
     }
 
-    def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def _apply(self, ctx: Context) -> Optional[IgnoreMap]:
         raw_candidate_lines = {
-            int(value)
-            for key in ("include", "include_find")
-            for value in (ctx.arg_lines.get(key) or [])
+            line
+            for name in ("include", "include-find")
+            for line in ctx.args.require(name).lines
         }
         if not raw_candidate_lines:
             return None
@@ -57,7 +57,7 @@ class Include(AbstractModule):
             logger.warning(
                 log_record(
                     "include.skip",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     reason="file_unreadable",
                     error=exc,
@@ -83,12 +83,12 @@ class Include(AbstractModule):
         lines = original_text.splitlines(keepends=True)
         newline = detect_newline(original_text)
         rendered_items = 0
-        include_depth = cast(int, ctx.config["include_depth"])
+        include_depth: int = ctx.args.require("include-depth").value
         if include_depth < 1:
             logger.warning(
                 log_record(
                     "include.skip",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     reason="invalid_depth",
                     depth=include_depth,
@@ -111,9 +111,9 @@ class Include(AbstractModule):
                             depth=include_depth,
                         ),
                         arg_template=include_arg_template(params.arg),
-                        show_allowed_values=not ctx.config[
-                            "sys_dynamic_block_hide_allowed_values"
-                        ],
+                        show_allowed_values=not ctx.args.require(
+                            "sys-dynamic-block-hide-allowed-values"
+                        ).value,
                         newline=newline,
                     )
                     for params in params_list
@@ -122,7 +122,7 @@ class Include(AbstractModule):
                 logger.warning(
                     log_record(
                         "include.command_failed",
-                        id=system.event_id,
+                        id=ctx.event_id,
                         path=ctx.path,
                         line=line_number,
                         reason="render_failed",
@@ -144,7 +144,7 @@ class Include(AbstractModule):
             logger.error(
                 log_record(
                     "include.write_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     error=exc,
                 )
@@ -152,7 +152,7 @@ class Include(AbstractModule):
             safe_notify(
                 f"include-write:{ctx.path}",
                 f"Include write failed for {ctx.path}: {exc}",
-                config=ctx.config,
+                args=ctx.args,
                 use_rare_mode=True,
             )
             return None
@@ -160,7 +160,7 @@ class Include(AbstractModule):
         logger.info(
             log_record(
                 "include.render_done",
-                id=system.event_id,
+                id=ctx.event_id,
                 path=ctx.path,
                 items=rendered_items,
             )
@@ -168,10 +168,10 @@ class Include(AbstractModule):
         return {ctx.path: 1}
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)

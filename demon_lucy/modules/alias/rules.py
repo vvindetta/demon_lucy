@@ -33,10 +33,7 @@ def flag_head(token: str) -> str:
 
 
 def known_flags(system: System) -> set[str]:
-    flags: set[str] = set()
-    for item in system.global_template:
-        flags.add(item.name)
-    return flags
+    return {f"--{item.name}" for item in system.global_template}
 
 
 def _normalize_alias_name(value: str) -> str:
@@ -52,7 +49,7 @@ def parse_rule(
     *,
     known_flag_values: set[str],
 ) -> AliasRule | RuleError:
-    raw = str(raw_rule).strip()
+    raw = raw_rule.strip()
     if not raw:
         return RuleError(raw=raw_rule, reason="empty_rule")
 

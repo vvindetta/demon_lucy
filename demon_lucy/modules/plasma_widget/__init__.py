@@ -3,12 +3,18 @@ import os
 import tempfile
 import threading
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional
+from typing import Optional
 
+from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path
-from demon_lucy.modules.abstract_module import AbstractModule, Context, System
+from demon_lucy.modules.abstract_module import (
+    AbstractModule,
+    Context,
+    IgnoreMap,
+    System,
+)
 from demon_lucy.modules.plasma_widget.config import PLASMA_WIDGET_TEMPLATE
 from demon_lucy.modules.plasma_widget.engine import (
     SyncPlan,
@@ -18,58 +24,11 @@ from demon_lucy.modules.plasma_widget.engine import (
     plan_from_main_plasma,
     plan_from_markdown,
 )
-from demon_lucy.modules.plasma_widget.markdown_codec import (
-    _doc_hash,
-    _doc_to_md,
-    _md_to_doc,
-)
-from demon_lucy.modules.plasma_widget.mirror_mapper import (
-    _apply_mirror_items_to_doc,
-    _apply_mirror_lines_to_doc,
-    _bold_lines_to_plasma_html,
-    _extract_bold_items_from_doc,
-    _items_hash,
-    _mirror_html_to_lines,
-    _mirror_html_to_items,
-)
-from demon_lucy.modules.plasma_widget.model import (
-    DocLine,
-    _hash_text,
-    _normalize_md,
-)
-from demon_lucy.modules.plasma_widget.plasma_html_codec import (
-    _doc_to_plasma_html,
-    _html_to_doc,
-)
 
-__all__ = [
-    "DocLine",
-    "PlasmaWidget",
-    "SyncPlan",
-    "SyncState",
-    "bootstrap_state",
-    "plan_from_bold_mirror",
-    "plan_from_main_plasma",
-    "plan_from_markdown",
-    "_apply_mirror_items_to_doc",
-    "_apply_mirror_lines_to_doc",
-    "_bold_lines_to_plasma_html",
-    "_doc_hash",
-    "_doc_to_md",
-    "_doc_to_plasma_html",
-    "_extract_bold_items_from_doc",
-    "_hash_text",
-    "_html_to_doc",
-    "_items_hash",
-    "_md_to_doc",
-    "_mirror_html_to_lines",
-    "_mirror_html_to_items",
-    "_normalize_md",
-]
+__all__ = ["PlasmaWidget"]
 
 logger = logging.getLogger(__name__)
 
-IgnoreMap = Dict[str, int]
 SyncKey = tuple[str, str, Optional[str]]
 
 _IGNORE_BURST = 1
@@ -159,8 +118,6 @@ def _read_file_checked(
 def _write_text_atomic(
     path: str,
     content: str,
-    *,
-    notify_errors: bool = True,
 ) -> bool:
     absolute_path = canonical_path(path)
     directory = os.path.dirname(absolute_path)
@@ -220,15 +177,12 @@ def _collect_pending_writes(
 
 def _restore_previous_writes(
     applied: list[PendingWrite],
-    *,
-    config: Mapping[str, Any],
 ) -> list[str]:
     rollback_failed_paths: list[str] = []
     for write in reversed(applied):
         restored = _write_text_atomic(
             write.path,
             write.previous_content,
-            notify_errors=False,
         )
         if not restored:
             logger.error(log_record("plasma.rollback_failed", path=write.path))
@@ -240,7 +194,7 @@ def _notify_write_failure(
     *,
     failed_path: str,
     rollback_failed_paths: list[str],
-    config: Mapping[str, Any],
+    args: ParsedArgs,
 ) -> None:
     logger.error(
         log_record(
@@ -255,7 +209,7 @@ def _notify_write_failure(
     safe_notify(
         "plasma-write:" + canonical_path(failed_path),
         details,
-        config=config,
+        args=args,
         use_rare_mode=True,
     )
 
@@ -264,20 +218,19 @@ def _apply_pending_writes(
     *,
     pending: list[PendingWrite],
     ignore: IgnoreMap,
-    config: Mapping[str, Any],
+    args: ParsedArgs,
 ) -> bool:
     applied: list[PendingWrite] = []
     for write in pending:
         if not _write_text_atomic(
             write.path,
             write.next_content,
-            notify_errors=True,
         ):
-            rollback_failed_paths = _restore_previous_writes(applied, config=config)
+            rollback_failed_paths = _restore_previous_writes(applied)
             _notify_write_failure(
                 failed_path=write.path,
                 rollback_failed_paths=rollback_failed_paths,
-                config=config,
+                args=args,
             )
             return False
         _inc_ignore(ignore, write.path, _IGNORE_BURST)
@@ -287,7 +240,7 @@ def _apply_pending_writes(
 
 def _inc_ignore(ignore: IgnoreMap, path: str, times: int = 1) -> None:
     absolute_path = canonical_path(path)
-    ignore[absolute_path] = ignore.get(absolute_path, 0) + int(times)
+    ignore[absolute_path] = ignore.get(absolute_path, 0) + times
 
 
 def _notify_empty_source_guard(
@@ -295,7 +248,7 @@ def _notify_empty_source_guard(
     source_label: str,
     source_path: str,
     markdown_path: str,
-    config: Mapping[str, Any],
+    args: ParsedArgs,
 ) -> None:
     source_abs = canonical_path(source_path)
     markdown_abs = canonical_path(markdown_path)
@@ -313,7 +266,7 @@ def _notify_empty_source_guard(
             f"Blocked empty {source_label} from clearing markdown:\n"
             f"{markdown_abs}\n\nSource:\n{source_abs}"
         ),
-        config=config,
+        args=args,
         use_rare_mode=True,
     )
 
@@ -323,7 +276,7 @@ def _notify_shrinking_source_guard(
     source_label: str,
     source_path: str,
     markdown_path: str,
-    config: Mapping[str, Any],
+    args: ParsedArgs,
 ) -> None:
     source_abs = canonical_path(source_path)
     markdown_abs = canonical_path(markdown_path)
@@ -341,7 +294,7 @@ def _notify_shrinking_source_guard(
             f"Blocked shrinking {source_label} from truncating markdown:\n"
             f"{markdown_abs}\n\nSource:\n{source_abs}"
         ),
-        config=config,
+        args=args,
         use_rare_mode=True,
     )
 
@@ -380,8 +333,8 @@ def _apply_sync_plan(
     widget_path: str,
     markdown_path: str,
     bold_widget_path: Optional[str],
-    config: Mapping[str, Any],
-) -> Optional[IgnoreMap]:
+    args: ParsedArgs,
+) -> IgnoreMap | None:
     ignore: IgnoreMap = {}
     pending = _collect_pending_writes(
         plan=plan,
@@ -394,7 +347,7 @@ def _apply_sync_plan(
     if not _apply_pending_writes(
         pending=pending,
         ignore=ignore,
-        config=config,
+        args=args,
     ):
         return None
 
@@ -412,31 +365,31 @@ class PlasmaWidget(AbstractModule):
 
     template = PLASMA_WIDGET_TEMPLATE
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._handle(ctx)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._handle(ctx)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._handle(ctx)
 
-    def deleted(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def deleted(self, ctx: Context, system: System) -> IgnoreMap | None:
         return None
 
     def _cfg(self, ctx: Context) -> tuple[str, str, Optional[str], bool]:
         return (
-            canonical_path(ctx.config["plasma_widget_path"]),
-            canonical_path(ctx.config["plasma_markdown_note_path"]),
+            canonical_path(ctx.args.require("plasma-widget-path").value),
+            canonical_path(ctx.args.require("plasma-markdown-note-path").value),
             (
-                canonical_path(ctx.config["plasma_bold_widget_path"])
-                if ctx.config["plasma_bold_widget_path"]
+                canonical_path(ctx.args.require("plasma-bold-widget-path").value)
+                if ctx.args.require("plasma-bold-widget-path").value
                 else None
             ),
-            ctx.config["plasma_css_style"],
+            ctx.args.require("plasma-css-style").value,
         )
 
-    def _handle(self, ctx: Context) -> Optional[IgnoreMap]:
+    def _handle(self, ctx: Context) -> IgnoreMap | None:
         widget_path, markdown_path, bold_widget_path, css_style = self._cfg(ctx)
         sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
 
@@ -459,7 +412,7 @@ class PlasmaWidget(AbstractModule):
                 widget_path=widget_path,
                 bold_widget_path=bold_widget_path,
                 css_style=css_style,
-                config=ctx.config,
+                args=ctx.args,
             )
 
         if bold_abs and path == bold_abs:
@@ -469,7 +422,7 @@ class PlasmaWidget(AbstractModule):
                 markdown_path=markdown_path,
                 bold_widget_path=bold_widget_path,
                 css_style=css_style,
-                config=ctx.config,
+                args=ctx.args,
             )
 
         if path == widget_abs:
@@ -480,7 +433,7 @@ class PlasmaWidget(AbstractModule):
                 bold_widget_path=bold_widget_path,
                 css_style=css_style,
                 html_path=path,
-                config=ctx.config,
+                args=ctx.args,
             )
 
         return None
@@ -491,9 +444,9 @@ class PlasmaWidget(AbstractModule):
         widget_path: str,
         bold_widget_path: Optional[str],
         css_style: bool,
-        config: Mapping[str, Any],
+        args: ParsedArgs,
         sync_key: Optional[SyncKey] = None,
-    ) -> Optional[IgnoreMap]:
+    ) -> IgnoreMap | None:
         if sync_key is None:
             sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
         markdown_read = _read_file_checked(markdown_path)
@@ -520,7 +473,7 @@ class PlasmaWidget(AbstractModule):
             safe_notify(
                 "md_missing:" + markdown_path,
                 f"Markdown note file not found:\n{markdown_path}",
-                config=config,
+                args=args,
                 use_rare_mode=True,
             )
             return None
@@ -531,7 +484,7 @@ class PlasmaWidget(AbstractModule):
             widget_path=widget_path,
             markdown_path=markdown_path,
             bold_widget_path=bold_widget_path,
-            config=config,
+            args=args,
         )
 
         if ignore:
@@ -555,9 +508,9 @@ class PlasmaWidget(AbstractModule):
         bold_widget_path: Optional[str],
         css_style: bool,
         html_path: str,
-        config: Mapping[str, Any],
+        args: ParsedArgs,
         sync_key: Optional[SyncKey] = None,
-    ) -> Optional[IgnoreMap]:
+    ) -> IgnoreMap | None:
         if sync_key is None:
             sync_key = _sync_key(widget_path, markdown_path, bold_widget_path)
         if not os.path.exists(html_path):
@@ -588,14 +541,14 @@ class PlasmaWidget(AbstractModule):
                 source_label="MAIN Plasma widget",
                 source_path=html_path,
                 markdown_path=markdown_path,
-                config=config,
+                args=args,
             )
         if plan.blocked_shrinking_source:
             _notify_shrinking_source_guard(
                 source_label="MAIN Plasma widget",
                 source_path=html_path,
                 markdown_path=markdown_path,
-                config=config,
+                args=args,
             )
 
         ignore = _apply_sync_plan(
@@ -604,7 +557,7 @@ class PlasmaWidget(AbstractModule):
             widget_path=widget_path,
             markdown_path=markdown_path,
             bold_widget_path=bold_widget_path,
-            config=config,
+            args=args,
         )
 
         if ignore:
@@ -627,9 +580,9 @@ class PlasmaWidget(AbstractModule):
         markdown_path: str,
         bold_widget_path: Optional[str],
         css_style: bool,
-        config: Mapping[str, Any],
+        args: ParsedArgs,
         sync_key: Optional[SyncKey] = None,
-    ) -> Optional[IgnoreMap]:
+    ) -> IgnoreMap | None:
         """
         Optional: editing mirror updates MAIN bold lines.
         Mirror contains one line per bold-line in MAIN (line-safe mapping).
@@ -659,14 +612,14 @@ class PlasmaWidget(AbstractModule):
                 source_label="BOLD Plasma mirror",
                 source_path=bold_widget_path,
                 markdown_path=markdown_path,
-                config=config,
+                args=args,
             )
         if plan.blocked_shrinking_source:
             _notify_shrinking_source_guard(
                 source_label="BOLD Plasma mirror",
                 source_path=bold_widget_path,
                 markdown_path=markdown_path,
-                config=config,
+                args=args,
             )
 
         ignore = _apply_sync_plan(
@@ -675,7 +628,7 @@ class PlasmaWidget(AbstractModule):
             widget_path=widget_path,
             markdown_path=markdown_path,
             bold_widget_path=bold_widget_path,
-            config=config,
+            args=args,
         )
 
         if ignore:

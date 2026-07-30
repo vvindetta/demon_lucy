@@ -142,8 +142,7 @@ def run_git(
                         reason="index_lock_released",
                         repo=repo_root,
                         retry=(
-                            f"{recent_retry_attempt + 1}/"
-                            f"{recent_retry_max_attempts}"
+                            f"{recent_retry_attempt + 1}/{recent_retry_max_attempts}"
                         ),
                     )
                 )

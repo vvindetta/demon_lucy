@@ -96,12 +96,12 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 - `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
 **Experimental:**
-- `ai`: edits the current note from an inline prompt using local Codex.
 - `dropdir`: handles moved files in configured drop directories. Useful for inbox/drop folders where a move should trigger temporary Lucy flags.
 - `status`: updates standalone status filenames with dynamic tokens (time/date/git state, animations, prefixes).
 - `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.
 - `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
 - `voice`: transcribes speech locally with Vosk, stopping after speech ends.
+- `ai`: edits the current note from an inline prompt using local Codex.
 
 See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 

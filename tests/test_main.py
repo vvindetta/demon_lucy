@@ -7,30 +7,18 @@ from typing import Any
 import pytest
 
 import main_daemon
-from demon_lucy.lib.args.models import (
-    ArgSource,
-    KnownArg,
-    ParsedArgs,
-    UnknownArg,
-)
+from demon_lucy.lib.args.models import ArgSource, ParsedArgs
 from demon_lucy.lib.notifications import NotificationProvider
-from demon_lucy.runtime import LogLevel
+from demon_lucy.lib.operating_system import OperatingSystem
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE, LogLevel
+from tests.args_support import make_args
 
 
-def _parsed_config(values: dict, unknown: list[str] | None = None):
-    return ParsedArgs(
-        known=tuple(
-            KnownArg(
-                name=f"{key.replace('_', '-')}",
-                value=value,
-                source=ArgSource.CLI,
-            )
-            for key, value in values.items()
-        ),
-        unknown=tuple(
-            UnknownArg(token=token, source=ArgSource.CLI)
-            for token in unknown or []
-        ),
+def _parsed_args(values: dict[str, object]) -> ParsedArgs:
+    return make_args(
+        DEMON_LUCY_STARTUP_TEMPLATE,
+        values,
+        source=ArgSource.CLI,
     )
 
 
@@ -48,7 +36,7 @@ def _run_main_with_flag(
     monkeypatch: pytest.MonkeyPatch,
     watch_paths: list[str] | None = None,
     sys_modules: list[str] | None = None,
-    runtime_system: str = "linux",
+    operating_system: OperatingSystem = OperatingSystem.LINUX,
     disable_opened_events: bool = True,
 ) -> _ObserverState:
     state = _ObserverState()
@@ -87,7 +75,7 @@ def _run_main_with_flag(
             self.modules = modules
             self.startup_args = startup_args
             self.run_mode = run_mode
-            self.runtime_system = runtime_system
+            self.operating_system = operating_system
 
     class FakeEvent:
         def wait(self):
@@ -102,19 +90,19 @@ def _run_main_with_flag(
     monkeypatch.setattr(
         main_daemon,
         "load_args",
-        lambda template: _parsed_config(
+        lambda template: _parsed_args(
             values={
-                "sys_log_level": LogLevel.INFO,
-                "sys_log_format": "%(message)s",
-                "sys_watch_paths": (
+                "sys-log-level": LogLevel.INFO,
+                "sys-log-format": "%(message)s",
+                "sys-watch-paths": (
                     watch_paths if watch_paths is not None else [str(tmp_path)]
                 ),
-                "sys_opened_event_cooldown_seconds": 20,
-                "sys_disable_opened_events": disable_opened_events,
-                "sys_notification_provider": NotificationProvider.AUTO,
-                "sys_notification_min_interval_seconds": 10.0,
-                "sys_modules": list(sys_modules or []),
-                "sys_modules_exclude": [],
+                "sys-opened-event-cooldown-seconds": 20,
+                "sys-disable-opened-events": disable_opened_events,
+                "sys-notification-provider": NotificationProvider.AUTO,
+                "sys-notification-min-interval-seconds": 10.0,
+                "sys-modules": list(sys_modules or []),
+                "sys-modules-exclude": [],
             },
         ),
     )
@@ -170,7 +158,7 @@ def test_main_logs_when_native_opened_events_are_unavailable(
     _run_main_with_flag(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
-        runtime_system="macos",
+        operating_system=OperatingSystem.MACOS,
         disable_opened_events=False,
     )
 
@@ -192,7 +180,7 @@ def test_main_does_not_log_unavailable_opened_events_when_disabled(
     _run_main_with_flag(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
-        runtime_system="windows",
+        operating_system=OperatingSystem.WINDOWS,
         disable_opened_events=True,
     )
 
@@ -205,17 +193,17 @@ def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
     monkeypatch.setattr(
         main_daemon,
         "load_args",
-        lambda template: _parsed_config(
+        lambda template: _parsed_args(
             values={
-                "sys_log_level": LogLevel.INFO,
-                "sys_log_format": "%(message)s",
-                "sys_watch_paths": None,
-                "sys_opened_event_cooldown_seconds": 20,
-                "sys_disable_opened_events": False,
-                "sys_notification_provider": NotificationProvider.AUTO,
-                "sys_notification_min_interval_seconds": 10.0,
-                "sys_modules": [],
-                "sys_modules_exclude": [],
+                "sys-log-level": LogLevel.INFO,
+                "sys-log-format": "%(message)s",
+                "sys-watch-paths": [],
+                "sys-opened-event-cooldown-seconds": 20,
+                "sys-disable-opened-events": False,
+                "sys-notification-provider": NotificationProvider.AUTO,
+                "sys-notification-min-interval-seconds": 10.0,
+                "sys-modules": [],
+                "sys-modules-exclude": [],
             },
         ),
     )
@@ -229,7 +217,7 @@ def test_main_raises_when_startup_args_are_invalid(monkeypatch):
     monkeypatch.setattr(
         main_daemon,
         "load_args",
-        lambda template: _parsed_config(values={}),
+        lambda template: ParsedArgs(),
     )
 
     with pytest.raises(ValueError):

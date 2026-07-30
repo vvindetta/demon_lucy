@@ -15,6 +15,7 @@ from watchdog.events import (
 )
 
 from demon_lucy.lib.args.models import (
+    ArgSource,
     KnownArg,
     ParsedArgs,
     Template,
@@ -55,28 +56,24 @@ ONESHOT_STARTUP_TEMPLATE: Template = DEMON_LUCY_STARTUP_TEMPLATE + [
             "Single event to trigger once. Allowed: created modified moved "
             "deleted opened."
         ),
-        required=False,
     ),
     KnownArg(
         name="oneshot-paths",
         value_type=str,
         default=[],
         description="One or more file or directory paths to process in one-shot mode.",
-        required=False,
     ),
     KnownArg(
         name="oneshot-move-src-path",
         value_type=str,
         default="",
         description="Source path for moved event.",
-        required=False,
     ),
     KnownArg(
         name="oneshot-move-dest-path",
         value_type=str,
         default="",
         description="Destination path for moved event.",
-        required=False,
     ),
 ]
 
@@ -101,8 +98,7 @@ def _build_event_plan(args: ParsedArgs) -> list[tuple[str, FileSystemEvent]]:
     event_name: OneShotEvent = args.require("oneshot-event").value
 
     target_paths = [
-        abs_expand_path(path_item)
-        for path_item in args.require("oneshot-paths").value
+        abs_expand_path(path_item) for path_item in args.require("oneshot-paths").value
     ]
     moved_src = args.require("oneshot-move-src-path").value.strip()
     moved_dest = args.require("oneshot-move-dest-path").value.strip()
@@ -145,7 +141,9 @@ def _build_event_plan(args: ParsedArgs) -> list[tuple[str, FileSystemEvent]]:
 def _uses_cli_flow(args: ParsedArgs) -> bool:
     if args.require("oneshot-paths").value:
         return False
-    return args.require("oneshot-event").value is not OneShotEvent.MOVED
+    if args.require("oneshot-event").value is OneShotEvent.MOVED:
+        return False
+    return bool(args.unknown_from(ArgSource.CLI))
 
 
 def _run_cli_flow(
@@ -170,9 +168,7 @@ def _run_cli_flow(
     try:
         ignore_paths, modules_run = manager.run_cli(event_id=event_id)
         if modules_run == 0:
-            raise ValueError(
-                "CLI run requires at least one module argument."
-            )
+            raise ValueError("CLI run requires at least one module argument.")
     except Exception:
         status = "error"
         logging.error(log_record("cli_run.error", id=event_id, mode="cli"))
@@ -319,9 +315,7 @@ def main() -> int:
         config_path_arg = initial_args.find("sys-config-path")
         if config_path_arg is not None:
             run_config_migrations(config_path_arg.value)
-        startup_args = load_args(
-            template=ONESHOT_STARTUP_TEMPLATE
-        )
+        startup_args = load_args(template=ONESHOT_STARTUP_TEMPLATE)
         return run_oneshot(startup_args=startup_args)
     except (ValueError, KeyError) as exc:
         logging.basicConfig(level=logging.ERROR, force=True)

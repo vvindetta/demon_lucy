@@ -6,20 +6,15 @@ from pathlib import Path
 from watchdog.events import FileMovedEvent
 
 import demon_lucy.modules.dropdir.module as dropdir_module
+from demon_lucy.lib.args.models import ArgSource, ParsedArgs, Template
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.notifications import NotificationProvider
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.archive import clock as archive_clock
-from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.archive import Archive
+from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.formatter import Formatter
-
-_NOTIFICATION_CONFIG = {
-    "sys_notification_provider": "disable",
-    "sys_notification_min_interval_seconds": 0.0,
-    "sys_notification_error_backoff_base_seconds": 0.0,
-    "sys_notification_error_backoff_max_seconds": 0.0,
-    "sys_notification_error_burst_limit": 0,
-    "sys_notification_error_burst_window_seconds": 0.0,
-}
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
 
 def _freeze_archive_day(monkeypatch, year: int, month: int, day: int) -> None:
@@ -31,32 +26,61 @@ def _freeze_archive_day(monkeypatch, year: int, month: int, day: int) -> None:
     monkeypatch.setattr(archive_clock, "datetime", _FakeDatetime)
 
 
-def _ctx(path: Path, cleanup_selector: str, *, delay_ms: int = 0) -> Context:
-    return Context(
-        path=str(path),
-        config={
-            "dropdir_action": [f"{cleanup_selector}=--archive-pair"],
-            "dropdir_action_delay_milliseconds": delay_ms,
-            "archive_pair": [],
-            "archive_local": [],
-            "archive_global": [],
-            "archive_auto_pair": ["now.md", "past.md"],
-            "archive_auto_local": [],
-            "archive_auto_global": [],
-            "archive_default_mode": "text",
-            "archive_global_dest_path": "",
-            "archive_idle_hours": 12.0,
-            "archive_date_prefix": "--- ",
-            "archive_date_suffix": "",
-            "archive_force_filesystem_mtime": False,
-            **_NOTIFICATION_CONFIG,
-        },
-        arg_lines={},
+def _global_template() -> Template:
+    return [
+        *DEMON_LUCY_STARTUP_TEMPLATE,
+        *DropDir.template,
+        *Archive.template,
+        *Formatter.template,
+    ]
+
+
+def _args(
+    action: str,
+    *,
+    delay_ms: int = 0,
+) -> ParsedArgs:
+    return parse_args(
+        args=[
+            "--dropdir-action",
+            action,
+            "--dropdir-action-delay-milliseconds",
+            str(delay_ms),
+            "--archive-auto-pair",
+            "now.md",
+            "past.md",
+            "--sys-notification-provider",
+            NotificationProvider.DISABLE,
+        ],
+        template=_global_template(),
+        source=ArgSource.CONFIG,
     )
 
 
-def _global_template():
-    return DropDir.template + Archive.template + Formatter.template
+def _ctx(
+    path: Path,
+    action: str,
+    event: FileMovedEvent,
+    *,
+    delay_ms: int = 0,
+) -> Context:
+    return Context(
+        path=str(path),
+        args=_args(action, delay_ms=delay_ms),
+        run_mode="oneshot",
+        event_id="test",
+        event=event,
+    )
+
+
+def _system(
+    dropdir: DropDir,
+    *modules: Archive | Formatter,
+) -> System:
+    return System(
+        global_template=_global_template(),
+        modules=[dropdir, *modules],
+    )
 
 
 def test_dropdir_forces_archive_when_now_moved_into_cleanup(
@@ -75,13 +99,12 @@ def test_dropdir_forces_archive_when_now_moved_into_cleanup(
     dropdir = DropDir()
     archive = Archive()
     event = FileMovedEvent(str(src_path), str(now_path))
-    system = System(
-        event=event,
-        global_template=_global_template(),
-        modules=[dropdir, archive],
-    )
+    system = _system(dropdir, archive)
 
-    changed = dropdir.moved(_ctx(now_path, "cleanup"), system)
+    changed = dropdir.moved(
+        _ctx(now_path, "cleanup=--archive-pair", event),
+        system,
+    )
 
     past_path = src_path.parent / "past.md"
     assert changed == {
@@ -108,13 +131,12 @@ def test_dropdir_ignores_non_archive_filename(tmp_path: Path, monkeypatch) -> No
     dropdir = DropDir()
     archive = Archive()
     event = FileMovedEvent(str(src_path), str(file_path))
-    system = System(
-        event=event,
-        global_template=_global_template(),
-        modules=[dropdir, archive],
-    )
+    system = _system(dropdir, archive)
 
-    changed = dropdir.moved(_ctx(file_path, "cleanup"), system)
+    changed = dropdir.moved(
+        _ctx(file_path, "cleanup=--archive-pair", event),
+        system,
+    )
 
     assert changed == {str(file_path.resolve()): 1, str(src_path.resolve()): 1}
     assert not file_path.exists()
@@ -141,13 +163,17 @@ def test_dropdir_applies_custom_delay_before_archive_clean(
     dropdir = DropDir()
     archive = Archive()
     event = FileMovedEvent(str(src_path), str(now_path))
-    system = System(
-        event=event,
-        global_template=_global_template(),
-        modules=[dropdir, archive],
-    )
+    system = _system(dropdir, archive)
 
-    _ = dropdir.moved(_ctx(now_path, "cleanup", delay_ms=1500), system)
+    _ = dropdir.moved(
+        _ctx(
+            now_path,
+            "cleanup=--archive-pair",
+            event,
+            delay_ms=1500,
+        ),
+        system,
+    )
 
     assert slept == [1.5]
 
@@ -164,22 +190,8 @@ def test_dropdir_runs_arbitrary_configured_action(tmp_path: Path) -> None:
     dropdir = DropDir()
     formatter = Formatter()
     event = FileMovedEvent(str(src_path), str(dropped_path))
-    system = System(
-        event=event,
-        global_template=_global_template(),
-        modules=[dropdir, formatter],
-    )
-    ctx = Context(
-        path=str(dropped_path),
-        config={
-            "dropdir_action": ["drop=--formatter-todo"],
-            "dropdir_action_delay_milliseconds": 0,
-            "formatter_todo": False,
-            "formatter_blank": [],
-            **_NOTIFICATION_CONFIG,
-        },
-        arg_lines={},
-    )
+    system = _system(dropdir, formatter)
+    ctx = _ctx(dropped_path, "drop=--formatter-todo", event)
 
     changed = dropdir.moved(ctx, system)
 
@@ -200,21 +212,11 @@ def test_dropdir_rejects_system_flags_in_action(tmp_path: Path) -> None:
     dropdir = DropDir()
     formatter = Formatter()
     event = FileMovedEvent(str(src_path), str(dropped_path))
-    system = System(
-        event=event,
-        global_template=_global_template(),
-        modules=[dropdir, formatter],
-    )
-    ctx = Context(
-        path=str(dropped_path),
-        config={
-            "dropdir_action": ["drop=--sys-log-level debug --formatter-todo"],
-            "dropdir_action_delay_milliseconds": 0,
-            "formatter_todo": False,
-            "formatter_blank": [],
-            **_NOTIFICATION_CONFIG,
-        },
-        arg_lines={},
+    system = _system(dropdir, formatter)
+    ctx = _ctx(
+        dropped_path,
+        "drop=--sys-log-level debug --formatter-todo",
+        event,
     )
 
     changed = dropdir.moved(ctx, system)

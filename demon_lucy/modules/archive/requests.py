@@ -3,40 +3,19 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 
-from demon_lucy.lib.args.parser import parse_enum_value
+from demon_lucy.lib.args.models import ArgSource
 from demon_lucy.modules.abstract_module import Context
 from demon_lucy.modules.archive import notify
 from demon_lucy.modules.archive.types import ArchiveOutputMode, ArchiveRequest
 
 
-def config_values(ctx: Context, key: str, flag: str) -> list[str]:
-    value = ctx.config.get(key, [])
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        notify.invalid_rule(
-            ctx,
-            flag=flag,
-            reason="invalid_config_type",
-            value=value,
-        )
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
+def arg_values(ctx: Context, name: str) -> list[str]:
+    values: list[str] = ctx.args.require(name).value
+    return [item.strip() for item in values if item.strip()]
 
 
-def flag_present(ctx: Context, key: str, flag: str) -> bool:
-    return key in ctx.arg_lines or bool(config_values(ctx, key, flag))
-
-
-def bool_flag_present(ctx: Context, key: str) -> bool:
-    return key in ctx.arg_lines or bool(ctx.config.get(key))
-
-
-def auto_pair_configured(ctx: Context) -> bool:
-    value = ctx.config.get("archive_auto_pair")
-    if isinstance(value, list):
-        return any(str(item).strip() for item in value)
-    return bool(value)
+def flag_present(ctx: Context, name: str) -> bool:
+    return ctx.args.require(name).source is not ArgSource.DEFAULT
 
 
 def local_archive_exists(ctx: Context) -> bool:
@@ -44,45 +23,19 @@ def local_archive_exists(ctx: Context) -> bool:
     return os.path.isdir(archive_dir) and not os.path.islink(archive_dir)
 
 
-def _output_mode(value: object) -> ArchiveOutputMode | None:
+def _output_mode(value: str) -> ArchiveOutputMode | None:
     try:
-        return parse_enum_value(ArchiveOutputMode, value)
+        return ArchiveOutputMode(value.strip().casefold())
     except ValueError:
         return None
 
 
-def default_output_mode(ctx: Context) -> ArchiveOutputMode | None:
-    output_mode = _output_mode(ctx.config["archive_default_mode"])
-    if output_mode is not None:
-        return output_mode
-    notify.invalid_rule(
-        ctx,
-        flag="--archive-default-mode",
-        value=ctx.config["archive_default_mode"],
-        reason="unsupported_mode",
-    )
-    return None
-
-
-def default_idle_hours(ctx: Context) -> float | None:
-    try:
-        return float(ctx.config["archive_idle_hours"])
-    except (TypeError, ValueError):
-        notify.invalid_rule(
-            ctx,
-            flag="--archive-idle-hours",
-            value=ctx.config.get("archive_idle_hours"),
-            reason="invalid_number",
-        )
-        return None
-
-
-def route_mode_from_config_values(
+def route_mode_from_values(
     ctx: Context,
     *,
     flag: str,
     values: list[str],
-    fallback_mode: ArchiveOutputMode | None,
+    fallback_mode: ArchiveOutputMode,
 ) -> ArchiveOutputMode | None:
     if not values:
         return fallback_mode
@@ -104,8 +57,8 @@ def idle_and_mode_from_tail_values(
     *,
     flag: str,
     values: list[str],
-    fallback_idle_hours: float | None,
-    fallback_mode: ArchiveOutputMode | None,
+    fallback_idle_hours: float,
+    fallback_mode: ArchiveOutputMode,
 ) -> tuple[float, ArchiveOutputMode] | None:
     idle_hours = fallback_idle_hours
     output_mode = fallback_mode
@@ -118,7 +71,7 @@ def idle_and_mode_from_tail_values(
         try:
             idle_hours = float(token)
             continue
-        except (TypeError, ValueError):
+        except ValueError:
             notify.invalid_rule(
                 ctx,
                 flag=flag,
@@ -127,13 +80,11 @@ def idle_and_mode_from_tail_values(
             )
             return None
 
-    if idle_hours is None or output_mode is None:
-        return None
     return idle_hours, output_mode
 
 
 def auto_pair_request(ctx: Context) -> ArchiveRequest | None:
-    values = config_values(ctx, "archive_auto_pair", "--archive-auto-pair")
+    values = arg_values(ctx, "archive-auto-pair")
     if not values:
         return None
     if len(values) < 2:
@@ -148,8 +99,8 @@ def auto_pair_request(ctx: Context) -> ArchiveRequest | None:
         ctx,
         flag="--archive-auto-pair",
         values=values[2:],
-        fallback_idle_hours=default_idle_hours(ctx),
-        fallback_mode=default_output_mode(ctx),
+        fallback_idle_hours=ctx.args.require("archive-idle-hours").value,
+        fallback_mode=ctx.args.require("archive-default-mode").value,
     )
     if tail is None:
         return None
@@ -165,15 +116,15 @@ def auto_pair_request(ctx: Context) -> ArchiveRequest | None:
 
 
 def auto_local_request(ctx: Context) -> ArchiveRequest | None:
-    values = config_values(ctx, "archive_auto_local", "--archive-auto-local")
+    values = arg_values(ctx, "archive-auto-local")
     if not values:
         return None
     tail = idle_and_mode_from_tail_values(
         ctx,
         flag="--archive-auto-local",
         values=values[1:],
-        fallback_idle_hours=default_idle_hours(ctx),
-        fallback_mode=default_output_mode(ctx),
+        fallback_idle_hours=ctx.args.require("archive-idle-hours").value,
+        fallback_mode=ctx.args.require("archive-default-mode").value,
     )
     if tail is None:
         return None
@@ -189,15 +140,15 @@ def auto_local_request(ctx: Context) -> ArchiveRequest | None:
 
 
 def auto_global_request(ctx: Context) -> ArchiveRequest | None:
-    values = config_values(ctx, "archive_auto_global", "--archive-auto-global")
+    values = arg_values(ctx, "archive-auto-global")
     if not values:
         return None
     tail = idle_and_mode_from_tail_values(
         ctx,
         flag="--archive-auto-global",
         values=values[1:],
-        fallback_idle_hours=default_idle_hours(ctx),
-        fallback_mode=default_output_mode(ctx),
+        fallback_idle_hours=ctx.args.require("archive-idle-hours").value,
+        fallback_mode=ctx.args.require("archive-default-mode").value,
     )
     if tail is None:
         return None
@@ -227,35 +178,26 @@ def auto_requests(ctx: Context) -> list[ArchiveRequest]:
 
 def present_manual_routes(ctx: Context) -> list[tuple[str, str, str]]:
     route_specs = [
-        ("pair", "archive_pair", "--archive-pair"),
-        ("local", "archive_local", "--archive-local"),
-        ("global", "archive_global", "--archive-global"),
+        ("pair", "archive-pair", "--archive-pair"),
+        ("local", "archive-local", "--archive-local"),
+        ("global", "archive-global", "--archive-global"),
     ]
     return [
-        (route, key, flag)
-        for route, key, flag in route_specs
-        if flag_present(ctx, key, flag)
+        (route, key, flag) for route, key, flag in route_specs if flag_present(ctx, key)
     ]
 
 
 def manual_flag_present(ctx: Context) -> bool:
-    if bool_flag_present(ctx, "archive"):
+    if ctx.args.require("archive").value:
         return True
-    for key in ("archive_pair", "archive_local", "archive_global"):
-        if key in ctx.arg_lines:
-            return True
-        value = ctx.config.get(key)
-        if isinstance(value, list):
-            if any(str(item).strip() for item in value):
-                return True
-            continue
-        if value:
+    for name in ("archive-pair", "archive-local", "archive-global"):
+        if flag_present(ctx, name):
             return True
     return False
 
 
 def manual_requests(ctx: Context) -> list[ArchiveRequest]:
-    archive_present = bool_flag_present(ctx, "archive")
+    archive_present = ctx.args.require("archive").value
     present_routes = present_manual_routes(ctx)
     if archive_present and present_routes:
         flags = ["--archive", *[flag for _route, _key, flag in present_routes]]
@@ -278,11 +220,11 @@ def manual_requests(ctx: Context) -> list[ArchiveRequest]:
         return []
 
     route, key, flag = present_routes[0]
-    mode = route_mode_from_config_values(
+    mode = route_mode_from_values(
         ctx,
         flag=flag,
-        values=config_values(ctx, key, flag),
-        fallback_mode=default_output_mode(ctx),
+        values=arg_values(ctx, key),
+        fallback_mode=ctx.args.require("archive-default-mode").value,
     )
     if mode is None:
         return []
@@ -298,41 +240,33 @@ def manual_requests(ctx: Context) -> list[ArchiveRequest]:
             return []
         return [replace(pair_request, output_mode=mode, force=True)]
 
-    idle_hours = default_idle_hours(ctx)
-    if idle_hours is None:
-        return []
     return [
         ArchiveRequest(
             route=route,
             output_mode=mode,
             src_selector=os.path.basename(ctx.path),
             dest_selector=None,
-            idle_hours=idle_hours,
+            idle_hours=ctx.args.require("archive-idle-hours").value,
             force=True,
         )
     ]
 
 
 def archive_command_requests(ctx: Context) -> list[ArchiveRequest]:
-    if auto_pair_configured(ctx):
+    if arg_values(ctx, "archive-auto-pair"):
         pair_request = auto_pair_request(ctx)
         if pair_request is None:
             return []
         return [replace(pair_request, force=True)]
 
-    mode = default_output_mode(ctx)
-    idle_hours = default_idle_hours(ctx)
-    if mode is None or idle_hours is None:
-        return []
-
     route = "local" if local_archive_exists(ctx) else "global"
     return [
         ArchiveRequest(
             route=route,
-            output_mode=mode,
+            output_mode=ctx.args.require("archive-default-mode").value,
             src_selector=os.path.basename(ctx.path),
             dest_selector=None,
-            idle_hours=idle_hours,
+            idle_hours=ctx.args.require("archive-idle-hours").value,
             force=True,
         )
     ]

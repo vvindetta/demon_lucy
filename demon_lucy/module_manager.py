@@ -59,7 +59,6 @@ class ModuleManager:
                 default=[],
                 description="Override module execution order (lower runs first). "
                 "Format: name=int. Example: --sys-modules-priority banner=5 renamer=20 todo=30",
-                required=False,
             ),
         ]
         self.template.extend(DEMON_LUCY_STARTUP_TEMPLATE)
@@ -213,17 +212,11 @@ class ModuleManager:
         module: AbstractModule,
         parsed_args: ParsedArgs,
     ) -> list[str]:
-        missing: list[str] = []
-        for item in module.template:
-            value = parsed_args.require(item.name).value
-            if item.required and (
-                value is None
-                or value is False
-                or isinstance(value, str) and not value.strip()
-                or isinstance(value, list) and not value
-            ):
-                missing.append(item.name)
-        return missing
+        return [
+            item.name
+            for item in module.template
+            if item.required and not parsed_args.require(item.name).value
+        ]
 
     def _next_context_path(
         self,
@@ -284,7 +277,8 @@ class ModuleManager:
         ignore_paths: Dict[str, int] = {}
 
         for module in self.modules:
-            if event.event_type not in module.__class__.__dict__:  # not from parent
+            action = getattr(type(module), event_type)
+            if action is getattr(AbstractModule, event_type):
                 continue
 
             missing_required = self._module_missing_required_flags(
@@ -292,7 +286,7 @@ class ModuleManager:
                 parsed_args,
             )
             if missing_required:
-                missing_text = ", ".join(missing_required)
+                missing_text = ", ".join(f"--{name}" for name in missing_required)
                 message = f"Skipping module '{module.name}': missing required args: {missing_text}"
                 logger.error(
                     log_record(
@@ -313,8 +307,6 @@ class ModuleManager:
                 )
                 continue
 
-            action = getattr(module, event.event_type)
-
             logger.info(
                 log_record(
                     "module.start",
@@ -327,6 +319,7 @@ class ModuleManager:
             started_at = time.monotonic()
             try:
                 event_ignore = action(
+                    module,
                     Context(
                         path=current_path,
                         args=parsed_args,
@@ -370,7 +363,6 @@ class ModuleManager:
 
             if event_ignore:
                 self._merge_ignore_map(ignore_paths, event_ignore)
-
                 current_path = self._next_context_path(current_path, event_ignore)
                 parsed_args = _update_args(current_path)
 
@@ -388,6 +380,13 @@ class ModuleManager:
         self,
         event_id: str | None = None,
     ) -> tuple[IgnoreMap | None, int]:
+        unknown_args = self.args.unknown_from(ArgSource.CLI)
+        if unknown_args:
+            raise ValueError(
+                "Unknown CLI arguments: "
+                + " ".join(argument.token for argument in unknown_args)
+            )
+
         event_id = event_id or next_event_id()
         cwd = canonical_path(os.getcwd())
         ignore_paths: IgnoreMap = {}
@@ -411,7 +410,7 @@ class ModuleManager:
                 self.args,
             )
             if missing_required:
-                missing_text = ", ".join(missing_required)
+                missing_text = ", ".join(f"--{name}" for name in missing_required)
                 logger.error(
                     log_record(
                         "module.skip",
@@ -472,9 +471,7 @@ class ModuleManager:
                 )
                 raise
 
-            changed_paths_count, changed_events_count = ignore_summary(
-                module_ignore
-            )
+            changed_paths_count, changed_events_count = ignore_summary(module_ignore)
             logger.info(
                 log_record(
                     "module.done",

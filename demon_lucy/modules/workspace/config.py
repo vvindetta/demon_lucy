@@ -3,7 +3,7 @@ from __future__ import annotations
 import shlex
 from typing import Any
 
-from demon_lucy.lib.args.parser import ArgTemplate, flag_to_dest
+from demon_lucy.lib.args.models import ArgSource
 from demon_lucy.modules.abstract_module import Context, System
 
 
@@ -15,62 +15,39 @@ class WorkspaceConfig:
         return shlex.quote(str(value))
 
     @staticmethod
-    def flag_from_config_key(key: str) -> str:
-        return "--" + key.replace("_", "-")
+    def defaults_by_name(system: System) -> dict[str, Any]:
+        return {
+            template_item.name: template_item.default
+            for template_item in system.global_template
+        }
 
     @staticmethod
-    def defaults_by_destination(system: System) -> dict[str, Any]:
-        defaults: dict[str, Any] = {}
-        for template_item in system.global_template:
-            defaults.setdefault(
-                flag_to_dest(template_item.name),
-                template_item.default,
-            )
-        return defaults
-
-    @staticmethod
-    def default_for_config_value(value: Any) -> Any:
-        if isinstance(value, bool):
-            return False
-        if isinstance(value, list):
-            return []
-        if isinstance(value, str):
-            return ""
-        if isinstance(value, int):
-            return 0
-        if isinstance(value, float):
-            return 0.0
-        return None
-
-    @staticmethod
-    def module_name_set(values: object) -> set[str]:
-        if not isinstance(values, list):
-            return set()
-        return {str(value).strip() for value in values if str(value).strip()}
+    def module_name_set(values: list[str]) -> set[str]:
+        return {value.strip() for value in values if value.strip()}
 
     def module_names(self, system: System) -> list[str]:
         names: list[str] = []
         seen: set[str] = set()
 
         def add(name: str) -> None:
-            normalized = str(name).strip()
+            normalized = name.strip()
             if not normalized or normalized in seen:
                 return
             seen.add(normalized)
             names.append(normalized)
 
         for module in system.modules:
-            add(getattr(module, "name", ""))
+            add(module.name)
         for required_name in ("workspace", "archive", "status"):
             add(required_name)
         return names
 
     def required_lines(self, workspace_root: str, system: System) -> list[str]:
-        defaults = self.defaults_by_destination(system)
+        defaults = self.defaults_by_name(system)
         module_names = self.module_names(system)
         lines = [f"--sys-watch-paths {self.quote(workspace_root)}\n"]
         if self.module_name_set(module_names) != self.module_name_set(
-            defaults.get("sys_modules")
+            defaults["sys-modules"]
         ):
             lines.append(
                 "--sys-modules "
@@ -83,34 +60,6 @@ class WorkspaceConfig:
             + "\n"
         )
         return lines
-
-    def template_items(
-        self,
-        ctx: Context,
-        system: System,
-    ) -> list[ArgTemplate]:
-        items: list[ArgTemplate] = []
-        seen_destinations: set[str] = set()
-        for template_item in system.global_template:
-            destination = flag_to_dest(template_item.name)
-            if destination in seen_destinations:
-                continue
-            seen_destinations.add(destination)
-            items.append(template_item)
-        for key, value in sorted(ctx.config.items()):
-            if not key.startswith("sys_"):
-                continue
-            if key in seen_destinations:
-                continue
-            seen_destinations.add(key)
-            items.append(
-                ArgTemplate(
-                    name=self.flag_from_config_key(key),
-                    value_type=type(value),
-                    default=self.default_for_config_value(value),
-                )
-            )
-        return items
 
     def render_line(
         self,
@@ -138,30 +87,27 @@ class WorkspaceConfig:
         return f"{flag} {self.quote(value)}\n"
 
     def runtime_lines(self, ctx: Context, system: System) -> list[str]:
-        forced_destinations = {
-            "sys_config_path",
-            "sys_watch_paths",
-            "sys_modules",
-            "archive_auto_pair",
-            "workspace_init",
+        forced_names = {
+            "sys-config-path",
+            "sys-watch-paths",
+            "sys-modules",
+            "archive-auto-pair",
+            "workspace-init",
         }
         lines: list[str] = []
 
-        for item in self.template_items(ctx, system):
-            destination = flag_to_dest(item.name)
-            if destination in forced_destinations:
+        for argument in ctx.args.known:
+            if argument.name in forced_names:
                 continue
-            if destination in ctx.arg_lines:
+            if argument.source is ArgSource.FILE:
                 continue
-            if item.name.startswith("--oneshot-"):
-                continue
-            if destination not in ctx.config:
+            if argument.name.startswith("oneshot-"):
                 continue
 
             line = self.render_line(
-                flag=item.name,
-                value=ctx.config[destination],
-                default=item.default,
+                flag=f"--{argument.name}",
+                value=argument.value,
+                default=argument.default,
             )
             if line is not None:
                 lines.append(line)

@@ -57,7 +57,7 @@ def transfer_packet_to_phone(
     if not remote_root.strip():
         return TransferResult(status="error", error_text="empty kdeconnect remote root")
 
-    retries_left = max(1, int(max_retries))
+    retries_left = max(1, max_retries)
     last_error = "kdeconnect transfer failed"
     while retries_left > 0:
         retries_left -= 1

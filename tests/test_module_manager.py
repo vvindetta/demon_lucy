@@ -10,48 +10,50 @@ from demon_lucy.lib.args.models import (
     ArgSource,
     KnownArg,
     ParsedArgs,
-    UnknownArg,
 )
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.notifications import NotificationProvider
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.lib.dynamic_blocks.parser import format_dynamic_block
-from demon_lucy.modules.abstract_module import AbstractModule, Context, System
+from demon_lucy.modules.abstract_module import (
+    AbstractModule,
+    Context,
+    System,
+)
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from tests.args_support import make_args
 
-_SYSTEM_CONFIG = {
-    "sys_notification_provider": "termuxapi",
-    "sys_notification_min_interval_seconds": 0.0,
-    "sys_ignore_paths": [],
+_SYSTEM_ARGS = {
+    "sys-notification-provider": NotificationProvider.TERMUX_API,
+    "sys-notification-min-interval-seconds": 0.0,
+    "sys-ignore-paths": [],
 }
 
 
 def _startup_args(
     *,
-    system_config: dict | None = None,
+    values: dict[str, object] | None = None,
     config_args: list[str] | None = None,
     cli_args: list[str] | None = None,
 ) -> ParsedArgs:
-    values = dict(_SYSTEM_CONFIG if system_config is None else system_config)
-    return ParsedArgs(
-        known=tuple(
-            KnownArg(
-                name=f"{key.replace('_', '-')}",
-                value=value,
-                source=ArgSource.CONFIG,
-            )
-            for key, value in values.items()
-        ),
-        unknown=tuple(
-            [
-                *(
-                    UnknownArg(token=token, source=ArgSource.CONFIG)
-                    for token in config_args or []
-                ),
-                *(
-                    UnknownArg(token=token, source=ArgSource.CLI)
-                    for token in cli_args or []
-                ),
-            ]
-        ),
+    startup_args = make_args(
+        DEMON_LUCY_STARTUP_TEMPLATE,
+        _SYSTEM_ARGS if values is None else values,
+        source=ArgSource.CONFIG,
     )
+    config_unknown = parse_args(
+        args=config_args or [],
+        template=[],
+        source=ArgSource.CONFIG,
+        include_defaults=False,
+    )
+    cli_unknown = parse_args(
+        args=cli_args or [],
+        template=[],
+        source=ArgSource.CLI,
+        include_defaults=False,
+    )
+    return startup_args.merged_with(config_unknown).merged_with(cli_unknown)
 
 
 class _ModA(AbstractModule):
@@ -65,10 +67,8 @@ class _ModA(AbstractModule):
 
     def modified(self, ctx: Context, system: System):
         self.calls += 1
-        self.last_run_mode = system.run_mode
-        self.last_runtime_started_at_monotonic = (
-            system.runtime_started_at_monotonic
-        )
+        self.last_run_mode = ctx.run_mode
+        self.last_runtime_started_at_monotonic = system.runtime_started_at_monotonic
         return {ctx.path: 1}
 
 
@@ -113,9 +113,7 @@ class _RequiredMod(AbstractModule):
 class _ListMod(AbstractModule):
     name = "list_mod"
     priority = 60
-    template = [
-        KnownArg(name="items", value_type=str, default=[], description="items")
-    ]
+    template = [KnownArg(name="items", value_type=str, default=[], description="items")]
 
     def __init__(self):
         self.seen_argument = None
@@ -152,7 +150,7 @@ class _CliMod(AbstractModule):
         self.context = None
         self.system = None
 
-    def modified(self, ctx: Context, system: System):
+    def cli(self, ctx: Context, system: System):
         self.context = ctx
         self.system = system
         return {ctx.path: 1}
@@ -187,8 +185,8 @@ def test_module_manager_priority_flag_uses_sys_prefix():
     )
     flags = [item.name for item in manager.template]
 
-    assert "--sys-modules-priority" in flags
-    assert "--modules-priority" not in flags
+    assert "sys-modules-priority" in flags
+    assert "modules-priority" not in flags
     assert manager.args.find("sys-modules-priority") is not None
     assert manager.args.find("modules-priority") is None
 
@@ -200,16 +198,13 @@ def test_module_manager_includes_startup_template_flags():
     )
     flags = [item.name for item in manager.template]
 
-    assert "--sys-notification-provider" in flags
-    assert "--sys-opened-event-cooldown-seconds" in flags
+    assert "sys-notification-provider" in flags
+    assert "sys-opened-event-cooldown-seconds" in flags
     assert (
         manager.args.require("sys-notification-provider").value
-        == "termuxapi"
+        is NotificationProvider.TERMUX_API
     )
-    assert (
-        manager.args.require("sys-opened-event-cooldown-seconds").value
-        == 60
-    )
+    assert manager.args.require("sys-opened-event-cooldown-seconds").value == 60
 
 
 def test_init_sorts_modules_by_priority_override():
@@ -238,10 +233,7 @@ def test_file_list_args_override_config_list_args(tmp_path: Path):
     manager = ModuleManager(
         modules=[module],
         startup_args=_startup_args(
-            system_config={
-                **_SYSTEM_CONFIG,
-                "items": ["config-a", "config-b"],
-            },
+            config_args=["--items", "config-a", "config-b"],
         ),
     )
 
@@ -335,9 +327,9 @@ def test_run_skips_all_modules_for_blacklisted_paths(tmp_path: Path):
     manager = ModuleManager(
         modules=[a, c],
         startup_args=_startup_args(
-            system_config={
-                **_SYSTEM_CONFIG,
-                "sys_ignore_paths": [str(blacklisted_dir)],
+            values={
+                **_SYSTEM_ARGS,
+                "sys-ignore-paths": [str(blacklisted_dir)],
             },
         ),
     )
@@ -348,7 +340,7 @@ def test_run_skips_all_modules_for_blacklisted_paths(tmp_path: Path):
     assert ignore_paths is None
 
 
-def test_run_passes_oneshot_run_mode_to_system(tmp_path: Path):
+def test_run_passes_oneshot_run_mode_to_context(tmp_path: Path):
     note = tmp_path / "n.md"
     note.write_text("hello\n", encoding="utf-8")
     event = FileModifiedEvent(str(note))
@@ -364,10 +356,7 @@ def test_run_passes_oneshot_run_mode_to_system(tmp_path: Path):
 
     assert a.calls == 1
     assert a.last_run_mode == "oneshot"
-    assert (
-        a.last_runtime_started_at_monotonic
-        == manager.runtime_started_at_monotonic
-    )
+    assert a.last_runtime_started_at_monotonic == manager.runtime_started_at_monotonic
 
 
 def test_run_cli_automatically_runs_module_with_cli_argument(
@@ -392,10 +381,23 @@ def test_run_cli_automatically_runs_module_with_cli_argument(
     assert module.context.path == str(tmp_path.resolve())
     assert module.context.args is manager.args
     assert module.context.args.require("run-cli").value == "value"
+    assert module.context.run_mode == "cli"
+    assert module.context.event is None
+    assert module.context.event_id == "evt-cli"
     assert module.system is not None
-    assert module.system.run_mode == "cli"
-    assert module.system.event is None
-    assert module.system.event_id == "evt-cli"
+
+
+def test_run_cli_rejects_unknown_cli_arguments() -> None:
+    manager = ModuleManager(
+        modules=[_CliMod()],
+        startup_args=_startup_args(
+            cli_args=["--run-cli", "value", "--typo"],
+        ),
+        run_mode="cli",
+    )
+
+    with pytest.raises(ValueError, match=r"Unknown CLI arguments: --typo"):
+        manager.run_cli()
 
 
 def test_run_refreshes_dynamic_blocks_after_module_pipeline(tmp_path: Path):

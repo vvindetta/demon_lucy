@@ -1,7 +1,7 @@
 import argparse
 import re
 import shlex
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from enum import Enum
 from itertools import groupby
@@ -30,15 +30,10 @@ def split_arg_line(line: str) -> list[str]:
     return list(lexer)
 
 
-def _arg_name_to_key(name: str) -> str:
-    return name.replace("-", "_")
-
-
 def is_valid_flag_token(token: str) -> bool:
     head = token.split("=", 1)[0]
     return (
-        head.startswith("--")
-        and re.fullmatch(ARG_NAME_PATTERN, head[2:]) is not None
+        head.startswith("--") and re.fullmatch(ARG_NAME_PATTERN, head[2:]) is not None
     )
 
 
@@ -54,17 +49,15 @@ def _parse_enum_value(enum_type: type[_EnumType], value: object) -> _EnumType:
         if _enum_value_text(member).casefold() == value_text:
             return member
     allowed = "|".join(_enum_value_text(member) for member in enum_type)
-    raise ValueError(
-        f"unsupported {enum_type.__name__} value: {value}; use {allowed}"
-    )
+    raise ValueError(f"unsupported {enum_type.__name__} value: {value}; use {allowed}")
 
 
 def normalize_arg_params(
     values: Mapping[str, object],
     params: tuple[ArgParam, ...],
 ) -> dict[str, object]:
-    params_by_name = {param.name: param for param in params}
-    unknown = sorted(set(values) - set(params_by_name))
+    param_names = {param.name for param in params}
+    unknown = sorted(set(values) - param_names)
     if unknown:
         raise ValueError(f"unknown argument parameter: {unknown[0]}")
 
@@ -102,7 +95,13 @@ def normalize_arg_params(
     return normalized
 
 
-def _argparse_value_type(value_type: type):
+def _arg_name_to_dest(name: str) -> str:
+    return name.replace("-", "_")
+
+
+def _argparse_type(
+    value_type: type[Any],
+) -> Callable[[str], Any]:
     if not issubclass(value_type, Enum):
         return value_type
 
@@ -126,13 +125,13 @@ def parse_args(
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     for item in template:
         options: dict[str, Any] = {
-            "dest": _arg_name_to_key(item.name),
+            "dest": _arg_name_to_dest(item.name),
             "default": argparse.SUPPRESS,
         }
         if item.value_type is bool:
             options["action"] = "store_true"
         else:
-            options["type"] = _argparse_value_type(item.value_type)
+            options["type"] = _argparse_type(item.value_type)
             if isinstance(item.default, list):
                 options["nargs"] = "*"
         parser.add_argument(f"--{item.name}", **options)
@@ -142,23 +141,20 @@ def parse_args(
     except SystemExit:
         return ParsedArgs(
             unknown=tuple(
-                UnknownArg(token=token, source=source, line=line)
-                for token in args
+                UnknownArg(token=token, source=source, line=line) for token in args
             ),
         )
 
     values = vars(namespace)
     known: list[KnownArg] = []
     for item in template:
-        key = _arg_name_to_key(item.name)
-        if key in values:
-            value = values[key]
+        dest = _arg_name_to_dest(item.name)
+        if dest in values:
+            value = values[dest]
             value_source = source
         elif include_defaults:
             value = (
-                list(item.default)
-                if isinstance(item.default, list)
-                else item.default
+                list(item.default) if isinstance(item.default, list) else item.default
             )
             value_source = ArgSource.DEFAULT
         else:
@@ -180,8 +176,7 @@ def parse_args(
     return ParsedArgs(
         known=tuple(known),
         unknown=tuple(
-            UnknownArg(token=token, source=source, line=line)
-            for token in unknown
+            UnknownArg(token=token, source=source, line=line) for token in unknown
         ),
     )
 

@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Dict, List, Optional, Tuple
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import ArgTemplate
+from demon_lucy.lib.args.models import KnownArg
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -42,7 +42,7 @@ class Cmd(AbstractModule):
         <output>
 
     Notes:
-    - Uses already-parsed tokens from ctx.config + ctx.arg_lines (no manual parsing).
+    - Uses already-parsed values and source lines from ctx.args.
     - Executes with shell=False.
     - Replaces the original line containing --cmd with an output block.
     - Removes the --cmd ... part from the original line; if anything else remains on that line,
@@ -53,47 +53,41 @@ class Cmd(AbstractModule):
     priority: int = 50
 
     template = [
-        ArgTemplate(
-            name="--cmd",
+        KnownArg(
+            name="cmd",
             value_type=str,
             default=[],
             description="Command tokens to execute (nargs='+'). Example: --cmd ls -la",
-            required=False,
         ),
-        ArgTemplate(
-            name="--cmd-timeout-seconds",
+        KnownArg(
+            name="cmd-timeout-seconds",
             value_type=int,
             default=5,
             description="Timeout in seconds for each command run.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--cmd-output-max-bytes",
+        KnownArg(
+            name="cmd-output-max-bytes",
             value_type=int,
             default=20000,
             description="Maximum bytes of stdout/stderr written into the file (output is clipped).",
-            required=False,
         ),
-        ArgTemplate(
-            name="--cmd-stream",
+        KnownArg(
+            name="cmd-stream",
             value_type=CmdStream,
             default=CmdStream.BOTH,
             description="Output streams to include: both, stdout, stderr, none.",
-            required=False,
         ),
     ]
 
-    # Collect command runs by line using ctx.arg_lines["cmd"]
     def _collect_runs(self, ctx: Context) -> List[CmdRun]:
-        line_nums = ctx.arg_lines.get("cmd")
+        line_nums = ctx.args.require("cmd").lines
 
-        if not ctx.config["cmd"] or not line_nums:
+        if not ctx.args.require("cmd").value or not line_nums:
             return []
 
-        # Group tokens by their source line number
         by_line: Dict[int, List[str]] = {}
-        for tok, ln in zip(ctx.config["cmd"], line_nums):
-            by_line.setdefault(int(ln), []).append(str(tok))
+        for tok, ln in zip(ctx.args.require("cmd").value, line_nums):
+            by_line.setdefault(ln, []).append(str(tok))
 
         runs: List[CmdRun] = []
         for ln in sorted(by_line.keys()):
@@ -197,7 +191,7 @@ class Cmd(AbstractModule):
         raise ValueError(f"unsupported command stream: {stream}")
 
     # Apply (replace lines)
-    def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def _apply(self, ctx: Context) -> Optional[IgnoreMap]:
         runs = self._collect_runs(ctx)
         if not runs:
             return None
@@ -223,9 +217,11 @@ class Cmd(AbstractModule):
             _code, out_s, err_s = self._run_cmd(
                 cmd_tokens=run.cmd_tokens,
                 cwd=cwd,
-                timeout=ctx.config["cmd_timeout_seconds"],
+                timeout=ctx.args.require("cmd-timeout-seconds").value,
             )
-            show_stdout, show_stderr = self._stream_flags(ctx.config["cmd_stream"])
+            show_stdout, show_stderr = self._stream_flags(
+                ctx.args.require("cmd-stream").value
+            )
 
             block = self._build_block(
                 cmd_tokens=run.cmd_tokens,
@@ -233,7 +229,7 @@ class Cmd(AbstractModule):
                 stderr=err_s,
                 show_stdout=show_stdout,
                 show_stderr=show_stderr,
-                max_bytes=ctx.config["cmd_output_max_bytes"],
+                max_bytes=ctx.args.require("cmd-output-max-bytes").value,
             )
 
             # Replace the line with the block
@@ -250,14 +246,10 @@ class Cmd(AbstractModule):
 
     # Events
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
+        return self._apply(ctx)
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(ctx=ctx, system=system)
-
-    def deleted(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        # The file is already gone.
-        return None
+        return self._apply(ctx)

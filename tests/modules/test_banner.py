@@ -6,12 +6,15 @@ import pytest
 from watchdog.events import FileModifiedEvent
 
 import demon_lucy.modules.banner as banner_mod
+from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.banner import Banner
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from tests.args_support import make_args
 
 
 @pytest.mark.parametrize(
-    ("figlet_text", "initial", "arg_lines", "required_fragments"),
+    ("figlet_text", "initial", "argument_lines", "required_fragments"),
     [
         (
             "ASCII\n",
@@ -26,7 +29,7 @@ def test_apply_inserts_or_replaces_banner_block(
     monkeypatch,
     figlet_text: str,
     initial: str,
-    arg_lines: dict[str, list[int]],
+    argument_lines: dict[str, list[int]],
     required_fragments: list[str],
 ):
     monkeypatch.setattr(banner_mod.pyfiglet, "figlet_format", lambda _txt: figlet_text)
@@ -37,8 +40,11 @@ def test_apply_inserts_or_replaces_banner_block(
     module = Banner()
     changed = module._apply(
         path=str(path),
-        config={"banner": ["Hello"], "banner_separator": "---"},
-        arg_lines=arg_lines,
+        args=make_args(
+            Banner.template,
+            {"banner": ["Hello"], "banner-separator": "---"},
+            lines={"banner": tuple(argument_lines["banner"])},
+        ),
     )
 
     content = path.read_text(encoding="utf-8")
@@ -54,8 +60,7 @@ def test_apply_returns_none_when_banner_is_not_configured(tmp_path: Path):
     module = Banner()
     changed = module._apply(
         path=str(path),
-        config={"banner": [], "banner_separator": "---"},
-        arg_lines={},
+        args=make_args(Banner.template),
     )
     assert changed is None
 
@@ -68,18 +73,23 @@ def test_apply_returns_none_when_banner_line_is_missing(tmp_path: Path):
     module = Banner()
     changed = module._apply(
         path=str(path),
-        config={"banner": ["Hello"], "banner_separator": "---"},
-        arg_lines={},
+        args=make_args(
+            Banner.template,
+            {"banner": ["Hello"], "banner-separator": "---"},
+        ),
     )
 
     assert changed is None
     assert path.read_text(encoding="utf-8") == original
 
 
-def test_banner_text_from_config_joins_values_from_first_banner_line():
-    text = Banner._banner_text_from_config(
-        {"banner": ["Hello", "world", "Second"]},
-        {"banner": [1, 1, 3]},
+def test_banner_text_joins_values_from_first_banner_line():
+    text = Banner._banner_text(
+        make_args(
+            Banner.template,
+            {"banner": ["Hello", "world", "Second"]},
+            lines={"banner": (1, 1, 3)},
+        )
     )
 
     assert text == "Hello world"
@@ -102,16 +112,10 @@ def test_module_manager_parses_unquoted_multi_word_banner(
 
     manager = ModuleManager(
         modules=[Banner()],
-        args=[],
-        system_config={
-            "sys_ignore_paths": [],
-            "sys_notification_provider": "disable",
-            "sys_notification_min_interval_seconds": 0.0,
-            "sys_notification_error_backoff_base_seconds": 0.0,
-            "sys_notification_error_backoff_max_seconds": 0.0,
-            "sys_notification_error_burst_limit": 0,
-            "sys_notification_error_burst_window_seconds": 0.0,
-        },
+        startup_args=parse_args(
+            args=[],
+            template=DEMON_LUCY_STARTUP_TEMPLATE,
+        ),
     )
 
     changed = manager.run(str(path), FileModifiedEvent(str(path)), event_id="evt-test")

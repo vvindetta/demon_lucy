@@ -22,13 +22,21 @@ def test_default_module_priority_is_15():
 
 @pytest.mark.parametrize(
     "hook_name",
-    ["created", "modified", "moved", "deleted", "opened"],
+    ["created", "modified", "moved", "deleted", "opened", "cli"],
 )
 def test_default_module_hooks_are_noops(hook_name: str):
     module = DemoModule()
-    ctx = Context(path="/tmp/x", args=ParsedArgs())
+    event = FileModifiedEvent("/tmp/x")
+    ctx = Context(
+        path="/tmp/x",
+        args=ParsedArgs(),
+        run_mode="daemon",
+        event_id="evt-test",
+        event=event,
+    )
     system = System(
-        event=FileModifiedEvent("/tmp/x"), global_template=[], modules=[module]
+        global_template=[],
+        modules=[module],
     )
 
     hook = getattr(module, hook_name)
@@ -49,15 +57,22 @@ def test_context_and_system_dataclasses_keep_values():
             ),
         )
     )
-    ctx = Context(path="/tmp/file", args=parsed_args)
-    system = System(event=event, global_template=template, modules=[module])
+    ctx = Context(
+        path="/tmp/file",
+        args=parsed_args,
+        run_mode="daemon",
+        event_id="evt-test",
+        event=event,
+    )
+    system = System(global_template=template, modules=[module])
 
     assert ctx.path == "/tmp/file"
     assert ctx.args is parsed_args
     assert ctx.args.require("x").value == ["1"]
     assert ctx.args.require("x").source is ArgSource.FILE
     assert ctx.args.require("x").lines == (1,)
-    assert system.event is event
+    assert ctx.event is event
+    assert ctx.event_id == "evt-test"
+    assert ctx.run_mode == "daemon"
     assert system.global_template == template
     assert system.modules == [module]
-    assert system.run_mode == "daemon"

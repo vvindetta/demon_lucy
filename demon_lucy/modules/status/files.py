@@ -1,31 +1,31 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional, Protocol
+from typing import Optional, Protocol
 
-from demon_lucy.lib.args.parser import split_arg_line
+from demon_lucy.lib.args.models import Template
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.path import canonical_path
 from demon_lucy.modules.abstract_module import IgnoreMap
 
 
 class _StatusFileHost(Protocol):
-    _default_banner_speed_ms: int
-    _default_banner_max_chars: int
-    _default_animation_speed_ms: int
+    template: Template
 
     def _parse_status_parts(self, values: list[str]) -> list[str]: ...
 
     def _normalize_banner_settings(
         self,
-        text_value: Any,
-        speed_ms_value: Any,
-        max_chars_value: Any,
+        text: str,
+        speed_milliseconds: int,
+        max_characters: int,
     ) -> tuple[str | None, int, int]: ...
 
     def _normalize_animation_settings(
         self,
-        frames_value: Any,
-        speed_ms_value: Any,
+        frames: list[str],
+        speed_milliseconds: int,
     ) -> tuple[list[str], int]: ...
 
 
@@ -42,7 +42,7 @@ class StatusFileMixin:
             for path, times in source.items():
                 if not times:
                     continue
-                merged[path] = merged.get(path, 0) + int(times)
+                merged[path] = merged.get(path, 0) + times
         return merged or None
 
     @staticmethod
@@ -66,140 +66,22 @@ class StatusFileMixin:
         self: _StatusFileHost,
         path: str,
     ) -> tuple[list[str], str | None, int, int, str, list[str], int]:
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                lines = handle.readlines()
-        except (OSError, UnicodeDecodeError):
-            return (
-                [],
-                None,
-                self._default_banner_speed_ms,
-                self._default_banner_max_chars,
-                "",
-                [],
-                self._default_animation_speed_ms,
-            )
-
-        status_values: list[str] = []
-        banner_text_value: Any = ""
-        banner_speed_value: Any = self._default_banner_speed_ms
-        banner_max_chars_value: Any = self._default_banner_max_chars
-        status_prefix = ""
-        ascii_animation_frames_value: list[str] = []
-        ascii_animation_speed_value: Any = self._default_animation_speed_ms
-        status_flags = (
-            "--status",
-            "--status-banner",
-            "--status-banner-speed-milliseconds",
-            "--status-banner-max-characters",
-            "--status-prefix",
-            "--status-animation",
-            "--status-animation-speed-milliseconds",
-            "--status-opened-events",
+        args = parse_args(args=[], template=self.template).merged_with(
+            parse_note_args(path, self.template)
         )
-        for line in lines:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if (
-                "--status" not in stripped
-                and "--status-banner" not in stripped
-                and "--status-banner-speed-milliseconds" not in stripped
-                and "--status-banner-max-characters" not in stripped
-                and "--status-prefix" not in stripped
-                and "--status-animation" not in stripped
-                and "--status-animation-speed-milliseconds" not in stripped
-                and "--status-opened-events" not in stripped
-            ):
-                continue
-            try:
-                tokens = split_arg_line(stripped)
-            except ValueError:
-                continue
-
-            i = 0
-            while i < len(tokens):
-                token_head = tokens[i]
-                if token_head not in status_flags:
-                    i += 1
-                    continue
-
-                if token_head == "--status-prefix":
-                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
-                        status_prefix = tokens[i + 1]
-                        i += 2
-                    else:
-                        i += 1
-                    continue
-
-                if token_head == "--status-banner":
-                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
-                        banner_text_value = tokens[i + 1]
-                        i += 2
-                    else:
-                        i += 1
-                    continue
-
-                if token_head == "--status-banner-speed-milliseconds":
-                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
-                        banner_speed_value = tokens[i + 1]
-                        i += 2
-                    else:
-                        i += 1
-                    continue
-
-                if token_head == "--status-banner-max-characters":
-                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
-                        banner_max_chars_value = tokens[i + 1]
-                        i += 2
-                    else:
-                        i += 1
-                    continue
-
-                if token_head == "--status-animation-speed-milliseconds":
-                    if i + 1 < len(tokens) and tokens[i + 1] not in status_flags:
-                        ascii_animation_speed_value = tokens[i + 1]
-                        i += 2
-                    else:
-                        i += 1
-                    continue
-
-                if token_head == "--status-opened-events":
-                    i += 1
-                    continue
-
-                if token_head == "--status-animation":
-                    j = i + 1
-                    while j < len(tokens):
-                        token = tokens[j]
-                        if token in status_flags:
-                            break
-                        ascii_animation_frames_value.append(token)
-                        j += 1
-                    i = j
-                    continue
-
-                j = i + 1
-                while j < len(tokens):
-                    token = tokens[j]
-                    if token in status_flags:
-                        break
-                    status_values.append(token)
-                    j += 1
-                i = j
-
-        parts = self._parse_status_parts(status_values)
+        parts = self._parse_status_parts(args.require("status").value)
         banner_text, banner_speed_ms, banner_max_chars = (
             self._normalize_banner_settings(
-                banner_text_value,
-                banner_speed_value,
-                banner_max_chars_value,
+                args.require("status-banner").value,
+                args.require("status-banner-speed-milliseconds").value,
+                args.require("status-banner-max-characters").value,
             )
         )
+        status_prefix = args.require("status-prefix").value
         ascii_animation_frames, ascii_animation_speed_ms = (
             self._normalize_animation_settings(
-                ascii_animation_frames_value,
-                ascii_animation_speed_value,
+                args.require("status-animation").value,
+                args.require("status-animation-speed-milliseconds").value,
             )
         )
         if banner_text and not status_prefix:

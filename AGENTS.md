@@ -185,7 +185,7 @@ watchdog file events.
 
 # Args
 
-`ArgTemplate` is keyword-only. Always initialize it with full field names such
+`KnownArg` is keyword-only. Always initialize it with full field names such
 as `name=`, `value_type=`, `default=`, `description=`, and `required=`; never
 use positional arguments.
 

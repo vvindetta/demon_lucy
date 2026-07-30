@@ -28,8 +28,7 @@ def _directory_files(directory: str) -> list[str]:
         directory_names[:] = sorted(
             name
             for name in directory_names
-            if not name.startswith(".")
-            and not os.path.islink(os.path.join(root, name))
+            if not name.startswith(".") and not os.path.islink(os.path.join(root, name))
         )
         for file_name in sorted(file_names):
             if file_name.startswith("."):

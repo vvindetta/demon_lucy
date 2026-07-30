@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Optional
 
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.models import KnownArg, Template
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -17,25 +17,23 @@ class Renamer(AbstractModule):
     priority: int = 20
 
     template: Template = [
-        ArgTemplate(
-            name="--rename",
+        KnownArg(
+            name="rename",
             value_type=str,
             default=None,
             description="Rename file. Example: --rename new_name.md.",
         ),
-        ArgTemplate(
-            name="--rename-auto",
+        KnownArg(
+            name="rename-auto",
             value_type=bool,
             default=False,  # IMPORTANT: for your argparse bool handling, default is a bool, not [False]
             description="On create, add default extension to extensionless files and rename one-letter scratch filenames using --rename-auto-format.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--rename-auto-format",
+        KnownArg(
+            name="rename-auto-format",
             value_type=str,
             default="md",
             description="Auto rename extension. Default: md. Examples: txt, md, org.",
-            required=False,
         ),
     ]
 
@@ -45,8 +43,8 @@ class Renamer(AbstractModule):
         name = (stem or base).strip()
         return len(name) == 1 and name.isalpha()
 
-    def _auto_extension(self, *, config: dict) -> Optional[str]:
-        raw_extension = str(config["rename_auto_format"]).strip().lstrip(".")
+    def _auto_extension(self, value: str) -> Optional[str]:
+        raw_extension = value.strip().lstrip(".")
         if not raw_extension:
             return None
         if "%" in raw_extension:
@@ -60,14 +58,19 @@ class Renamer(AbstractModule):
 
         return raw_extension
 
-    def _render_auto_name(self, *, config: dict, now: datetime) -> Optional[str]:
-        extension = self._auto_extension(config=config)
+    def _render_auto_name(self, *, extension: str, now: datetime) -> Optional[str]:
+        extension = self._auto_extension(extension)
         if extension is None:
             return None
         return f"{now.strftime('%d-%m')}.{extension}"
 
-    def _render_missing_extension_name(self, *, path: str, config: dict) -> str | None:
-        extension = self._auto_extension(config=config)
+    def _render_missing_extension_name(
+        self,
+        *,
+        path: str,
+        extension: str,
+    ) -> str | None:
+        extension = self._auto_extension(extension)
         if extension is None:
             return None
         return f"{os.path.basename(path)}.{extension}"
@@ -92,8 +95,16 @@ class Renamer(AbstractModule):
                 suffix=f"{second_prefix}-{counter:03d}",
             )
 
-    def _apply_manual(self, *, path: str, config: dict) -> Optional[IgnoreMap]:
-        if not config["rename"] or not config["rename"].strip():
+    def _apply_manual(
+        self,
+        *,
+        path: str,
+        new_name: str | None,
+    ) -> Optional[IgnoreMap]:
+        if not new_name:
+            return None
+        new_name = new_name.strip()
+        if not new_name:
             return None
 
         old_path = path
@@ -101,7 +112,7 @@ class Renamer(AbstractModule):
             return None
 
         dir_path = os.path.dirname(old_path)
-        new_path = os.path.abspath(os.path.join(dir_path, config["rename"].strip()))
+        new_path = os.path.abspath(os.path.join(dir_path, new_name))
 
         if old_path == new_path:
             return None
@@ -114,8 +125,14 @@ class Renamer(AbstractModule):
         except (FileNotFoundError, OSError):
             return None
 
-    def _apply_auto_on_create(self, *, path: str, config: dict) -> Optional[IgnoreMap]:
-        if not config["rename_auto"]:
+    def _apply_auto_on_create(
+        self,
+        *,
+        path: str,
+        enabled: bool,
+        extension: str,
+    ) -> Optional[IgnoreMap]:
+        if not enabled:
             return None
 
         old_path = path
@@ -124,9 +141,12 @@ class Renamer(AbstractModule):
 
         now = datetime.now()
         if not Path(old_path).suffix:
-            new_name = self._render_missing_extension_name(path=old_path, config=config)
+            new_name = self._render_missing_extension_name(
+                path=old_path,
+                extension=extension,
+            )
         elif self._is_auto_source_name(old_path):
-            new_name = self._render_auto_name(config=config, now=now)
+            new_name = self._render_auto_name(extension=extension, now=now)
         else:
             return None
 
@@ -151,14 +171,26 @@ class Renamer(AbstractModule):
         return None
 
     def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        # manual rename has priority
-        changed = self._apply_manual(path=ctx.path, config=ctx.config)
+        changed = self._apply_manual(
+            path=ctx.path,
+            new_name=ctx.args.require("rename").value,
+        )
         if changed:
             return changed
-        return self._apply_auto_on_create(path=ctx.path, config=ctx.config)
+        return self._apply_auto_on_create(
+            path=ctx.path,
+            enabled=ctx.args.require("rename-auto").value,
+            extension=ctx.args.require("rename-auto-format").value,
+        )
 
     def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply_manual(path=ctx.path, config=ctx.config)
+        return self._apply_manual(
+            path=ctx.path,
+            new_name=ctx.args.require("rename").value,
+        )
 
     def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply_manual(path=ctx.path, config=ctx.config)
+        return self._apply_manual(
+            path=ctx.path,
+            new_name=ctx.args.require("rename").value,
+        )

@@ -25,10 +25,8 @@ def _detail_text(**items: object) -> str:
 
 
 def _config_path(ctx: Context) -> str | None:
-    raw_config_path = ctx.config.get("sys_config_path")
-    if raw_config_path is None:
-        return None
-    config_path = str(raw_config_path).strip()
+    config_path: str = ctx.args.require("sys-config-path").value
+    config_path = config_path.strip()
     if not config_path:
         return None
     return canonical_path(config_path)
@@ -56,7 +54,7 @@ def archive_issue(
     safe_notify(
         f"{key_prefix}:{reason}:{scope_value}",
         message,
-        config=ctx.config,
+        args=ctx.args,
         use_rare_mode=True,
     )
 

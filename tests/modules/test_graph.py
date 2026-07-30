@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 from watchdog.events import FileModifiedEvent
 
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
     format_fenced_body,
@@ -22,43 +24,40 @@ from demon_lucy.modules.graph.params import (
     graph_params_from_command,
     normalize_graph_params,
 )
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+
+_TEMPLATE = [*DEMON_LUCY_STARTUP_TEMPLATE, *Graph.template]
 
 
 def _ctx_for(path: Path, *, hide_allowed_values: bool = False) -> Context:
+    tokens = ["--sys-dynamic-block-hide-allowed-values"] if hide_allowed_values else []
+    args = parse_args(args=tokens, template=_TEMPLATE).merged_with(
+        parse_note_args(str(path), _TEMPLATE)
+    )
     return Context(
         path=str(path),
-        config={
-            "graph": [],
-            "graph_regex": [],
-            "sys_dynamic_block_hide_allowed_values": hide_allowed_values,
-        },
-        arg_lines={},
+        args=args,
+        run_mode="daemon",
+        event_id="evt-test",
+        event=FileModifiedEvent(str(path)),
     )
 
 
-def _system(module: Graph, path: Path) -> System:
+def _system(module: Graph) -> System:
     return System(
-        event=FileModifiedEvent(str(path)),
-        global_template=Graph.template,
+        global_template=_TEMPLATE,
         modules=[module],
-        event_id="evt-test",
     )
 
 
 def _run_graph(
     note: Path,
     *,
-    graph_lines: list[int] | None = None,
-    regex_lines: list[int] | None = None,
     hide_allowed_values: bool = False,
 ) -> dict[str, int] | None:
     module = Graph()
     ctx = _ctx_for(note, hide_allowed_values=hide_allowed_values)
-    if graph_lines:
-        ctx.arg_lines["graph"] = graph_lines
-    if regex_lines:
-        ctx.arg_lines["graph_regex"] = regex_lines
-    return module.modified(ctx, _system(module, note))
+    return module.modified(ctx, _system(module))
 
 
 def _text_body(rows: list[str]) -> str:
@@ -68,12 +67,15 @@ def _text_body(rows: list[str]) -> str:
 def _manager() -> ModuleManager:
     return ModuleManager(
         modules=[Graph()],
-        args=[],
-        system_config={
-            "sys_notification_provider": "disable",
-            "sys_notification_min_interval_seconds": 0.0,
-            "sys_ignore_paths": [],
-        },
+        startup_args=parse_args(
+            args=[
+                "--sys-notification-provider",
+                "disable",
+                "--sys-notification-min-interval-seconds",
+                "0",
+            ],
+            template=DEMON_LUCY_STARTUP_TEMPLATE,
+        ),
     )
 
 
@@ -134,7 +136,7 @@ def test_graph_literal_command_creates_dynamic_text_block(tmp_path: Path) -> Non
     note = tmp_path / "graph.md"
     note.write_text("--graph past.md sleep week\n", encoding="utf-8")
 
-    changed = _run_graph(note, graph_lines=[1])
+    changed = _run_graph(note)
 
     assert changed == {str(note): 1}
     assert note.read_text(encoding="utf-8") == format_dynamic_block(
@@ -169,7 +171,7 @@ def test_graph_command_can_hide_parameter_allowed_values(tmp_path: Path) -> None
     note = tmp_path / "graph.md"
     note.write_text("--graph past.md sleep all\n", encoding="utf-8")
 
-    changed = _run_graph(note, graph_lines=[1], hide_allowed_values=True)
+    changed = _run_graph(note, hide_allowed_values=True)
 
     assert changed == {str(note): 1}
     text = note.read_text(encoding="utf-8")
@@ -206,20 +208,15 @@ def test_graph_date_sections_allow_comments_and_ranges(tmp_path: Path) -> None:
     note = tmp_path / "graph.md"
     note.write_text("--graph past.md sleep all\n", encoding="utf-8")
 
-    changed = _run_graph(note, graph_lines=[1])
+    changed = _run_graph(note)
 
     assert changed == {str(note): 1}
     text = note.read_text(encoding="utf-8")
     assert "--- graph begin ---\n" in text
     assert "2026-01-02      0  |\n" in text
-    assert (
-        "2026-01-10      2  [######][######]\n"
-    ) in text
+    assert ("2026-01-10      2  [######][######]\n") in text
     assert "2026-01-11      0  |\n" in text
-    assert (
-        "2026-01-14      1  [######]\n"
-        in text
-    )
+    assert "2026-01-14      1  [######]\n" in text
 
 
 def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
@@ -238,31 +235,22 @@ def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
     note = tmp_path / "graph.md"
     note.write_text('--graph-regex tasks.md "#work" year\n', encoding="utf-8")
 
-    changed = _run_graph(note, regex_lines=[1])
+    changed = _run_graph(note)
 
     assert changed == {str(note): 1}
     text = note.read_text(encoding="utf-8")
-    assert text.startswith(
-        "--- graph-regex begin ---\n"
-        "- updated: "
-    )
+    assert text.startswith("--- graph-regex begin ---\n- updated: ")
     assert (
         "- source: tasks.md\n"
         "- pattern: #work\n"
         "- period [week|month|year|all]: year\n"
-        "- view [ascii|md]: ascii\n"
-        in text
+        "- view [ascii|md]: ascii\n" in text
     )
     assert text.endswith("--- graph-regex end ---\n")
     assert "updated:" in text
     assert "ago" not in text
-    assert (
-        "2026-01      2  [######][######]\n"
-        in text
-    )
-    assert (
-        "2026-04      3  [######][######][######]\n"
-    ) in text
+    assert "2026-01      2  [######][######]\n" in text
+    assert ("2026-04      3  [######][######][######]\n") in text
 
 
 @pytest.mark.parametrize(
@@ -281,11 +269,7 @@ def test_graph_failed_initial_render_keeps_command(
     note = tmp_path / "graph.md"
     note.write_text(command, encoding="utf-8")
 
-    changed = _run_graph(
-        note,
-        graph_lines=[1] if command.startswith("--graph ") else None,
-        regex_lines=[1] if command.startswith("--graph-regex") else None,
-    )
+    changed = _run_graph(note)
 
     assert changed is None
     assert note.read_text(encoding="utf-8") == command
@@ -303,7 +287,7 @@ def test_multiple_graph_commands_create_independent_blocks(tmp_path: Path) -> No
         encoding="utf-8",
     )
 
-    changed = _run_graph(note, graph_lines=[1, 2])
+    changed = _run_graph(note)
 
     assert changed == {str(note): 1}
     blocks = parse_dynamic_blocks(note.read_text(encoding="utf-8"))
@@ -435,7 +419,7 @@ def test_graph_rejects_source_outside_target_root(tmp_path: Path) -> None:
     command = "--graph ../outside.md sleep all\n"
     note.write_text(command, encoding="utf-8")
 
-    changed = _run_graph(note, graph_lines=[1])
+    changed = _run_graph(note)
 
     assert changed is None
     assert note.read_text(encoding="utf-8") == command
@@ -480,16 +464,11 @@ def test_graph_falls_back_to_git_history_added_lines(tmp_path: Path) -> None:
     note = repo / "graph.md"
     note.write_text('--graph-regex past.md "sleep|nap" all\n', encoding="utf-8")
 
-    changed = _run_graph(note, regex_lines=[1])
+    changed = _run_graph(note)
 
     assert changed == {str(note): 1}
     block = parse_dynamic_blocks(note.read_text(encoding="utf-8"))[0]
     assert block.arg == "graph-regex"
-    assert (
-        "2026-01-01      1  [######]\n"
-        in block.body
-    )
+    assert "2026-01-01      1  [######]\n" in block.body
     assert "2026-01-02      0  |\n" in block.body
-    assert (
-        "2026-01-03      2  [######][######]\n"
-    ) in block.body
+    assert ("2026-01-03      2  [######][######]\n") in block.body

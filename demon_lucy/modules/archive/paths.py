@@ -31,17 +31,8 @@ def event_path_is_inside_configured_watch_roots(ctx: Context) -> bool:
 
 
 def configured_watch_roots(ctx: Context) -> list[str]:
-    raw_watch_paths = ctx.config.get("sys_watch_paths")
-    if not raw_watch_paths:
-        return []
-
-    values = raw_watch_paths if isinstance(raw_watch_paths, list) else [raw_watch_paths]
-    roots: list[str] = []
-    for value in values:
-        watch_path = str(value).strip()
-        if watch_path:
-            roots.append(canonical_path(watch_path))
-    return roots
+    watch_paths: list[str] = ctx.args.require("sys-watch-paths").value
+    return [canonical_path(watch_path) for watch_path in watch_paths if watch_path]
 
 
 def archive_allowed_root(ctx: Context) -> str | None:
@@ -65,7 +56,7 @@ def source_allowed_root(
     selector: str,
     current_allowed_root: str,
 ) -> str:
-    raw_selector = str(selector).strip()
+    raw_selector = selector.strip()
     if not raw_selector or raw_selector.startswith("~"):
         return current_allowed_root
 
@@ -92,10 +83,8 @@ def source_allowed_root(
 
 
 def archive_config_path(ctx: Context) -> str | None:
-    raw_config_path = ctx.config.get("sys_config_path")
-    if raw_config_path is None:
-        return None
-    config_path = str(raw_config_path).strip()
+    config_path: str = ctx.args.require("sys-config-path").value
+    config_path = config_path.strip()
     if not config_path:
         return None
     return canonical_path(config_path)
@@ -150,7 +139,7 @@ def resolve_safe_selector(
     role: str,
     flag: str | None = None,
 ) -> str | None:
-    raw_selector = str(selector).strip()
+    raw_selector = selector.strip()
     if not raw_selector:
         notify.invalid_rule(
             ctx,
@@ -275,7 +264,7 @@ def resolve_text_dest_path(
         )
         dest_base_dir = src_dir
     elif request.route == "global":
-        dest_selector = str(ctx.config["archive_global_dest_path"]).strip()
+        dest_selector = ctx.args.require("archive-global-dest-path").value.strip()
         if not dest_selector:
             dest_selector = "archive.md"
         dest_base_dir = global_base_dir(src_path)
@@ -330,7 +319,7 @@ def resolve_dest_dir(
         dest_selector = ".archive"
         dest_base_dir = os.path.dirname(src_path)
     elif request.route == "global":
-        dest_selector = str(ctx.config["archive_global_dest_path"]).strip()
+        dest_selector = ctx.args.require("archive-global-dest-path").value.strip()
         if not dest_selector:
             dest_selector = ".archive"
         dest_base_dir = global_base_dir(src_path)

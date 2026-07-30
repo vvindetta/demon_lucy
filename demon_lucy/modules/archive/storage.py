@@ -5,7 +5,7 @@ import os
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.date_sections import parse_exact_date_section_header
 from demon_lucy.lib.file_open import open_file_no_follow
-from demon_lucy.lib.runtime_system import RuntimeSystem
+from demon_lucy.lib.operating_system import OperatingSystem
 
 from demon_lucy.modules.archive.constants import STRIP_FLAGS
 
@@ -131,14 +131,14 @@ def has_multiple_hard_links(path_value: str) -> bool:
 def read_text_no_follow(
     path_value: str,
     *,
-    runtime_system: RuntimeSystem,
+    operating_system: OperatingSystem,
 ) -> str | None:
     file_descriptor: int | None = None
     try:
         file_descriptor = open_file_no_follow(
             path_value,
             os.O_RDONLY,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         )
         if os.fstat(file_descriptor).st_nlink > 1:
             os.close(file_descriptor)
@@ -160,14 +160,14 @@ def write_text_no_follow(
     path_value: str,
     content: str,
     *,
-    runtime_system: RuntimeSystem,
+    operating_system: OperatingSystem,
 ) -> bool:
     file_descriptor: int | None = None
     try:
         file_descriptor = open_file_no_follow(
             path_value,
             os.O_WRONLY | os.O_CREAT,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         )
         if os.fstat(file_descriptor).st_nlink > 1:
             os.close(file_descriptor)
@@ -194,13 +194,13 @@ def write_text_archive_entry(
     body: str,
     prefix: str,
     suffix: str,
-    runtime_system: RuntimeSystem,
+    operating_system: OperatingSystem,
 ) -> tuple[bool, bool]:
     old_content = ""
     if os.path.exists(dest_path):
         old_content_value = read_text_no_follow(
             dest_path,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         )
         if old_content_value is None:
             return False, False
@@ -219,7 +219,7 @@ def write_text_archive_entry(
     if not write_text_no_follow(
         dest_path,
         new_content,
-        runtime_system=runtime_system,
+        operating_system=operating_system,
     ):
         return False, False
     return True, True
@@ -252,7 +252,7 @@ def write_new_archive_file(
     dest_path: str,
     body: str,
     *,
-    runtime_system: RuntimeSystem,
+    operating_system: OperatingSystem,
 ) -> bool:
     if os.path.lexists(dest_path):
         return False
@@ -262,7 +262,7 @@ def write_new_archive_file(
         file_descriptor = open_file_no_follow(
             dest_path,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         )
         with os.fdopen(file_descriptor, "w", encoding="utf-8") as file_handle:
             file_descriptor = None

@@ -4,23 +4,28 @@ from pathlib import Path
 
 from watchdog.events import FileModifiedEvent
 
+from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
     parse_dynamic_blocks,
 )
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.include import Include
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
 
 def _manager() -> ModuleManager:
     return ModuleManager(
         modules=[Include()],
-        args=[],
-        system_config={
-            "sys_notification_provider": "disable",
-            "sys_notification_min_interval_seconds": 0.0,
-            "sys_ignore_paths": [],
-        },
+        startup_args=parse_args(
+            args=[
+                "--sys-notification-provider",
+                "disable",
+                "--sys-notification-min-interval-seconds",
+                "0",
+            ],
+            template=DEMON_LUCY_STARTUP_TEMPLATE,
+        ),
     )
 
 
@@ -64,10 +69,7 @@ def test_include_command_renders_every_source_line_with_tab(tmp_path: Path) -> N
         "\t\n"
         "\t--- graph end ---\n"
     )
-    assert all(
-        line.startswith("\t")
-        for line in block.body.splitlines(keepends=True)
-    )
+    assert all(line.startswith("\t") for line in block.body.splitlines(keepends=True))
 
 
 def test_include_dynamic_block_refreshes_complete_source(tmp_path: Path) -> None:
@@ -224,14 +226,7 @@ def test_include_find_collects_directory_files_recursively_in_path_order(
     assert changed == {str(note.resolve()): 1}
     block = parse_dynamic_blocks(note.read_text(encoding="utf-8"))[0]
     assert block.body == (
-        "\ttopic a\n"
-        "\tline a\n"
-        "\t\n"
-        "\ttopic b\n"
-        "\tline b\n"
-        "\t\n"
-        "\ttopic c\n"
-        "\tline c\n"
+        "\ttopic a\n\tline a\n\t\n\ttopic b\n\tline b\n\t\n\ttopic c\n\tline c\n"
     )
 
 
@@ -267,7 +262,9 @@ def test_include_depth_config_updates_existing_block_without_header_param(
     assert "\t--include child.md\n" in text
     assert "- depth:" not in text
 
-    note.write_text(text.replace("--include-depth 1", "--include-depth 2"), encoding="utf-8")
+    note.write_text(
+        text.replace("--include-depth 1", "--include-depth 2"), encoding="utf-8"
+    )
     assert _run(manager, note) == {str(note.resolve()): 1}
 
     refreshed = note.read_text(encoding="utf-8")

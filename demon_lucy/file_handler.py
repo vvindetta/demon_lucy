@@ -28,9 +28,7 @@ class FileHandler(FileSystemEventHandler):
     ):
         self._ignore_paths: Dict[str, int] = {}
         self.modules = modules
-        self._move_ignore_dirs = self._move_ignore_dirs_from_args(
-            self.modules.args
-        )
+        self._move_ignore_dirs = self._move_ignore_dirs_from_args(self.modules.args)
         self._process_opened_events = process_opened_events
 
         # on_opened throttle (per file)

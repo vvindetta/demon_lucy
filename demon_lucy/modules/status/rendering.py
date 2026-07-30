@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from demon_lucy.lib.runtime_system import RuntimeSystem
+from demon_lucy.lib.operating_system import OperatingSystem
 
 _WINDOWS_RESERVED_FILENAME_STEMS = {
     "AUX",
@@ -63,13 +63,13 @@ class StatusRenderingMixin:
     def _sanitize_filename_text(
         name_text: str,
         *,
-        runtime_system: RuntimeSystem,
+        operating_system: OperatingSystem,
     ) -> str:
         safe_name = str(name_text)
         for item in {"/", "\\", "\x00"}:
             safe_name = safe_name.replace(item, "_")
 
-        if runtime_system != "windows":
+        if operating_system is not OperatingSystem.WINDOWS:
             return safe_name
 
         safe_name = "".join(
@@ -111,19 +111,19 @@ class StatusRenderingMixin:
         dir_path: str,
         name_text: str,
         *,
-        runtime_system: RuntimeSystem,
+        operating_system: OperatingSystem,
     ) -> str:
         sanitized = self._sanitize_filename_text(
             name_text,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         )
         max_bytes = self._filename_max_bytes(dir_path)
         clipped = self._truncate_utf8_to_bytes(sanitized, max_bytes)
-        if runtime_system == "windows":
+        if operating_system is OperatingSystem.WINDOWS:
             clipped = clipped.rstrip(" .")
         if clipped.strip():
             return clipped
-        return "-" if runtime_system == "windows" else " - "
+        return "-" if operating_system is OperatingSystem.WINDOWS else " - "
 
     def _pick_available_new_path(
         self,

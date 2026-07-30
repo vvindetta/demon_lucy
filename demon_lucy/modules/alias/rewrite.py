@@ -5,7 +5,6 @@ import shlex
 
 from demon_lucy.lib.args.parser import is_valid_flag_token, split_arg_line
 from demon_lucy.lib.logfmt import log_record
-from demon_lucy.modules.abstract_module import System
 from demon_lucy.modules.alias.rules import ARG_PLACEHOLDER, AliasRule, flag_head
 
 logger = logging.getLogger(__name__)
@@ -16,7 +15,7 @@ def expand_line(
     tokens: list[str],
     rules: dict[str, AliasRule],
     line: int,
-    system: System,
+    event_id: str,
 ) -> tuple[list[str], int]:
     output: list[str] = []
     rewrites = 0
@@ -42,7 +41,7 @@ def expand_line(
             logger.warning(
                 log_record(
                     "alias.expand_failed",
-                    id=system.event_id,
+                    id=event_id,
                     alias=rule.alias_flag,
                     line=line,
                     reason="unexpected_inline_value",
@@ -73,7 +72,7 @@ def expand_line(
         logger.info(
             log_record(
                 "alias.rewrite",
-                id=system.event_id,
+                id=event_id,
                 alias=rule.alias_flag,
                 expansion=shlex.join(rule.expansion_tokens),
                 line=line,
@@ -87,7 +86,7 @@ def rewrite_lines(
     *,
     lines: list[str],
     rules: dict[str, AliasRule],
-    system: System,
+    event_id: str,
 ) -> tuple[list[str], int, int]:
     rewritten_lines: list[str] = []
     changed_lines = 0
@@ -110,7 +109,7 @@ def rewrite_lines(
             logger.warning(
                 log_record(
                     "alias.expand_failed",
-                    id=system.event_id,
+                    id=event_id,
                     line=lineno,
                     reason="invalid_line",
                     error=exc,
@@ -123,7 +122,7 @@ def rewrite_lines(
             tokens=tokens,
             rules=rules,
             line=lineno,
-            system=system,
+            event_id=event_id,
         )
         if rewrites == 0:
             rewritten_lines.append(raw_line)

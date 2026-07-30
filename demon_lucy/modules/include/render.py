@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 import shlex
 from collections.abc import Mapping
-from typing import cast
 
+from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlock
 from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
@@ -270,10 +270,10 @@ def render_include(
 def render_include_dynamic_block(
     block: DynamicBlock,
     target_path: str,
-    config: Mapping[str, object],
+    args: ParsedArgs,
 ) -> str:
     params = normalize_include_params(block.arg, block.params)
-    depth = cast(int, config["include_depth"])
+    depth: int = args.require("include-depth").value
     if depth < 1:
         raise ValueError("include depth must be at least 1")
 

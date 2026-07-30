@@ -5,7 +5,6 @@ import posixpath
 import re
 import subprocess
 from pathlib import Path
-from typing import Optional
 from urllib.parse import urlsplit
 
 from watchdog.events import FileSystemEvent
@@ -334,8 +333,8 @@ def _edited_link_moves_from_diff(
 def move_targets_for_edited_links(
     *,
     markdown_path: str,
-    config: dict,
-) -> Optional[IgnoreMap]:
+    ignore_selectors: list[str],
+) -> IgnoreMap | None:
     markdown_path = canonical_path(markdown_path)
     if not is_supported_reference_file(markdown_path):
         return None
@@ -345,7 +344,6 @@ def move_targets_for_edited_links(
     if not path_is_inside(markdown_path, repo_root):
         return None
 
-    ignore_selectors = list(config["linker_ignore"])
     if is_ignored_path(
         path_value=markdown_path,
         repo_root=repo_root,
@@ -396,7 +394,7 @@ def move_targets_for_edited_links(
                 moved_from_abs=old_abs,
                 moved_to_abs=new_abs,
                 repo_root=repo_root,
-                config=config,
+                ignore_selectors=ignore_selectors,
             ),
         )
     return changed_paths or None
@@ -404,14 +402,12 @@ def move_targets_for_edited_links(
 
 def _merge_ignore_maps_into(
     target: IgnoreMap,
-    source: Optional[IgnoreMap],
+    source: IgnoreMap | None,
 ) -> None:
     if not source:
         return
     for path_value, times in source.items():
-        if not times:
-            continue
-        target[path_value] = target.get(path_value, 0) + int(times)
+        target[path_value] = target.get(path_value, 0) + times
 
 
 def update_links_for_moved_paths(
@@ -419,9 +415,8 @@ def update_links_for_moved_paths(
     moved_from_abs: str,
     moved_to_abs: str,
     repo_root: str,
-    config: dict,
-) -> Optional[IgnoreMap]:
-    ignore_selectors = list(config["linker_ignore"])
+    ignore_selectors: list[str],
+) -> IgnoreMap | None:
     if is_ignored_path(
         path_value=moved_from_abs,
         repo_root=repo_root,
@@ -460,8 +455,8 @@ def update_links_for_moved_paths(
 def update_moved_links(
     *,
     event: FileSystemEvent,
-    config: dict,
-) -> Optional[IgnoreMap]:
+    ignore_selectors: list[str],
+) -> IgnoreMap | None:
     src_path_raw = str(getattr(event, "src_path", "") or "").strip()
     dest_path_raw = str(getattr(event, "dest_path", "") or "").strip()
     if not src_path_raw or not dest_path_raw:
@@ -491,5 +486,5 @@ def update_moved_links(
         moved_from_abs=moved_from_abs,
         moved_to_abs=moved_to_abs,
         repo_root=repo_root,
-        config=config,
+        ignore_selectors=ignore_selectors,
     )

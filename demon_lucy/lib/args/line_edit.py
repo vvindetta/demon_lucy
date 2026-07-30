@@ -18,9 +18,6 @@ class ArgSegment:
     def with_flag(self, flag: str) -> "ArgSegment":
         return ArgSegment(flag=flag, values=self.values)
 
-    def with_values(self, values: Iterable[str]) -> "ArgSegment":
-        return ArgSegment(flag=self.flag, values=tuple(values))
-
 
 ArgSegmentMigrator = Callable[[ArgSegment], Tuple[Optional[ArgSegment], bool]]
 

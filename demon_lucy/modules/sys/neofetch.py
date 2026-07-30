@@ -7,7 +7,7 @@ from demon_lucy.lib.ascii_art import LUCY_EYE_DOUBLE
 from demon_lucy.lib.file_time import git_last_commit_timestamp
 from demon_lucy.lib.git_state import read_sync_success_timestamp
 from demon_lucy.lib.path import find_parent_git_repo
-from demon_lucy.lib.runtime_system import RuntimeSystem
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import RunMode
 
 
@@ -40,15 +40,16 @@ def git_sync_age_text(
         return f"{age_hours}h ago"
     return f"{age_seconds // 86400}d ago"
 
+
 def _opened_events_state(
     *,
     disabled: bool,
     run_mode: RunMode,
-    runtime_system: RuntimeSystem,
+    operating_system: OperatingSystem,
 ) -> str:
     if disabled:
         return "disabled"
-    if run_mode == "oneshot" or runtime_system == "linux":
+    if run_mode == "oneshot" or operating_system == "linux":
         return "enabled"
     return "unavailable"
 
@@ -74,7 +75,7 @@ def _duration_text(seconds: float) -> str:
 def neofetch_lines(
     *,
     run_mode: RunMode,
-    runtime_system: RuntimeSystem,
+    operating_system: OperatingSystem,
     module_count: int,
     watch_path_count: int,
     opened_events_disabled: bool,
@@ -93,7 +94,7 @@ def neofetch_lines(
             _opened_events_state(
                 disabled=opened_events_disabled,
                 run_mode=run_mode,
-                runtime_system=runtime_system,
+                operating_system=operating_system,
             ),
         ),
         ("Git sync", git_sync_age),
@@ -103,8 +104,7 @@ def neofetch_lines(
         "",
         "Demon Lucy".center(eye_width).rstrip(),
         *(
-            (" " * _INFO_INDENT)
-            + f"{label:<{_INFO_LABEL_WIDTH}}  {value}"
+            (" " * _INFO_INDENT) + f"{label:<{_INFO_LABEL_WIDTH}}  {value}"
             for label, value in info_lines
         ),
     ]

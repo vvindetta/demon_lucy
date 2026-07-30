@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.models import Template
 from demon_lucy.lib.git_state import repo_process_lock_is_active
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import (
@@ -17,12 +16,8 @@ from demon_lucy.modules.abstract_module import (
     IgnoreMap,
     System,
 )
-from demon_lucy.modules.git.config import (
-    GIT_TEMPLATE,
-)
-from demon_lucy.modules.git.commit_message import build_commit_message
+from demon_lucy.modules.git.config import GIT_TEMPLATE
 from demon_lucy.modules.git.helpers import to_str
-from demon_lucy.modules.git.types import _RepoBatch
 from demon_lucy.modules.git.worker import process_event
 
 logger = logging.getLogger(__name__)
@@ -34,43 +29,33 @@ class Git(AbstractModule):
 
     template: Template = GIT_TEMPLATE
 
-    def __init__(self) -> None:
-        super().__init__()
-
-    def _build_commit_message(self, batch: _RepoBatch, changed_paths: list[str]) -> str:
-        return build_commit_message(batch, changed_paths).as_text()
-
-    @staticmethod
-    def _should_run_in_background(system: System) -> bool:
-        return system.run_mode != "oneshot"
-
-    def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        ctx_path = (
-            abs_expand_path(to_str(ctx.path)) if getattr(ctx, "path", None) else ""
-        )
-        if ctx_path and path_has_component(ctx_path, ".git"):
+    def opened(self, ctx: Context, system: System) -> IgnoreMap | None:
+        ctx_path = abs_expand_path(to_str(ctx.path))
+        if path_has_component(ctx_path, ".git"):
             return None
 
         repo_root = find_parent_git_repo(to_str(ctx.path))
         if not repo_root:
             return None
 
-        if ctx.config["git_sync_on_opened_disable"]:
+        if ctx.args.require("git-sync-on-opened-disable").value:
             return None
 
         if repo_process_lock_is_active(
             repo_root,
             wait_timeout_seconds=max(
                 0.0,
-                ctx.config["sys_git_repo_lock_wait_timeout_seconds"],
+                ctx.args.require("sys-git-repo-lock-wait-timeout-seconds").value,
             ),
-            stale_seconds=max(0.0, ctx.config["sys_git_repo_lock_stale_seconds"]),
-            runtime_system=system.runtime_system,
+            stale_seconds=max(
+                0.0, ctx.args.require("sys-git-repo-lock-stale-seconds").value
+            ),
+            operating_system=system.operating_system,
         ):
             logger.info(
                 log_record(
                     "git.sync_skip",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     reason="repo_process_lock_active",
                     event="opened",
                     repo=repo_root,
@@ -84,28 +69,28 @@ class Git(AbstractModule):
             repo_root=repo_root,
             event_type="opened",
             paths=[to_str(ctx.path)],
-            config_snapshot=ctx.config,
-            runtime_system=system.runtime_system,
-            run_in_background=self._should_run_in_background(system),
+            args=ctx.args,
+            operating_system=system.operating_system,
+            run_in_background=ctx.run_mode != "oneshot",
         )
         return None
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._handle(ctx, system, "created")
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._handle(ctx, system, "modified")
 
-    def deleted(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def deleted(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._handle(ctx, system, "deleted")
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._handle(ctx, system, "moved")
 
     def _handle(
         self, ctx: Context, system: System, event_type: str
-    ) -> Optional[IgnoreMap]:
-        event = system.event
+    ) -> IgnoreMap | None:
+        event = ctx.event
 
         source_path_raw = to_str(getattr(event, "src_path", "") or "")
         destination_path_raw = getattr(event, "dest_path", None)
@@ -143,8 +128,8 @@ class Git(AbstractModule):
             repo_root=repo_root,
             event_type=event_type,
             paths=paths_to_hint,
-            config_snapshot=ctx.config,
-            runtime_system=system.runtime_system,
-            run_in_background=self._should_run_in_background(system),
+            args=ctx.args,
+            operating_system=system.operating_system,
+            run_in_background=ctx.run_mode != "oneshot",
         )
         return None

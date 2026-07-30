@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
 
 import pyfiglet
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.models import KnownArg, ParsedArgs, Template
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -20,69 +19,57 @@ class Banner(AbstractModule):
     priority: int = 10
 
     template: Template = [
-        ArgTemplate(
-            name="--banner",
+        KnownArg(
+            name="banner",
             value_type=str,
             default=[],
             description="Insert an ASCII banner (pyfiglet) at the line where the flag appears. "
             "Use '--banner date' to insert today's date. Example: --banner LOL, --banner hello world, or --banner date.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--banner-separator",
+        KnownArg(
+            name="banner-separator",
             value_type=str,
             default="---",
             description="Separator line inserted before the banner when the banner is placed at the top of the file. "
             "Example: --banner-separator '---' (default).",
-            required=False,
         ),
     ]
 
     @staticmethod
-    def _banner_text_from_config(config: dict, arg_lines: dict) -> str:
-        raw_banner = config.get("banner")
-        if raw_banner is None:
-            return ""
-
-        if not isinstance(raw_banner, list):
-            return str(raw_banner).strip()
-
+    def _banner_text(args: ParsedArgs) -> str:
+        banner = args.require("banner")
+        raw_banner: list[str] = banner.value
         if not raw_banner:
             return ""
 
-        banner_lines = arg_lines.get("banner") if isinstance(arg_lines, dict) else None
-        if not banner_lines:
-            return " ".join(str(item).strip() for item in raw_banner).strip()
+        if not banner.lines:
+            return " ".join(item.strip() for item in raw_banner).strip()
 
-        first_line = banner_lines[0]
+        first_line = banner.lines[0]
         values: list[str] = []
-        for value, line in zip(raw_banner, banner_lines):
+        for value, line in zip(raw_banner, banner.lines):
             if line != first_line:
                 break
-            text = str(value).strip()
+            text = value.strip()
             if text:
                 values.append(text)
         return " ".join(values).strip()
 
-    def _apply(
-        self, *, path: str, config: dict, arg_lines: dict
-    ) -> Optional[IgnoreMap]:
-        banner_text = self._banner_text_from_config(config, arg_lines)
+    def _apply(self, *, path: str, args: ParsedArgs) -> IgnoreMap | None:
+        banner = args.require("banner")
+        banner_text = self._banner_text(args)
         if not banner_text:
             return None
 
-        banner_lines = arg_lines.get("banner") if isinstance(arg_lines, dict) else None
-        if not banner_lines:
+        if not banner.lines:
             return None
-        try:
-            lineno_1based = int(banner_lines[0])
-        except (TypeError, ValueError, IndexError):
-            return None
+        lineno_1based = banner.lines[0]
 
         if banner_text == "date":
-            banner_text = str(date.today())
+            banner_text = date.today().isoformat()
 
-        sep = config["banner_separator"].strip()
+        sep: str = args.require("banner-separator").value
+        sep = sep.strip()
         sep_line = sep + ("\n" if not sep.endswith("\n") else "")
 
         with open(path, "r+", encoding="utf-8") as f:
@@ -133,11 +120,11 @@ class Banner(AbstractModule):
 
         return {path: 1}
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(path=ctx.path, config=ctx.config, arg_lines=ctx.arg_lines)
+    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._apply(path=ctx.path, args=ctx.args)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(path=ctx.path, config=ctx.config, arg_lines=ctx.arg_lines)
+    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._apply(path=ctx.path, args=ctx.args)
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._apply(path=ctx.path, config=ctx.config, arg_lines=ctx.arg_lines)
+    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._apply(path=ctx.path, args=ctx.args)

@@ -15,33 +15,54 @@ import demon_lucy.modules.git.commit_message as git_commit_message
 import demon_lucy.modules.git.helpers as git_helpers
 import demon_lucy.modules.git.operations as git_ops
 import demon_lucy.modules.git.worker as git_worker
-from demon_lucy.modules.abstract_module import Context, System
-from demon_lucy.modules.git import Git, _RepoBatch
+from demon_lucy.lib.args.models import ArgSource, ParsedArgs
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.git_state import read_sync_success_timestamp
+from demon_lucy.lib.operating_system import OperatingSystem
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.git import Git
 from demon_lucy.modules.git.config import GIT_TEMPLATE
+from demon_lucy.modules.git.ops import network_ops
 from demon_lucy.modules.git.types import (
     GitCommitMessageStyle,
     GitPolicy,
     MergeAutoresolveMode,
+    _RepoBatch,
 )
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 
-_NOTIFY_CFG = {
-    "sys_notification_provider": "termuxapi",
-    "sys_notification_min_interval_seconds": 10.0,
-    "sys_notification_error_backoff_base_seconds": 10.0,
-    "sys_notification_error_backoff_max_seconds": 1800.0,
-    "sys_notification_error_burst_limit": 3,
-    "sys_notification_error_burst_window_seconds": 600.0,
-}
+_TEST_TEMPLATE = [*DEMON_LUCY_STARTUP_TEMPLATE, *GIT_TEMPLATE]
+
+
+def _args(overrides: dict[str, object] | None = None) -> ParsedArgs:
+    parsed = parse_args(args=[], template=_TEST_TEMPLATE)
+    if not overrides:
+        return parsed
+    unknown = set(overrides) - {argument.name for argument in parsed.known}
+    if unknown:
+        raise KeyError(unknown.pop())
+    return ParsedArgs(
+        known=tuple(
+            replace(
+                argument,
+                value=overrides.get(argument.name, argument.value),
+                source=(
+                    ArgSource.CLI if argument.name in overrides else argument.source
+                ),
+            )
+            for argument in parsed.known
+        )
+    )
 
 
 def test_git_fixed_string_domains_use_enums() -> None:
-    config, unknown = parse_args(args=[], template=GIT_TEMPLATE)
+    args = parse_args(args=[], template=GIT_TEMPLATE)
 
-    assert unknown == []
-    assert config["git_commit_message_style"] is GitCommitMessageStyle.DETAILED
-    assert config["git_merge_autoresolve"] is MergeAutoresolveMode.UNION
+    assert args.unknown == ()
+    assert (
+        args.require("git-commit-message-style").value is GitCommitMessageStyle.DETAILED
+    )
+    assert args.require("git-merge-autoresolve").value is MergeAutoresolveMode.UNION
 
 
 @pytest.fixture
@@ -112,26 +133,6 @@ def _mk_batch(**overrides) -> _RepoBatch:
     }
     values.update(overrides)
     return _RepoBatch(**values)
-
-
-def _git_opened_config(**overrides) -> dict:
-    values = {
-        "git_sync_on_opened_disable": False,
-        "sys_git_repo_lock_wait_timeout_seconds": 30.0,
-        "sys_git_repo_lock_retry_sleep_seconds": 0.2,
-        "sys_git_repo_lock_stale_seconds": 1800.0,
-    }
-    values.update(overrides)
-    return values
-
-
-def _runtime_config(**overrides) -> dict:
-    values = {
-        **_NOTIFY_CFG,
-        **_git_opened_config(),
-    }
-    values.update(overrides)
-    return values
 
 
 def _mk_git_metadata(repo_root: Path) -> Path:
@@ -232,12 +233,12 @@ def test_conflicted_files_parses_nul_separated_paths(git_module, monkeypatch):
     assert files == ["unicode-note.md", 'folder/"quoted".md']
 
 
-def test_git_environment_forces_c_locale_and_disables_prompt(git_module, monkeypatch):
+def test_git_environment_forces_c_locale_and_disables_prompt(monkeypatch):
     monkeypatch.setenv("LANG", "ru_RU.UTF-8")
     monkeypatch.setenv("LC_ALL", "ru_RU.UTF-8")
     monkeypatch.setenv("LANGUAGE", "ru_RU:en_US")
 
-    environment = git_ops.git_environment(git_module, {})
+    environment = git_ops.git_environment()
 
     assert environment["GIT_TERMINAL_PROMPT"] == "0"
     assert environment["LC_ALL"] == "C"
@@ -245,7 +246,7 @@ def test_git_environment_forces_c_locale_and_disables_prompt(git_module, monkeyp
     assert environment["LANGUAGE"] == "C"
 
 
-def test_build_commit_message_includes_event_summary_and_names(git_module, monkeypatch):
+def test_build_commit_message_includes_event_summary_and_names(monkeypatch):
     class _FakeDateTime:
         @classmethod
         def now(cls):
@@ -259,16 +260,22 @@ def test_build_commit_message_includes_event_summary_and_names(git_module, monke
         hinted_paths=["/repo/hinted.md"],
     )
 
-    message = git_module._build_commit_message(batch, ["/repo/a.md", "/repo/b.md"])
+    message = git_commit_message.build_commit_message(
+        batch,
+        ["/repo/a.md", "/repo/b.md"],
+    ).as_text()
     assert message.startswith("Auto: add a.md, b.md")
     assert "a.md, b.md" in message
     assert "Event: created" in message
     assert message.splitlines()[0].endswith("[2026]")
 
 
-def test_build_commit_message_sanitizes_git_escaped_file_names(git_module):
+def test_build_commit_message_sanitizes_git_escaped_file_names():
     batch = _mk_batch(event_type="modified")
-    message = git_module._build_commit_message(batch, ['"\\342\\206\\222 now.md"'])
+    message = git_commit_message.build_commit_message(
+        batch,
+        ['"\\342\\206\\222 now.md"'],
+    ).as_text()
     assert message.startswith("Auto: modify now.md")
 
 
@@ -379,11 +386,12 @@ def test_opened_processes_sync_when_repo_exists(git_module, monkeypatch):
 
     ctx = Context(
         path="/repo/note.md",
-        config=_git_opened_config(),
-        arg_lines={},
+        args=_args(),
+        run_mode="daemon",
+        event_id="opened",
+        event=FileOpenedEvent("/repo/note.md"),
     )
     system = System(
-        event=FileOpenedEvent("/repo/note.md"),
         global_template=[],
         modules=[git_module],
     )
@@ -406,11 +414,12 @@ def test_opened_skips_when_sync_on_opened_disabled(git_module, monkeypatch):
 
     ctx = Context(
         path="/repo/note.md",
-        config=_git_opened_config(git_sync_on_opened_disable=True),
-        arg_lines={},
+        args=_args({"git-sync-on-opened-disable": True}),
+        run_mode="daemon",
+        event_id="opened",
+        event=FileOpenedEvent("/repo/note.md"),
     )
     system = System(
-        event=FileOpenedEvent("/repo/note.md"),
         global_template=[],
         modules=[git_module],
     )
@@ -437,11 +446,12 @@ def test_opened_skips_when_repo_process_lock_is_active(
 
     ctx = Context(
         path=str(repo_root / "note.md"),
-        config=_git_opened_config(),
-        arg_lines={},
+        args=_args(),
+        run_mode="daemon",
+        event_id="opened",
+        event=FileOpenedEvent(str(repo_root / "note.md")),
     )
     system = System(
-        event=FileOpenedEvent(str(repo_root / "note.md")),
         global_template=[],
         modules=[git_module],
     )
@@ -470,11 +480,12 @@ def test_opened_removes_stale_repo_process_lock_and_syncs(
 
     ctx = Context(
         path=str(repo_root / "note.md"),
-        config=_git_opened_config(),
-        arg_lines={},
+        args=_args(),
+        run_mode="daemon",
+        event_id="opened",
+        event=FileOpenedEvent(str(repo_root / "note.md")),
     )
     system = System(
-        event=FileOpenedEvent(str(repo_root / "note.md")),
         global_template=[],
         modules=[git_module],
     )
@@ -497,14 +508,14 @@ def test_opened_runs_sync_in_oneshot_mode(git_module, monkeypatch):
 
     ctx = Context(
         path="/repo/note.md",
-        config=_git_opened_config(),
-        arg_lines={},
+        args=_args(),
+        run_mode="oneshot",
+        event_id="opened",
+        event=FileOpenedEvent("/repo/note.md"),
     )
     system = System(
-        event=FileOpenedEvent("/repo/note.md"),
         global_template=[],
         modules=[git_module],
-        run_mode="oneshot",
     )
     git_module.opened(ctx, system)
 
@@ -521,8 +532,14 @@ def test_handle_moved_uses_src_and_dest_paths_for_hints(git_module, monkeypatch)
     )
 
     event = FileMovedEvent("/repo/old.md", "/repo/new.md")
-    ctx = Context(path="/repo/new.md", config={}, arg_lines={})
-    system = System(event=event, global_template=[], modules=[git_module])
+    ctx = Context(
+        path="/repo/new.md",
+        args=_args(),
+        run_mode="daemon",
+        event_id="moved",
+        event=event,
+    )
+    system = System(global_template=[], modules=[git_module])
 
     git_module._handle(ctx, system, "moved")
 
@@ -546,7 +563,7 @@ def test_handle_moved_uses_src_and_dest_paths_for_hints(git_module, monkeypatch)
 def test_parse_remote_endpoint_handles_common_git_remote_shapes(
     remote: str, expected: tuple[str | None, int | None]
 ):
-    assert git_ops.parse_remote_endpoint(remote) == expected
+    assert network_ops.parse_remote_endpoint(remote) == expected
 
 
 def test_safe_pull_merge_waits_for_network_without_notification(
@@ -577,7 +594,7 @@ def test_safe_pull_merge_waits_for_network_without_notification(
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode=MergeAutoresolveMode.UNION,
-        config=_NOTIFY_CFG,
+        args=_args(),
         auto_set_upstream=True,
     )
 
@@ -614,7 +631,7 @@ def test_safe_pull_merge_skips_remote_branch_lookup_without_notification_when_of
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode=MergeAutoresolveMode.UNION,
-        config=_NOTIFY_CFG,
+        args=_args(),
         auto_set_upstream=True,
     )
 
@@ -654,7 +671,7 @@ def test_safe_pull_merge_timeout_while_offline_does_not_notify(git_module, monke
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode=MergeAutoresolveMode.UNION,
-        config=_NOTIFY_CFG,
+        args=_args(),
         auto_set_upstream=True,
     )
 
@@ -691,7 +708,7 @@ def test_safe_pull_merge_offline_marker_does_not_notify(git_module, monkeypatch)
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode=MergeAutoresolveMode.UNION,
-        config=_NOTIFY_CFG,
+        args=_args(),
         auto_set_upstream=True,
         pull_offline_error_markers=["connection timed out"],
     )
@@ -834,8 +851,7 @@ def test_run_git_retries_when_index_lock_disappears_before_inspection(
                     returncode=1,
                     stdout="",
                     stderr=(
-                        "fatal: Unable to create '/repo/.git/index.lock': "
-                        "File exists."
+                        "fatal: Unable to create '/repo/.git/index.lock': File exists."
                     ),
                 )
             return subprocess.CompletedProcess(
@@ -880,7 +896,7 @@ def test_remote_is_reachable_dns_resolution_timeout_uses_probe_timeout(
         resolve_call["timeout_seconds"] = timeout_seconds
         return [], True
 
-    monkeypatch.setattr(git_ops, "_resolve_address_infos", _resolve_address_infos)
+    monkeypatch.setattr(network_ops, "resolve_address_infos", _resolve_address_infos)
 
     reachable = git_ops.remote_is_reachable(
         git_module,
@@ -945,7 +961,7 @@ def test_safe_pull_merge_conflict_abort_timeout_does_not_raise(git_module, monke
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode=MergeAutoresolveMode.UNION,
-        config=_NOTIFY_CFG,
+        args=_args(),
         auto_set_upstream=True,
     )
 
@@ -1010,7 +1026,7 @@ def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkey
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode=MergeAutoresolveMode.UNION,
-        config=_NOTIFY_CFG,
+        args=_args(),
         auto_set_upstream=True,
     )
 
@@ -1078,7 +1094,7 @@ def test_safe_pull_merge_conflict_markers_mode_commits_and_returns_true(
         pull_timeout_seconds=10.0,
         operation_timeout_seconds=5.0,
         autoresolve_mode=MergeAutoresolveMode.MARKERS,
-        config=_NOTIFY_CFG,
+        args=_args(),
         auto_set_upstream=True,
     )
 
@@ -1123,7 +1139,7 @@ def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkey
         environment={},
         git_timeout_seconds=5.0,
         autoresolve_mode=MergeAutoresolveMode.UNION,
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     assert cleaned is False
@@ -1215,8 +1231,8 @@ def test_opened_batch_runs_same_pipeline_as_modified(git_module, monkeypatch):
         git_worker.process_batch(
             git_module,
             batch,
-            _runtime_config(),
-            runtime_system="linux",
+            _args(),
+            operating_system=OperatingSystem.LINUX,
         )
         is True
     )
@@ -1309,8 +1325,8 @@ def test_process_batch_writes_sync_success_marker_on_push_success(
         git_worker.process_batch(
             git_module,
             batch,
-            _runtime_config(),
-            runtime_system="linux",
+            _args(),
+            operating_system=OperatingSystem.LINUX,
         )
         is True
     )
@@ -1339,17 +1355,17 @@ def test_process_batch_wraps_pipeline_with_repo_process_lock(git_module, monkeyp
         wait_timeout_seconds,
         retry_sleep_seconds,
         stale_seconds,
-        runtime_system,
+        operating_system,
     ):
         calls["with_lock"] += 1
         assert repo_root == "/repo"
         assert wait_timeout_seconds == 30.0
         assert retry_sleep_seconds == 0.2
         assert stale_seconds == 1800.0
-        assert runtime_system == "linux"
+        assert operating_system is OperatingSystem.LINUX
         return run_fn()
 
-    def _process_batch_unlocked(_self, _batch, _config_snapshot):
+    def _process_batch_unlocked(_self, _batch, _args):
         calls["unlocked"] += 1
         assert _batch is batch
         return True
@@ -1361,8 +1377,8 @@ def test_process_batch_wraps_pipeline_with_repo_process_lock(git_module, monkeyp
         git_worker.process_batch(
             git_module,
             batch,
-            _runtime_config(),
-            runtime_system="linux",
+            _args(),
+            operating_system=OperatingSystem.LINUX,
         )
         is True
     )
@@ -1397,7 +1413,7 @@ def test_with_repo_process_lock_skips_when_busy_not_stale(tmp_path, monkeypatch)
             wait_timeout_seconds=0.05,
             retry_sleep_seconds=0.01,
             stale_seconds=1800.0,
-            runtime_system="linux",
+            operating_system=OperatingSystem.LINUX,
         )
         is False
     )
@@ -1424,7 +1440,7 @@ def test_with_repo_process_lock_removes_stale_dead_owner_and_runs(tmp_path):
             wait_timeout_seconds=30.0,
             retry_sleep_seconds=0.2,
             stale_seconds=1800.0,
-            runtime_system="linux",
+            operating_system=OperatingSystem.LINUX,
         )
         is True
     )
@@ -1453,7 +1469,7 @@ def test_with_repo_process_lock_removes_legacy_lock_without_pid(tmp_path):
             wait_timeout_seconds=30.0,
             retry_sleep_seconds=0.2,
             stale_seconds=1800.0,
-            runtime_system="linux",
+            operating_system=OperatingSystem.LINUX,
         )
         is True
     )
@@ -1478,7 +1494,7 @@ def test_with_repo_process_lock_skips_invalid_repo_without_creating_git_dir(tmp_
             wait_timeout_seconds=30.0,
             retry_sleep_seconds=0.2,
             stale_seconds=1800.0,
-            runtime_system="linux",
+            operating_system=OperatingSystem.LINUX,
         )
         is False
     )
@@ -1546,7 +1562,7 @@ def test_stage_retries_after_corrupted_index_recovery(git_module, monkeypatch):
         repo_root="/repo",
         environment={},
         git_timeout_seconds=5.0,
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     assert staged_ok is True
@@ -1582,7 +1598,7 @@ def test_stage_handles_index_lock_as_transient_without_addfail_notification(
         repo_root="/repo",
         environment={},
         git_timeout_seconds=5.0,
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     assert staged_ok is False
@@ -1623,7 +1639,7 @@ def test_commit_skips_untracked_file_created_after_staging(
         git_timeout_seconds=5.0,
         porcelain_text="?? AGENTS.md",
         changed_paths=["AGENTS.md"],
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     assert committed is True
@@ -1689,7 +1705,7 @@ def test_commit_treats_nothing_added_race_as_success(
         git_timeout_seconds=5.0,
         porcelain_text="A  AGENTS.md",
         changed_paths=["AGENTS.md"],
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     assert committed is True
@@ -1704,10 +1720,10 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
         lambda *_args, **_kwargs: {"X": "1"},
     )
 
-    def _process_batch(_self, batch, config_snapshot, *, runtime_system):
+    def _process_batch(_self, batch, args, *, operating_system):
         captured["batch"] = batch
-        captured["config_snapshot"] = config_snapshot
-        captured["runtime_system"] = runtime_system
+        captured["args"] = args
+        captured["operating_system"] = operating_system
 
     monkeypatch.setattr(git_worker, "process_batch", _process_batch)
 
@@ -1716,35 +1732,8 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
         repo_root="/repo",
         event_type="modified",
         paths=["/repo/note.md"],
-        config_snapshot={
-            "git_commit_message": "Auto",
-            "git_commit_message_timestamp": False,
-            "git_commit_message_timestamp_format": "%Y",
-            "git_commit_message_style": GitCommitMessageStyle.DETAILED,
-            "git_commit_message_max_subject_files": 3,
-            "git_commit_message_max_body_files": 30,
-            "git_command_timeout_seconds": 5.0,
-            "git_pull_timeout_seconds": 6.0,
-            "git_push_timeout_seconds": 7.0,
-            "git_sync_retry_window_seconds": 120.0,
-            "git_sync_retry_backoff_start_seconds": 5.0,
-            "git_sync_retry_backoff_max_seconds": 60.0,
-            "git_network_probe_timeout_seconds": 1.0,
-            "git_pull_offline_error_markers": [],
-            "sys_git_repo_lock_wait_timeout_seconds": 30.0,
-            "sys_git_repo_lock_retry_sleep_seconds": 0.2,
-            "sys_git_repo_lock_stale_seconds": 1800.0,
-            "sys_notification_provider": "termuxapi",
-            "sys_notification_min_interval_seconds": 10.0,
-            "sys_notification_error_backoff_base_seconds": 10.0,
-            "sys_notification_error_backoff_max_seconds": 1800.0,
-            "sys_notification_error_burst_limit": 3,
-            "sys_notification_error_burst_window_seconds": 600.0,
-            "git_push_auto_merge": True,
-            "git_upstream_auto_set": True,
-            "git_merge_autoresolve": MergeAutoresolveMode.UNION,
-        },
-        runtime_system="linux",
+        args=_args(),
+        operating_system=OperatingSystem.LINUX,
         run_in_background=False,
     )
 
@@ -1752,11 +1741,11 @@ def test_process_event_builds_batch_and_calls_process_batch(git_module, monkeypa
     assert batch.repo_root == "/repo"
     assert batch.event_type == "modified"
     assert batch.hinted_paths == ["/repo/note.md"]
-    assert captured["config_snapshot"]["sys_git_repo_lock_wait_timeout_seconds"] == 30.0
-    assert captured["config_snapshot"]["sys_git_repo_lock_retry_sleep_seconds"] == 0.2
-    assert captured["config_snapshot"]["sys_git_repo_lock_stale_seconds"] == 1800.0
-    assert captured["config_snapshot"]["sys_notification_provider"] == "termuxapi"
-    assert captured["runtime_system"] == "linux"
+    captured_args = captured["args"]
+    assert captured_args.require("sys-git-repo-lock-wait-timeout-seconds").value == 30.0
+    assert captured_args.require("sys-git-repo-lock-retry-sleep-seconds").value == 0.2
+    assert captured_args.require("sys-git-repo-lock-stale-seconds").value == 1800.0
+    assert captured["operating_system"] is OperatingSystem.LINUX
 
 
 def test_merge_cleanup_retries_abort_after_index_recovery(git_module, monkeypatch):
@@ -1800,7 +1789,7 @@ def test_merge_cleanup_retries_abort_after_index_recovery(git_module, monkeypatc
         environment={},
         git_timeout_seconds=5.0,
         autoresolve_mode=MergeAutoresolveMode.UNION,
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     assert result is False
@@ -1818,8 +1807,8 @@ def test_process_event_serializes_operations_per_repo(git_module, monkeypatch):
 
     monkeypatch.setattr(git_worker, "make_repo_batch", lambda **_kwargs: object())
 
-    def _process_batch(_self, _batch, _config_snapshot, *, runtime_system):
-        assert runtime_system == "linux"
+    def _process_batch(_self, _batch, _args, *, operating_system):
+        assert operating_system is OperatingSystem.LINUX
         state["calls"] += 1
         state["inflight"] += 1
         state["max_inflight"] = max(state["max_inflight"], state["inflight"])
@@ -1829,20 +1818,21 @@ def test_process_event_serializes_operations_per_repo(git_module, monkeypatch):
 
     monkeypatch.setattr(git_worker, "process_batch", _process_batch)
     repo_root = f"/repo-queue-{time.time_ns()}"
-    config_snapshot = {
-        **_git_opened_config(),
-        "git_sync_retry_window_seconds": 0.0,
-        "git_sync_retry_backoff_start_seconds": 0.01,
-        "git_sync_retry_backoff_max_seconds": 0.01,
-    }
+    args = _args(
+        {
+            "git-sync-retry-window-seconds": 0.0,
+            "git-sync-retry-backoff-start-seconds": 0.01,
+            "git-sync-retry-backoff-max-seconds": 0.01,
+        }
+    )
 
     git_worker.process_event(
         self=git_module,
         repo_root=repo_root,
         event_type="modified",
         paths=[f"{repo_root}/a.md"],
-        config_snapshot=config_snapshot,
-        runtime_system="linux",
+        args=args,
+        operating_system=OperatingSystem.LINUX,
         run_in_background=True,
     )
     git_worker.process_event(
@@ -1850,8 +1840,8 @@ def test_process_event_serializes_operations_per_repo(git_module, monkeypatch):
         repo_root=repo_root,
         event_type="modified",
         paths=[f"{repo_root}/b.md"],
-        config_snapshot=config_snapshot,
-        runtime_system="linux",
+        args=args,
+        operating_system=OperatingSystem.LINUX,
         run_in_background=True,
     )
 
@@ -1872,8 +1862,8 @@ def test_process_event_allows_parallel_operations_across_repos(git_module, monke
 
     monkeypatch.setattr(git_worker, "make_repo_batch", lambda **_kwargs: object())
 
-    def _process_batch(_self, _batch, _config_snapshot, *, runtime_system):
-        assert runtime_system == "linux"
+    def _process_batch(_self, _batch, _args, *, operating_system):
+        assert operating_system is OperatingSystem.LINUX
         state["calls"] += 1
         state["inflight"] += 1
         state["max_inflight"] = max(state["max_inflight"], state["inflight"])
@@ -1884,20 +1874,21 @@ def test_process_event_allows_parallel_operations_across_repos(git_module, monke
     monkeypatch.setattr(git_worker, "process_batch", _process_batch)
     first_repo_root = f"/repo-queue-a-{time.time_ns()}"
     second_repo_root = f"/repo-queue-b-{time.time_ns()}"
-    config_snapshot = {
-        **_git_opened_config(),
-        "git_sync_retry_window_seconds": 0.0,
-        "git_sync_retry_backoff_start_seconds": 0.01,
-        "git_sync_retry_backoff_max_seconds": 0.01,
-    }
+    args = _args(
+        {
+            "git-sync-retry-window-seconds": 0.0,
+            "git-sync-retry-backoff-start-seconds": 0.01,
+            "git-sync-retry-backoff-max-seconds": 0.01,
+        }
+    )
 
     git_worker.process_event(
         self=git_module,
         repo_root=first_repo_root,
         event_type="modified",
         paths=[f"{first_repo_root}/a.md"],
-        config_snapshot=config_snapshot,
-        runtime_system="linux",
+        args=args,
+        operating_system=OperatingSystem.LINUX,
         run_in_background=True,
     )
     git_worker.process_event(
@@ -1905,8 +1896,8 @@ def test_process_event_allows_parallel_operations_across_repos(git_module, monke
         repo_root=second_repo_root,
         event_type="modified",
         paths=[f"{second_repo_root}/b.md"],
-        config_snapshot=config_snapshot,
-        runtime_system="linux",
+        args=args,
+        operating_system=OperatingSystem.LINUX,
         run_in_background=True,
     )
 
@@ -1941,12 +1932,14 @@ def test_retry_window_retries_with_backoff_until_success(git_module, monkeypatch
         repo_root="/repo",
         event_type="modified",
         paths=["/repo/note.md"],
-        config_snapshot={
-            "git_sync_retry_window_seconds": 30.0,
-            "git_sync_retry_backoff_start_seconds": 1.0,
-            "git_sync_retry_backoff_max_seconds": 4.0,
-        },
-        runtime_system="linux",
+        args=_args(
+            {
+                "git-sync-retry-window-seconds": 30.0,
+                "git-sync-retry-backoff-start-seconds": 1.0,
+                "git-sync-retry-backoff-max-seconds": 4.0,
+            }
+        ),
+        operating_system=OperatingSystem.LINUX,
     )
 
     assert attempts["count"] == 3
@@ -1991,7 +1984,7 @@ def test_attempt_push_with_retry_second_push_timeout_does_not_notify(
         pull_timeout_seconds=6.0,
         push_timeout_seconds=7.0,
         git_timeout_seconds=5.0,
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     assert notifications == []
@@ -2038,7 +2031,7 @@ def test_attempt_push_with_retry_reports_second_push_error(git_module, monkeypat
         pull_timeout_seconds=6.0,
         push_timeout_seconds=7.0,
         git_timeout_seconds=5.0,
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     push_fail_notifications = [
@@ -2100,7 +2093,7 @@ def test_attempt_push_with_retry_retries_plain_push_error_before_notify(
         pull_timeout_seconds=6.0,
         push_timeout_seconds=7.0,
         git_timeout_seconds=5.0,
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     assert push_attempts["count"] == 2
@@ -2149,7 +2142,7 @@ def test_attempt_push_with_retry_retries_timeout_before_notify(git_module, monke
         pull_timeout_seconds=6.0,
         push_timeout_seconds=7.0,
         git_timeout_seconds=5.0,
-        config=_NOTIFY_CFG,
+        args=_args(),
     )
 
     assert push_attempts["count"] == 2
@@ -2169,7 +2162,7 @@ def test_commit_dirty_tree_returns_busy_when_repo_lock_is_busy(git_module, monke
     monkeypatch.setattr(
         git_worker,
         "_with_repo_process_lock_status",
-        lambda _repo_root, _run_fn, *, wait_timeout_seconds, retry_sleep_seconds, stale_seconds, runtime_system, on_busy_fn, on_invalid_repo_fn: (
+        lambda _repo_root, _run_fn, *, wait_timeout_seconds, retry_sleep_seconds, stale_seconds, operating_system, on_busy_fn, on_invalid_repo_fn: (
             on_busy_fn()
         ),
     )
@@ -2179,8 +2172,8 @@ def test_commit_dirty_tree_returns_busy_when_repo_lock_is_busy(git_module, monke
         repo_root="/repo",
         event_type="modified",
         paths=["/repo/note.md"],
-        config_snapshot=_git_opened_config(),
-        runtime_system="linux",
+        args=_args(),
+        operating_system=OperatingSystem.LINUX,
     )
 
     assert result.status == "busy"
@@ -2202,7 +2195,7 @@ def test_build_patch_packet_returns_busy_when_repo_lock_is_busy(
     monkeypatch.setattr(
         git_worker,
         "_with_repo_process_lock_status",
-        lambda _repo_root, _run_fn, *, wait_timeout_seconds, retry_sleep_seconds, stale_seconds, runtime_system, on_busy_fn, on_invalid_repo_fn: (
+        lambda _repo_root, _run_fn, *, wait_timeout_seconds, retry_sleep_seconds, stale_seconds, operating_system, on_busy_fn, on_invalid_repo_fn: (
             on_busy_fn()
         ),
     )
@@ -2214,8 +2207,8 @@ def test_build_patch_packet_returns_busy_when_repo_lock_is_busy(
         changed_paths=["note.md"],
         queue_dir="/tmp/outgoing",
         author_device="device-1",
-        config_snapshot=_git_opened_config(),
-        runtime_system="linux",
+        args=_args(),
+        operating_system=OperatingSystem.LINUX,
     )
 
     assert result.status == "busy"

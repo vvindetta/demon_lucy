@@ -106,14 +106,12 @@ def parse_note_args(
             existing = merged_known.get(argument.name)
             if (
                 existing is not None
-                and isinstance(existing.value, list)
                 and isinstance(argument.value, list)
                 and argument.value
             ):
                 merged_known[argument.name] = replace(
                     argument,
                     value=[*existing.value, *argument.value],
-                    source=ArgSource.FILE,
                     lines=(*existing.lines, *argument.lines),
                 )
             else:
@@ -126,16 +124,16 @@ def parse_note_args(
 
 
 def load_args(template: Template) -> ParsedArgs:
-    startup = parse_args(
+    startup_args = parse_args(
         template=template,
         args=sys.argv[1:],
     )
-    config_path_arg = startup.find("sys-config-path")
+    config_path_arg = startup_args.find("sys-config-path")
     if config_path_arg is None:
-        return startup
+        return startup_args
 
     try:
-        config = _parse_config_args(
+        config_args = _parse_config_args(
             path=config_path_arg.value,
             template=template,
         )
@@ -147,11 +145,11 @@ def load_args(template: Template) -> ParsedArgs:
                 fallback="startup_args",
             )
         )
-        return startup
+        return startup_args
 
-    return config.merged_with(
+    return config_args.merged_with(
         ParsedArgs(
-            known=startup.known_from(ArgSource.CLI),
-            unknown=startup.unknown,
+            known=startup_args.known_from(ArgSource.CLI),
+            unknown=startup_args.unknown,
         ),
     )

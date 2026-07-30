@@ -5,7 +5,7 @@ import os
 from typing import Optional
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.models import KnownArg, Template
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path
@@ -29,12 +29,11 @@ class Workspace(AbstractModule):
     priority: int = 5
 
     template: Template = [
-        ArgTemplate(
-            name="--workspace-init",
+        KnownArg(
+            name="workspace-init",
             value_type=str,
             default="",
             description="Initialize a Lucy workspace at the given directory path.",
-            required=False,
         ),
     ]
 
@@ -53,7 +52,7 @@ class Workspace(AbstractModule):
         return os.path.dirname(ctx.path)
 
     def _workspace_root(self, ctx: Context) -> str | None:
-        raw_value = str(ctx.config.get("workspace_init") or "").strip()
+        raw_value = ctx.args.require("workspace-init").value.strip()
         if not raw_value:
             return None
 
@@ -66,17 +65,8 @@ class Workspace(AbstractModule):
         self,
         ctx: Context,
         workspace_root: str,
-        system: System,
     ) -> IgnoreMap:
-        raw_lines = ctx.arg_lines.get("workspace_init") or []
-        line_numbers: list[int] = []
-        for raw_lineno in raw_lines:
-            try:
-                line_number = int(raw_lineno)
-            except (TypeError, ValueError):
-                continue
-            if line_number not in line_numbers:
-                line_numbers.append(line_number)
+        line_numbers = ctx.args.require("workspace-init").lines
         if not line_numbers or not os.path.isfile(ctx.path):
             return {}
 
@@ -87,7 +77,7 @@ class Workspace(AbstractModule):
             logger.warning(
                 log_record(
                     "workspace.init_note_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     workspace=workspace_root,
                     error=exc,
@@ -127,7 +117,7 @@ class Workspace(AbstractModule):
             logger.warning(
                 log_record(
                     "workspace.init_note_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     workspace=workspace_root,
                     error=exc,
@@ -172,7 +162,7 @@ class Workspace(AbstractModule):
             logger.error(
                 log_record(
                     "workspace.init_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     workspace=workspace_root,
                     error=exc,
@@ -181,17 +171,17 @@ class Workspace(AbstractModule):
             safe_notify(
                 f"workspace-init:{workspace_root}",
                 f"Workspace init failed: {exc}",
-                config=ctx.config,
+                args=ctx.args,
                 use_rare_mode=True,
             )
             return None
 
-        trigger_changed = self._write_success_to_trigger(ctx, workspace_root, system)
+        trigger_changed = self._write_success_to_trigger(ctx, workspace_root)
         changed.update(trigger_changed)
         logger.info(
             log_record(
                 "workspace.init_done",
-                id=system.event_id,
+                id=ctx.event_id,
                 path=ctx.path,
                 workspace=workspace_root,
                 changed_paths=len(changed),
@@ -207,4 +197,7 @@ class Workspace(AbstractModule):
         return self._apply(ctx, system)
 
     def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+        return self._apply(ctx, system)
+
+    def cli(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
         return self._apply(ctx, system)

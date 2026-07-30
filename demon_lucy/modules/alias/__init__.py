@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from demon_lucy.lib.args.parser import ArgTemplate
+from demon_lucy.lib.args.models import KnownArg
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.text_file import write_text_atomic
@@ -24,21 +24,19 @@ class Alias(AbstractModule):
     priority: int = 0
 
     template = [
-        ArgTemplate(
-            name="--alias",
+        KnownArg(
+            name="alias",
             value_type=str,
             default=[],
             description="Alias for note flags. Format: name=expansion. "
             "Example: --alias 'b=--banner {args}' 'todo=--formatter-todo' 'rn=--rename {args}'. "
             "System flags (--sys-*) and --cmd are not rewritten.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--alias-dry-run",
+        KnownArg(
+            name="alias-dry-run",
             value_type=bool,
             default=False,
             description="Log alias rewrites without changing files.",
-            required=False,
         ),
     ]
 
@@ -50,10 +48,11 @@ class Alias(AbstractModule):
         known_flag_values = known_flags(system)
         rules: dict[str, AliasRule] = {}
 
-        for raw_rule in ctx.config["alias"]:
-            parsed = parse_rule(str(raw_rule), known_flag_values=known_flag_values)
+        raw_rules: list[str] = ctx.args.require("alias").value
+        for raw_rule in raw_rules:
+            parsed = parse_rule(raw_rule, known_flag_values=known_flag_values)
             if isinstance(parsed, RuleError):
-                self._log_rule_error(ctx, system, parsed)
+                self._log_rule_error(ctx, parsed)
                 continue
             rules[parsed.alias_flag] = parsed
 
@@ -67,13 +66,12 @@ class Alias(AbstractModule):
     def _log_rule_error(
         self,
         ctx: Context,
-        system: System,
         error: RuleError,
     ) -> None:
         logger.error(
             log_record(
                 "alias.rule_invalid",
-                id=system.event_id,
+                id=ctx.event_id,
                 reason=error.reason,
                 alias=error.alias,
                 target=error.detail,
@@ -83,12 +81,12 @@ class Alias(AbstractModule):
         safe_notify(
             self._notification_key(error),
             f"Invalid alias: {error.reason} {error.detail}".strip(),
-            config=ctx.config,
+            args=ctx.args,
             use_rare_mode=True,
         )
 
     def _apply(self, *, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        if not ctx.config["alias"]:
+        if not ctx.args.require("alias").value:
             return None
 
         rules = self._parse_rules(ctx, system)
@@ -96,7 +94,7 @@ class Alias(AbstractModule):
             logger.info(
                 log_record(
                     "alias.skip",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     reason="no_valid_rules",
                 )
@@ -112,7 +110,7 @@ class Alias(AbstractModule):
             logger.warning(
                 log_record(
                     "alias.skip",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     reason="file_unreadable",
                     error=exc,
@@ -123,25 +121,25 @@ class Alias(AbstractModule):
         rewritten_lines, changed_lines, alias_count = rewrite_lines(
             lines=lines,
             rules=rules,
-            system=system,
+            event_id=ctx.event_id,
         )
 
         if alias_count == 0:
             logger.info(
                 log_record(
                     "alias.skip",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     reason="no_aliases",
                 )
             )
             return None
 
-        if ctx.config["alias_dry_run"]:
+        if ctx.args.require("alias-dry-run").value:
             logger.info(
                 log_record(
                     "alias.rewrite_done",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     changed_lines=changed_lines,
                     aliases=alias_count,
@@ -156,7 +154,7 @@ class Alias(AbstractModule):
             logger.error(
                 log_record(
                     "alias.write_failed",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     error=exc,
                 )
@@ -164,7 +162,7 @@ class Alias(AbstractModule):
             safe_notify(
                 f"alias-write:{ctx.path}",
                 f"Alias rewrite failed for {ctx.path}: {exc}",
-                config=ctx.config,
+                args=ctx.args,
                 use_rare_mode=True,
             )
             return None
@@ -172,7 +170,7 @@ class Alias(AbstractModule):
         logger.info(
             log_record(
                 "alias.rewrite_done",
-                id=system.event_id,
+                id=ctx.event_id,
                 path=ctx.path,
                 changed_lines=changed_lines,
                 aliases=alias_count,

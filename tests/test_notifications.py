@@ -5,39 +5,38 @@ import sys
 import types
 
 import demon_lucy.lib.notifications as notifications_mod
-from demon_lucy.lib.args.models import KnownArg, ParsedArgs
+from demon_lucy.lib.args.models import ArgSource, ParsedArgs
+from demon_lucy.lib.notifications import NotificationProvider
+from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from tests.args_support import make_args
 
 
 def _args(values: dict[str, object]) -> ParsedArgs:
-    return ParsedArgs(
-        known=tuple(
-            KnownArg(
-                name=key.replace("_", "-"),
-                value=value,
-            )
-            for key, value in values.items()
-        )
+    return make_args(
+        DEMON_LUCY_STARTUP_TEMPLATE,
+        values,
+        source=ArgSource.CONFIG,
     )
 
 
 _TERMUX_ARGS = _args(
     {
-        "sys_notification_provider": notifications_mod.NotificationProvider.TERMUX_API,
-        "sys_notification_min_interval_seconds": 10.0,
-        "sys_notification_error_backoff_base_seconds": 10.0,
-        "sys_notification_error_backoff_max_seconds": 1800.0,
-        "sys_notification_error_burst_limit": 3,
-        "sys_notification_error_burst_window_seconds": 600.0,
+        "sys-notification-provider": NotificationProvider.TERMUX_API,
+        "sys-notification-min-interval-seconds": 10.0,
+        "sys-notification-error-backoff-base-seconds": 10.0,
+        "sys-notification-error-backoff-max-seconds": 1800.0,
+        "sys-notification-error-burst-limit": 3,
+        "sys-notification-error-burst-window-seconds": 600.0,
     }
 )
 _AUTO_ARGS = _args(
     {
-        "sys_notification_provider": notifications_mod.NotificationProvider.AUTO,
-        "sys_notification_min_interval_seconds": 10.0,
-        "sys_notification_error_backoff_base_seconds": 10.0,
-        "sys_notification_error_backoff_max_seconds": 1800.0,
-        "sys_notification_error_burst_limit": 3,
-        "sys_notification_error_burst_window_seconds": 600.0,
+        "sys-notification-provider": NotificationProvider.AUTO,
+        "sys-notification-min-interval-seconds": 10.0,
+        "sys-notification-error-backoff-base-seconds": 10.0,
+        "sys-notification-error-backoff-max-seconds": 1800.0,
+        "sys-notification-error-burst-limit": 3,
+        "sys-notification-error-burst-window-seconds": 600.0,
     }
 )
 
@@ -56,8 +55,8 @@ def test_safe_notify_throttles_per_key(monkeypatch):
     monkeypatch.setattr(
         notifications_mod,
         "notify",
-        lambda message, title="Demon Lucy Note Manager", icon_path="", args=None: calls.append(
-            message
+        lambda message, title="Demon Lucy Note Manager", icon_path="", args=None: (
+            calls.append(message)
         ),
     )
     monkeypatch.setattr(notifications_mod.time, "time", lambda: next(times))
@@ -78,8 +77,8 @@ def test_safe_notify_error_uses_exponential_backoff(monkeypatch):
     monkeypatch.setattr(
         notifications_mod,
         "notify",
-        lambda message, title="Demon Lucy Note Manager", icon_path="", args=None: calls.append(
-            message
+        lambda message, title="Demon Lucy Note Manager", icon_path="", args=None: (
+            calls.append(message)
         ),
     )
     monkeypatch.setattr(notifications_mod.time, "time", lambda: next(times))
@@ -109,20 +108,20 @@ def test_safe_notify_error_burst_limit_applies_globally(monkeypatch):
     times = iter([0.0, 1.0, 2.0, 61.0])
     args = _args(
         {
-            "sys_notification_provider": notifications_mod.NotificationProvider.TERMUX_API,
-            "sys_notification_min_interval_seconds": 0.0,
-            "sys_notification_error_backoff_base_seconds": 0.0,
-            "sys_notification_error_backoff_max_seconds": 0.0,
-            "sys_notification_error_burst_limit": 2,
-            "sys_notification_error_burst_window_seconds": 60.0,
+            "sys-notification-provider": NotificationProvider.TERMUX_API,
+            "sys-notification-min-interval-seconds": 0.0,
+            "sys-notification-error-backoff-base-seconds": 0.0,
+            "sys-notification-error-backoff-max-seconds": 0.0,
+            "sys-notification-error-burst-limit": 2,
+            "sys-notification-error-burst-window-seconds": 60.0,
         }
     )
 
     monkeypatch.setattr(
         notifications_mod,
         "notify",
-        lambda message, title="Demon Lucy Note Manager", icon_path="", args=None: calls.append(
-            message
+        lambda message, title="Demon Lucy Note Manager", icon_path="", args=None: (
+            calls.append(message)
         ),
     )
     monkeypatch.setattr(notifications_mod.time, "time", lambda: next(times))
@@ -191,7 +190,7 @@ def test_notify_disable_provider_skips_termux_call(monkeypatch, caplog):
             "disabled",
             args=_args(
                 {
-                    "sys_notification_provider": notifications_mod.NotificationProvider.DISABLE,
+                    "sys-notification-provider": NotificationProvider.DISABLE,
                 }
             ),
         )
@@ -230,7 +229,7 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
         title="Demon Lucy",
         args=_args(
             {
-                "sys_notification_provider": notifications_mod.NotificationProvider.DESKTOP,
+                "sys-notification-provider": NotificationProvider.DESKTOP,
             }
         ),
     )
@@ -289,7 +288,7 @@ def test_notify_desktop_provider_logs_backend_false(monkeypatch, caplog):
             title="Demon Lucy",
             args=_args(
                 {
-                    "sys_notification_provider": notifications_mod.NotificationProvider.DESKTOP,
+                    "sys-notification-provider": NotificationProvider.DESKTOP,
                 }
             ),
         )
@@ -312,7 +311,7 @@ def test_notify_desktop_provider_logs_exception(monkeypatch, caplog):
             title="Demon Lucy",
             args=_args(
                 {
-                    "sys_notification_provider": notifications_mod.NotificationProvider.DESKTOP,
+                    "sys-notification-provider": NotificationProvider.DESKTOP,
                 }
             ),
         )
@@ -335,14 +334,16 @@ def test_notify_auto_provider_uses_termux_on_termux(monkeypatch):
     monkeypatch.setattr(
         notifications_mod,
         "_notify_termux",
-        lambda *_args, **_kwargs: calls.__setitem__("termux", calls["termux"] + 1)
-        or True,
+        lambda *_args, **_kwargs: (
+            calls.__setitem__("termux", calls["termux"] + 1) or True
+        ),
     )
     monkeypatch.setattr(
         notifications_mod,
         "_notify_desktop",
-        lambda *_args, **_kwargs: calls.__setitem__("desktop", calls["desktop"] + 1)
-        or True,
+        lambda *_args, **_kwargs: (
+            calls.__setitem__("desktop", calls["desktop"] + 1) or True
+        ),
     )
 
     result = notifications_mod.notify(
@@ -360,14 +361,16 @@ def test_notify_auto_provider_uses_desktop_when_termux_missing(monkeypatch):
     monkeypatch.setattr(
         notifications_mod,
         "_notify_termux",
-        lambda *_args, **_kwargs: calls.__setitem__("termux", calls["termux"] + 1)
-        or True,
+        lambda *_args, **_kwargs: (
+            calls.__setitem__("termux", calls["termux"] + 1) or True
+        ),
     )
     monkeypatch.setattr(
         notifications_mod,
         "_notify_desktop",
-        lambda *_args, **_kwargs: calls.__setitem__("desktop", calls["desktop"] + 1)
-        or True,
+        lambda *_args, **_kwargs: (
+            calls.__setitem__("desktop", calls["desktop"] + 1) or True
+        ),
     )
 
     result = notifications_mod.notify(

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import os
-from dataclasses import replace
-from typing import Optional
 
-from demon_lucy.lib.args.parser import Template
+from demon_lucy.lib.args.models import Template
 from demon_lucy.lib.date_sections import format_date_section_header
 from demon_lucy.lib.dynamic_blocks.parser import partition_dynamic_blocks
-from demon_lucy.lib.path import canonical_path
-from demon_lucy.lib.runtime_system import RuntimeSystem
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -32,11 +29,11 @@ class Archive(AbstractModule):
         ctx: Context,
         request: ArchiveRequest,
         src_path: str,
-        runtime_system: RuntimeSystem,
+        operating_system: OperatingSystem,
     ) -> tuple[str, str] | None:
         src_text = storage.read_text_no_follow(
             src_path,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         )
         if src_text is None:
             if os.path.islink(src_path):
@@ -90,8 +87,8 @@ class Archive(AbstractModule):
         timestamp: float | None,
         base_dir: str,
         allowed_root: str,
-        runtime_system: RuntimeSystem,
-    ) -> Optional[IgnoreMap]:
+        operating_system: OperatingSystem,
+    ) -> IgnoreMap | None:
         dest_path = paths.resolve_text_dest_path(
             ctx,
             request,
@@ -102,8 +99,8 @@ class Archive(AbstractModule):
         if not dest_path:
             return None
 
-        date_prefix = str(ctx.config["archive_date_prefix"])
-        date_suffix = str(ctx.config["archive_date_suffix"])
+        date_prefix = ctx.args.require("archive-date-prefix").value
+        date_suffix = ctx.args.require("archive-date-suffix").value
         entry_date = clock.archive_entry_date(timestamp)
         header_line = format_date_section_header(
             entry_date,
@@ -116,7 +113,7 @@ class Archive(AbstractModule):
             body=body,
             prefix=date_prefix,
             suffix=date_suffix,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         )
         if not append_ok:
             notify.operation_failed(
@@ -129,7 +126,7 @@ class Archive(AbstractModule):
         if not storage.write_text_no_follow(
             src_path,
             retained_source,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         ):
             notify.operation_failed(
                 ctx,
@@ -154,8 +151,8 @@ class Archive(AbstractModule):
         timestamp: float | None,
         base_dir: str,
         allowed_root: str,
-        runtime_system: RuntimeSystem,
-    ) -> Optional[IgnoreMap]:
+        operating_system: OperatingSystem,
+    ) -> IgnoreMap | None:
         dest_dir = paths.resolve_dest_dir(
             ctx,
             request,
@@ -190,7 +187,7 @@ class Archive(AbstractModule):
         if not storage.write_new_archive_file(
             dest_path,
             body,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         ):
             notify.operation_failed(
                 ctx,
@@ -201,7 +198,7 @@ class Archive(AbstractModule):
         if not storage.write_text_no_follow(
             src_path,
             retained_source,
-            runtime_system=runtime_system,
+            operating_system=operating_system,
         ):
             notify.operation_failed(
                 ctx,
@@ -215,8 +212,8 @@ class Archive(AbstractModule):
         self,
         ctx: Context,
         request: ArchiveRequest,
-        runtime_system: RuntimeSystem,
-    ) -> Optional[IgnoreMap]:
+        operating_system: OperatingSystem,
+    ) -> IgnoreMap | None:
         base_dir = paths.event_base_dir(ctx)
         allowed_root = paths.archive_allowed_root(ctx)
         if allowed_root is None:
@@ -243,7 +240,7 @@ class Archive(AbstractModule):
             ctx,
             request,
             src_path,
-            runtime_system,
+            operating_system,
         )
         if source_content is None:
             return None
@@ -260,85 +257,53 @@ class Archive(AbstractModule):
                 timestamp=timestamp,
                 base_dir=base_dir,
                 allowed_root=allowed_root,
-                runtime_system=runtime_system,
+                operating_system=operating_system,
             )
 
-        if request.output_mode is ArchiveOutputMode.FILE:
-            return self._archive_file(
-                ctx,
-                request,
-                src_path=src_path,
-                body=body,
-                retained_source=retained_source,
-                timestamp=timestamp,
-                base_dir=base_dir,
-                allowed_root=allowed_root,
-                runtime_system=runtime_system,
-            )
-
-        return None
+        return self._archive_file(
+            ctx,
+            request,
+            src_path=src_path,
+            body=body,
+            retained_source=retained_source,
+            timestamp=timestamp,
+            base_dir=base_dir,
+            allowed_root=allowed_root,
+            operating_system=operating_system,
+        )
 
     @staticmethod
-    def _merge_ignore_maps(items: list[Optional[IgnoreMap]]) -> Optional[IgnoreMap]:
+    def _merge_ignore_maps(
+        items: list[IgnoreMap | None],
+    ) -> IgnoreMap | None:
         merged: IgnoreMap = {}
         for item in items:
             if not item:
                 continue
             for path_value, times in item.items():
-                if not times:
-                    continue
-                merged[path_value] = merged.get(path_value, 0) + int(times)
+                merged[path_value] = merged.get(path_value, 0) + times
         return merged or None
 
     def _archive_requests_if_needed(
         self,
         ctx: Context,
-        runtime_system: RuntimeSystem,
-    ) -> Optional[IgnoreMap]:
+        operating_system: OperatingSystem,
+    ) -> IgnoreMap | None:
         return self._merge_ignore_maps(
             [
-                self._archive_request(ctx, request, runtime_system)
+                self._archive_request(ctx, request, operating_system)
                 for request in requests.requests_for_context(ctx)
             ]
         )
 
-    def archive_src_to_dest(
-        self,
-        ctx: Context,
-        system: System,
-        force: bool = False,
-    ) -> Optional[IgnoreMap]:
-        pair_request = requests.auto_pair_request(ctx)
-        if pair_request is None:
-            return None
-        allowed_root = paths.archive_allowed_root(ctx)
-        if allowed_root is None:
-            return None
-        allowed_root = paths.source_allowed_root(
-            ctx,
-            selector=pair_request.src_selector,
-            current_allowed_root=allowed_root,
-        )
-        src_path = paths.resolve_source_path(
-            ctx,
-            pair_request,
-            base_dir=paths.event_base_dir(ctx),
-            allowed_root=allowed_root,
-        )
-        if not src_path or canonical_path(src_path) != canonical_path(ctx.path):
-            return None
-        if force:
-            pair_request = replace(pair_request, force=True)
-        return self._archive_request(ctx, pair_request, system.runtime_system)
+    def opened(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._archive_requests_if_needed(ctx, system.operating_system)
 
-    def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_requests_if_needed(ctx, system.runtime_system)
+    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._archive_requests_if_needed(ctx, system.operating_system)
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_requests_if_needed(ctx, system.runtime_system)
+    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._archive_requests_if_needed(ctx, system.operating_system)
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_requests_if_needed(ctx, system.runtime_system)
-
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
-        return self._archive_requests_if_needed(ctx, system.runtime_system)
+    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return self._archive_requests_if_needed(ctx, system.operating_system)

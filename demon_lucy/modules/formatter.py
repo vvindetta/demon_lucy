@@ -3,12 +3,10 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Iterable
-from typing import Optional
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
+from demon_lucy.lib.args.models import KnownArg, ParsedArgs, Template
 from demon_lucy.lib.args.parser import (
-    ArgTemplate,
-    Template,
     is_valid_flag_token,
     parse_args,
     split_arg_line,
@@ -80,7 +78,7 @@ def _complete_flag_prefixes_in_line(line: str, *, template: Template) -> str:
     if flag_spans[0][0] != first_nonspace:
         return line
 
-    flag_names = tuple(item.name for item in template)
+    flag_names = tuple(f"--{item.name}" for item in template)
     completed = line
     for start, end in reversed(flag_spans):
         token = line[start:end]
@@ -97,52 +95,35 @@ class Formatter(AbstractModule):
     _todo_pattern = re.compile(r"^(\s*)-\s+(?!\[[ xX]\])(.+)$")
 
     template: Template = [
-        ArgTemplate(
-            name="--formatter-todo",
+        KnownArg(
+            name="formatter-todo",
             value_type=bool,
             default=False,
             description="Enable TODO formatting: converts list items like '- task' into unchecked checkboxes '- [ ] task' in the current file.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--formatter-blank",
+        KnownArg(
+            name="formatter-blank",
             value_type=str,
             default=[],
             description="Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
-            required=False,
         ),
-        ArgTemplate(
-            name="--formatter-date",
+        KnownArg(
+            name="formatter-date",
             value_type=bool,
             default=False,
             description="Keep completing consecutive archive date headers written as '--- day'.",
-            required=False,
         ),
-        ArgTemplate(
-            name="--formatter-autocomplete",
+        KnownArg(
+            name="formatter-autocomplete",
             value_type=bool,
             default=False,
             description="Autocomplete Demon Lucy arguments.",
-            required=False,
         ),
     ]
 
     @staticmethod
     def _has_text(line: str) -> bool:
         return bool(line.rstrip("\r\n").strip())
-
-    @staticmethod
-    def _arg_lines_has_first_line_flag(arg_lines: dict) -> bool:
-        for value in (arg_lines or {}).values():
-            if not isinstance(value, list):
-                continue
-            for lineno in value:
-                try:
-                    if int(lineno) == 1:
-                        return True
-                except (TypeError, ValueError):
-                    continue
-        return False
 
     @staticmethod
     def _line_has_demon_lucy_flag(
@@ -165,49 +146,41 @@ class Formatter(AbstractModule):
         except ValueError:
             return False
 
-        known_args, _unknown = parse_args(
+        parsed_args = parse_args(
             args=tokens,
             template=global_template,
             include_defaults=False,
         )
-        return bool(known_args)
+        return bool(parsed_args.known)
 
     def _first_line_has_demon_lucy_flags(
         self,
         *,
         lines: list[str],
-        global_template: Template | None,
-        fallback_arg_lines: dict,
+        global_template: Template,
     ) -> bool:
-        if global_template:
-            return bool(lines) and self._line_has_demon_lucy_flag(
-                lines[0],
-                global_template,
-            )
-
-        return self._arg_lines_has_first_line_flag(fallback_arg_lines)
+        return bool(lines) and self._line_has_demon_lucy_flag(
+            lines[0],
+            global_template,
+        )
 
     @staticmethod
-    def _formatter_flags_by_line(arg_lines: dict) -> dict[int, set[str]]:
+    def _formatter_flags_by_line(args: ParsedArgs) -> dict[int, set[str]]:
         flags_by_line: dict[int, set[str]] = {}
-        for key, flag in (
-            ("formatter_todo", "--formatter-todo"),
-            ("formatter_blank", "--formatter-blank"),
+        for name, flag in (
+            ("formatter-todo", "--formatter-todo"),
+            ("formatter-blank", "--formatter-blank"),
         ):
-            for raw_line in arg_lines.get(key) or []:
-                try:
-                    line_number = int(raw_line)
-                except (TypeError, ValueError):
-                    continue
+            for line_number in args.require(name).lines:
                 flags_by_line.setdefault(line_number, set()).add(flag)
         return flags_by_line
 
     def _remove_formatter_flags(
         self,
         lines: list[str],
-        arg_lines: dict,
+        args: ParsedArgs,
     ) -> tuple[list[str], bool]:
-        flags_by_line = self._formatter_flags_by_line(arg_lines)
+        flags_by_line = self._formatter_flags_by_line(args)
         if not flags_by_line:
             return lines, False
 
@@ -237,17 +210,14 @@ class Formatter(AbstractModule):
 
     @staticmethod
     def _normalize_blank_modes_and_count(
-        raw_modes: object,
+        raw_modes: list[str],
         default_count: int,
     ) -> tuple[set[str], int]:
-        if not isinstance(raw_modes, list):
-            return set(), default_count
-
         modes: set[str] = set()
         count = default_count
 
         for item in raw_modes:
-            text = str(item).strip().lower()
+            text = item.strip().lower()
             if text in {"both", "up/down", "down/up"}:
                 modes.update({"up", "down"})
                 continue
@@ -263,19 +233,9 @@ class Formatter(AbstractModule):
 
         return modes, count
 
-    @staticmethod
-    def _collect_blank_tokens(config: dict) -> list[str]:
-        tokens: list[str] = []
-
-        blank_values = config.get("formatter_blank")
-        if isinstance(blank_values, list):
-            tokens.extend(str(item) for item in blank_values)
-
-        return tokens
-
-    def _blank_config(self, config: dict) -> tuple[set[str], int]:
+    def _blank_options(self, args: ParsedArgs) -> tuple[set[str], int]:
         return self._normalize_blank_modes_and_count(
-            self._collect_blank_tokens(config),
+            args.require("formatter-blank").value,
             default_count=self.blank_lines_count,
         )
 
@@ -348,14 +308,13 @@ class Formatter(AbstractModule):
         self,
         *,
         path: str,
-        config: dict,
-        arg_lines: dict,
-        global_template: Template | None = None,
-    ) -> Optional[IgnoreMap]:
-        use_formatter_todo = bool(config.get("formatter_todo"))
-        use_formatter_date = bool(config.get("formatter_date"))
-        use_formatter_autocomplete = bool(config.get("formatter_autocomplete"))
-        blank_modes, blank_lines_count = self._blank_config(config)
+        args: ParsedArgs,
+        global_template: Template,
+    ) -> IgnoreMap | None:
+        use_formatter_todo = args.require("formatter-todo").value
+        use_formatter_date = args.require("formatter-date").value
+        use_formatter_autocomplete = args.require("formatter-autocomplete").value
+        blank_modes, blank_lines_count = self._blank_options(args)
         use_down = "down" in blank_modes
         use_up = "up" in blank_modes
         if (
@@ -383,7 +342,7 @@ class Formatter(AbstractModule):
         new_lines = lines[:]
         changed = False
 
-        new_lines, flags_removed = self._remove_formatter_flags(new_lines, arg_lines)
+        new_lines, flags_removed = self._remove_formatter_flags(new_lines, args)
         changed = changed or flags_removed
 
         try:
@@ -446,7 +405,6 @@ class Formatter(AbstractModule):
             if self._first_line_has_demon_lucy_flags(
                 lines=new_lines,
                 global_template=global_template,
-                fallback_arg_lines=arg_lines,
             ):
                 head = new_lines[0]
                 if not head.endswith(("\n", "\r")):
@@ -499,26 +457,23 @@ class Formatter(AbstractModule):
 
         return {os.path.abspath(path): 1}
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._apply(
             path=ctx.path,
-            config=ctx.config,
-            arg_lines=ctx.arg_lines,
+            args=ctx.args,
             global_template=system.global_template,
         )
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._apply(
             path=ctx.path,
-            config=ctx.config,
-            arg_lines=ctx.arg_lines,
+            args=ctx.args,
             global_template=system.global_template,
         )
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
         return self._apply(
             path=ctx.path,
-            config=ctx.config,
-            arg_lines=ctx.arg_lines,
+            args=ctx.args,
             global_template=system.global_template,
         )

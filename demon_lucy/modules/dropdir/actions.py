@@ -7,7 +7,6 @@ from typing import Optional
 
 from demon_lucy.lib.args.parser import (
     is_valid_flag_token,
-    merge_known_args,
     parse_args,
     split_arg_line,
 )
@@ -34,10 +33,10 @@ def merge_ignore_maps(
     left: Optional[IgnoreMap],
     right: Optional[IgnoreMap],
 ) -> Optional[IgnoreMap]:
-    if not left and not right:
-        return None
     merged: IgnoreMap = {}
-    for source in (left or {}, right or {}):
+    for source in (left, right):
+        if not source:
+            continue
         for path_value, times in source.items():
             if not times:
                 continue
@@ -45,19 +44,13 @@ def merge_ignore_maps(
     return merged or None
 
 
-def delay_seconds_from_config(ctx: Context) -> float:
-    raw_value = ctx.config.get("dropdir_action_delay_milliseconds", 0)
-    try:
-        delay_ms = int(raw_value)
-    except (TypeError, ValueError):
-        return 0.0
-    if delay_ms <= 0:
-        return 0.0
-    return delay_ms / 1000.0
+def action_delay_seconds(ctx: Context) -> float:
+    delay_ms: int = ctx.args.require("dropdir-action-delay-milliseconds").value
+    return max(0, delay_ms) / 1000.0
 
 
 def parse_action(raw_action: str) -> DropDirAction | None:
-    raw = str(raw_action).strip()
+    raw = raw_action.strip()
     if not raw or "=" not in raw:
         return None
 
@@ -78,15 +71,15 @@ def parse_action(raw_action: str) -> DropDirAction | None:
     return DropDirAction(selector=selector, tokens=tokens, raw=raw)
 
 
-def action_rules(ctx: Context, system: System) -> list[DropDirAction]:
+def action_rules(ctx: Context) -> list[DropDirAction]:
     rules: list[DropDirAction] = []
-    for raw_action in ctx.config.get("dropdir_action", []) or []:
-        rule = parse_action(str(raw_action))
+    for raw_action in ctx.args.require("dropdir-action").value:
+        rule = parse_action(raw_action)
         if rule is None:
             logger.error(
                 log_record(
                     "dropdir.action_invalid",
-                    id=system.event_id,
+                    id=ctx.event_id,
                     path=ctx.path,
                     reason="invalid_rule",
                     rule=raw_action,
@@ -98,7 +91,7 @@ def action_rules(ctx: Context, system: System) -> list[DropDirAction]:
 
 
 def matches_selector(file_path: str, raw_selector: str) -> bool:
-    selector = str(raw_selector).strip()
+    selector = raw_selector.strip()
     if not selector:
         return False
 
@@ -117,10 +110,10 @@ def matches_selector(file_path: str, raw_selector: str) -> bool:
 
 
 def move_back_to_source(
-    system: System,
+    ctx: Context,
     destination_path: str,
 ) -> tuple[str, Optional[IgnoreMap]]:
-    src_raw = str(getattr(system.event, "src_path", "") or "").strip()
+    src_raw = str(getattr(ctx.event, "src_path", "") or "").strip()
     if not src_raw:
         return destination_path, None
 
@@ -143,6 +136,27 @@ def move_back_to_source(
     return src_path, {dest_path: 1, src_path: 1}
 
 
+def next_action_path(
+    current_path: str,
+    changed: Optional[IgnoreMap],
+) -> str:
+    if not changed or os.path.exists(current_path):
+        return current_path
+
+    current_abs = canonical_path(current_path)
+    candidates: list[str] = []
+    for path_value in changed:
+        candidate_path = canonical_path(path_value)
+        if candidate_path == current_abs:
+            continue
+        if not os.path.exists(candidate_path) or os.path.isdir(candidate_path):
+            continue
+        candidates.append(candidate_path)
+    if len(candidates) != 1:
+        return current_path
+    return candidates[0]
+
+
 def system_flags_in_tokens(tokens: list[str]) -> list[str]:
     flags: list[str] = []
     for token in tokens:
@@ -152,18 +166,6 @@ def system_flags_in_tokens(tokens: list[str]) -> list[str]:
         if flag.startswith("--sys-"):
             flags.append(flag)
     return flags
-
-
-def arg_lines_for_action_config(action_config: dict) -> dict[str, list[int]]:
-    arg_lines: dict[str, list[int]] = {}
-    for key, value in action_config.items():
-        if value is None:
-            continue
-        if isinstance(value, str) and not value.strip():
-            continue
-        count = len(value) if isinstance(value, list) and value else 1
-        arg_lines[key] = [1] * count
-    return arg_lines
 
 
 def action_context(
@@ -178,7 +180,7 @@ def action_context(
         logger.error(
             log_record(
                 "dropdir.action_invalid",
-                id=system.event_id,
+                id=base_ctx.event_id,
                 path=path,
                 reason="system_flags_forbidden",
                 flags=system_flags,
@@ -187,55 +189,31 @@ def action_context(
         )
         return None
 
-    action_config, unknown_args = parse_args(
+    action_args = parse_args(
         args=action.tokens,
         template=system.global_template,
         include_defaults=False,
     )
-    if unknown_args:
+    if action_args.unknown:
         logger.error(
             log_record(
                 "dropdir.action_invalid",
-                id=system.event_id,
+                id=base_ctx.event_id,
                 path=path,
                 reason="unknown_action_args",
-                unknown_args=unknown_args,
+                unknown_args=[item.token for item in action_args.unknown],
                 rule=action.raw,
             )
         )
         return None
 
-    merged_config = merge_known_args(base_ctx.config, action_config)
-    merged_arg_lines = dict(base_ctx.arg_lines)
-    for key, lines in arg_lines_for_action_config(action_config).items():
-        merged_arg_lines[key] = lines
-
     return Context(
         path=path,
-        config=merged_config,
-        arg_lines=merged_arg_lines,
+        args=base_ctx.args.merged_with(action_args),
+        run_mode=base_ctx.run_mode,
+        event_id=base_ctx.event_id,
+        event=base_ctx.event,
     )
-
-
-def next_action_path(
-    current_path: str,
-    event_ignore: Optional[IgnoreMap],
-) -> str:
-    if not event_ignore or os.path.exists(current_path):
-        return current_path
-
-    current_abs = canonical_path(current_path)
-    candidates: list[str] = []
-    for path_value in event_ignore:
-        candidate_path = canonical_path(path_value)
-        if candidate_path == current_abs:
-            continue
-        if not os.path.exists(candidate_path) or os.path.isdir(candidate_path):
-            continue
-        candidates.append(candidate_path)
-    if len(candidates) != 1:
-        return current_path
-    return candidates[0]
 
 
 def run_action_modules(
@@ -244,28 +222,31 @@ def run_action_modules(
     ctx: Context,
     system: System,
 ) -> Optional[IgnoreMap]:
-    event_type = str(system.event.event_type)
+    if ctx.event is None:
+        return None
+    event_type = str(ctx.event.event_type)
     current_path = ctx.path
-    action_config = ctx.config
-    action_arg_lines = ctx.arg_lines
     changed: Optional[IgnoreMap] = None
 
     for module in system.modules:
         if module is source_module:
             continue
-        if event_type not in module.__class__.__dict__:
+        handler = getattr(type(module), event_type)
+        if handler is getattr(AbstractModule, event_type):
             continue
 
-        action = getattr(module, event_type)
-        event_ignore = action(
+        module_changed = handler(
+            module,
             Context(
                 path=current_path,
-                config=action_config,
-                arg_lines=action_arg_lines,
+                args=ctx.args,
+                run_mode=ctx.run_mode,
+                event_id=ctx.event_id,
+                event=ctx.event,
             ),
             system,
         )
-        changed = merge_ignore_maps(changed, event_ignore)
-        current_path = next_action_path(current_path, event_ignore)
+        changed = merge_ignore_maps(changed, module_changed)
+        current_path = next_action_path(current_path, module_changed)
 
     return changed
