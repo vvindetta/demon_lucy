@@ -141,7 +141,10 @@ def test_dropdir_ignores_non_archive_filename(tmp_path: Path, monkeypatch) -> No
         system,
     )
 
-    assert result_changes(changed) == {str(file_path.resolve()): 1, str(src_path.resolve()): 1}
+    assert result_changes(changed) == {
+        str(file_path.resolve()): 1,
+        str(src_path.resolve()): 1,
+    }
     assert not file_path.exists()
     assert src_path.read_text(encoding="utf-8") == "keep\n"
     assert not (src_path.parent / "past.md").exists()
@@ -198,7 +201,10 @@ def test_dropdir_runs_arbitrary_configured_action(tmp_path: Path) -> None:
 
     changed = dropdir.moved(ctx, system)
 
-    assert result_changes(changed) == {str(dropped_path.resolve()): 1, str(src_path.resolve()): 2}
+    assert result_changes(changed) == {
+        str(dropped_path.resolve()): 1,
+        str(src_path.resolve()): 2,
+    }
     assert not dropped_path.exists()
     assert src_path.read_text(encoding="utf-8") == "- [ ] task\n"
 
@@ -224,6 +230,9 @@ def test_dropdir_rejects_system_flags_in_action(tmp_path: Path) -> None:
 
     changed = dropdir.moved(ctx, system)
 
-    assert result_changes(changed) == {str(dropped_path.resolve()): 1, str(src_path.resolve()): 1}
+    assert result_changes(changed) == {
+        str(dropped_path.resolve()): 1,
+        str(src_path.resolve()): 1,
+    }
     assert not dropped_path.exists()
     assert src_path.read_text(encoding="utf-8") == "body\n"

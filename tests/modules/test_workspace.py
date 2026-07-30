@@ -369,7 +369,9 @@ def test_workspace_init_runs_git_init(
         _ = (stdout, stderr, text, check, timeout)
         calls.append((list(args), cwd))
         (Path(cwd) / ".git").mkdir()
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(
+            args=args, returncode=0, stdout="", stderr=""
+        )
 
     monkeypatch.setattr(workspace_mod.shutil, "which", lambda name: "/usr/bin/git")
     monkeypatch.setattr(workspace_mod.subprocess, "run", fake_run)

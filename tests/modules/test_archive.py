@@ -115,16 +115,20 @@ def _ctx_for(
     defaults = parse_args(args=[], template=_TEST_TEMPLATE)
     args = ParsedArgs(
         known=tuple(
-            replace(
-                argument,
-                value=values[argument.name],
-                source=(
-                    ArgSource.FILE if argument.name in file_args else ArgSource.CONFIG
-                ),
-                lines=(1,) if argument.name in file_args else (),
+            (
+                replace(
+                    argument,
+                    value=values[argument.name],
+                    source=(
+                        ArgSource.FILE
+                        if argument.name in file_args
+                        else ArgSource.CONFIG
+                    ),
+                    lines=(1,) if argument.name in file_args else (),
+                )
+                if argument.name in values
+                else argument
             )
-            if argument.name in values
-            else argument
             for argument in defaults.known
         ),
     )
@@ -165,7 +169,10 @@ def test_supports_custom_archive_now_file(tmp_path: Path, monkeypatch) -> None:
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "--- 02.05.2026\ncustom active\n"
 
@@ -192,7 +199,10 @@ def test_allows_absolute_archive_pair_paths_inside_allowed_root(
 
     ignore = module.modified(ctx, system)
 
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "--- 02.05.2026\nunicode active\n"
 
@@ -231,7 +241,10 @@ def test_archive_pair_uses_source_root_for_event_from_another_watch_root(
 
     ignore = module.modified(ctx, system)
 
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == (
         "--- 02.05.2026\narchive from notes\n"
@@ -489,7 +502,10 @@ def test_archive_paths_must_stay_inside_git_repo_root(
     ignore = module.modified(ctx, system)
 
     past_path = note_dir / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "--- 02.05.2026\ninside repo\n"
 
@@ -524,7 +540,10 @@ def test_absolute_archive_paths_can_target_repo_root_from_subdirectory_event(
     ignore = module.modified(ctx, system)
 
     past_path = repo_root / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8") == "--- 02.05.2026\nroot archive source\n"
@@ -745,7 +764,10 @@ def test_archives_stale_now_md_when_triggered_by_now_or_sibling_event(
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == expected_past_text
 
@@ -788,7 +810,10 @@ def test_compact_archive_arg_overrides_paths_and_idle_hours(
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "history.md"
-    assert result_changes(ignore) == {str(active_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(active_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert active_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
@@ -818,7 +843,10 @@ def test_compact_archive_arg_without_idle_value_uses_default_idle_hours(
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "history.md"
-    assert result_changes(ignore) == {str(active_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(active_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert active_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "--- 01.05.2026\nuse default idle\n"
 
@@ -928,7 +956,10 @@ def test_archive_global_uses_configured_global_dest_path(
     ignore = module.modified(ctx, system)
 
     dest_path = tmp_path / "journal.md"
-    assert result_changes(ignore) == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(src_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert src_path.read_text(encoding="utf-8") == ""
     assert dest_path.read_text(encoding="utf-8") == "--- 01.05.2026\nfallback archive\n"
 
@@ -953,7 +984,10 @@ def test_archive_local_text_prefers_existing_dot_archive_file(
     ignore = module.modified(ctx, system)
 
     dest_path = tmp_path / ".archive" / "archive.md"
-    assert result_changes(ignore) == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(src_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert src_path.read_text(encoding="utf-8") == ""
     assert (
         dest_path.read_text(encoding="utf-8")
@@ -982,7 +1016,10 @@ def test_archive_local_file_creates_new_file_under_dot_archive(
     ignore = module.modified(ctx, system)
 
     dest_path = tmp_path / ".archive" / "2026-05-01---note.md"
-    assert result_changes(ignore) == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(src_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert src_path.read_text(encoding="utf-8") == ""
     assert dest_path.read_text(encoding="utf-8") == "local file archive\n"
     assert not (tmp_path / "archive.md").exists()
@@ -1013,7 +1050,10 @@ def test_archive_file_mode_uses_unique_name_without_overwrite(
     ignore = module.modified(ctx, system)
 
     dest_path = archive_dir / "2026-05-01---note-2.md"
-    assert result_changes(ignore) == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(src_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert existing_path.read_text(encoding="utf-8") == "older copy\n"
     assert dest_path.read_text(encoding="utf-8") == "second copy\n"
 
@@ -1044,7 +1084,10 @@ def test_archive_global_without_dest_uses_repo_root_archive_text(
     ignore = module.modified(ctx, system)
 
     dest_path = repo_root / "archive.md"
-    assert result_changes(ignore) == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(src_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert src_path.read_text(encoding="utf-8") == ""
     assert (
         dest_path.read_text(encoding="utf-8") == "--- 01.05.2026\nglobal text archive\n"
@@ -1074,7 +1117,10 @@ def test_archive_auto_local_file_archives_stale_configured_source(
     ignore = module.modified(ctx, system)
 
     dest_path = tmp_path / ".archive" / "2026-05-01---now.md"
-    assert result_changes(ignore) == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(src_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert src_path.read_text(encoding="utf-8") == ""
     assert dest_path.read_text(encoding="utf-8") == "auto local file\n"
 
@@ -1152,7 +1198,10 @@ def test_custom_archive_date_prefix_and_suffix(tmp_path: Path, monkeypatch) -> N
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
@@ -1176,7 +1225,10 @@ def test_manual_archive_pair_archives_even_when_not_stale(
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "--- 01.05.2026\nmove now\n"
 
@@ -1205,7 +1257,10 @@ def test_archive_text_keeps_dynamic_blocks_in_source(
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == block
     assert past_path.read_text(encoding="utf-8") == (
         "--- 01.05.2026\narchive before\n\narchive after\n"
@@ -1241,7 +1296,10 @@ def test_archive_file_keeps_dynamic_blocks_in_source(
     ignore = module.modified(ctx, system)
 
     dest_path = tmp_path / ".archive" / "2026-05-01---note.md"
-    assert result_changes(ignore) == {str(source_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(source_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert source_path.read_text(encoding="utf-8") == block
     assert dest_path.read_text(encoding="utf-8") == "archive me\n"
 
@@ -1315,7 +1373,10 @@ def test_archive_command_prefers_configured_pair(tmp_path: Path, monkeypatch) ->
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "--- 01.05.2026\nmove by default\n"
 
@@ -1336,7 +1397,10 @@ def test_archive_command_uses_local_archive_when_no_pair(
     ignore = module.modified(ctx, system)
 
     dest_path = tmp_path / ".archive" / "archive.md"
-    assert result_changes(ignore) == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(src_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert src_path.read_text(encoding="utf-8") == ""
     assert dest_path.read_text(encoding="utf-8") == "--- 01.05.2026\nlocal fallback\n"
 
@@ -1363,7 +1427,10 @@ def test_archive_command_uses_global_when_no_pair_or_local_archive(
     ignore = module.modified(ctx, system)
 
     dest_path = repo_root / "archive.md"
-    assert result_changes(ignore) == {str(src_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(src_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert src_path.read_text(encoding="utf-8") == ""
     assert dest_path.read_text(encoding="utf-8") == "--- 01.05.2026\nglobal fallback\n"
 
@@ -1385,7 +1452,10 @@ def test_archive_does_not_copy_old_archive_command(tmp_path: Path, monkeypatch) 
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
@@ -1412,7 +1482,10 @@ def test_archive_pair_command_is_removed_from_archive_text(
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
@@ -1439,7 +1512,10 @@ def test_archive_keeps_non_ascii_plain_text_without_extra_quotes(
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
@@ -1485,7 +1561,10 @@ def test_appends_to_existing_archive_day_without_duplicate_header(
 
     ignore = module.modified(ctx, system)
 
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
@@ -1514,7 +1593,10 @@ def test_inserts_into_existing_archive_day_before_next_day(
 
     ignore = module.modified(ctx, system)
 
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
@@ -1563,7 +1645,10 @@ def test_does_not_skip_append_on_partial_archive_text_match(
 
     ignore = module.modified(ctx, system)
 
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
@@ -1585,7 +1670,10 @@ def test_normalizes_blank_lines_before_archiving(tmp_path: Path, monkeypatch) ->
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8") == "--- 01.05.2026\nalpha\n\n\n\nbeta\n"
@@ -1611,7 +1699,10 @@ def test_keeps_first_line_with_demon_lucy_flags_when_archiving(
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert (
         past_path.read_text(encoding="utf-8")
@@ -1657,7 +1748,10 @@ def test_uses_git_timestamp_when_repo_file_is_clean(
     ignore = module.modified(ctx, system)
 
     past_path = tmp_path / "past.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(past_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert past_path.read_text(encoding="utf-8") == "--- 01.06.2026\nfrom git clock\n"
 
@@ -1698,7 +1792,10 @@ def test_archive_header_uses_git_commit_date_for_dirty_forced_file(
     ignore = module.modified(ctx, system)
 
     dest_path = tmp_path / "archive.md"
-    assert result_changes(ignore) == {str(now_path.resolve()): 1, str(dest_path.resolve()): 1}
+    assert result_changes(ignore) == {
+        str(now_path.resolve()): 1,
+        str(dest_path.resolve()): 1,
+    }
     assert now_path.read_text(encoding="utf-8") == ""
     assert dest_path.read_text(encoding="utf-8") == "--- 20.05.2026\nold note text\n"
 

@@ -85,8 +85,7 @@ def test_fixed_system_string_domains_use_enums():
 
     assert parsed.require("sys-log-level").value is LogLevel.WARNING
     assert (
-        parsed.require("sys-notification-provider").value
-        is NotificationProvider.AUTO
+        parsed.require("sys-notification-provider").value is NotificationProvider.AUTO
     )
 
 
@@ -116,23 +115,11 @@ def test_sys_ignore_move_paths_default_is_defined_in_startup_template():
 def test_dynamic_block_allowed_values_are_visible_by_default():
     parsed = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
 
-    assert (
-        parsed.require("sys-dynamic-block-hide-allowed-values").value
-        is False
-    )
+    assert parsed.require("sys-dynamic-block-hide-allowed-values").value is False
 
 
 def test_sys_git_repo_lock_defaults_are_defined_in_startup_template():
     parsed = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
-    assert (
-        parsed.require("sys-git-repo-lock-wait-timeout-seconds").value
-        == 30.0
-    )
-    assert (
-        parsed.require("sys-git-repo-lock-retry-sleep-seconds").value
-        == 0.2
-    )
-    assert (
-        parsed.require("sys-git-repo-lock-stale-seconds").value
-        == 1800.0
-    )
+    assert parsed.require("sys-git-repo-lock-wait-timeout-seconds").value == 30.0
+    assert parsed.require("sys-git-repo-lock-retry-sleep-seconds").value == 0.2
+    assert parsed.require("sys-git-repo-lock-stale-seconds").value == 1800.0

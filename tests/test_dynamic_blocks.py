@@ -305,8 +305,8 @@ def test_refresh_preserves_update_time_when_rendered_body_is_unchanged(
         body="same body",
         updated_timestamp=first_update,
     )
-    expected_at = datetime.fromtimestamp(first_update).astimezone().strftime(
-        "%Y.%m.%d %H:%M"
+    expected_at = (
+        datetime.fromtimestamp(first_update).astimezone().strftime("%Y.%m.%d %H:%M")
     )
     text = text.replace(
         f"updated: {expected_at}",

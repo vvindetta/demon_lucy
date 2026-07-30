@@ -6,9 +6,7 @@ from demon_lucy.lib.path import canonical_path
 
 DEFAULT_TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "default_workspace")
 REPO_ROOT = canonical_path(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-SETUP_TEMPLATE_DIRS = (
-    (os.path.join(REPO_ROOT, "setup-systemd"), "setup-systemd"),
-)
+SETUP_TEMPLATE_DIRS = ((os.path.join(REPO_ROOT, "setup-systemd"), "setup-systemd"),)
 
 
 class WorkspaceTemplate:
@@ -37,9 +35,7 @@ class WorkspaceTemplate:
             if value.endswith("\n"):
                 rendered = rendered.replace(token + "\n", value)
             rendered = rendered.replace(token, value)
-        for old_value, new_value in WorkspaceTemplate.default_path_replacements(
-            values
-        ):
+        for old_value, new_value in WorkspaceTemplate.default_path_replacements(values):
             rendered = rendered.replace(old_value, new_value)
         return rendered
 

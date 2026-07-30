@@ -135,25 +135,25 @@ class Status(
     def __init__(self) -> None:
         super().__init__()
         defaults = parse_args(args=[], template=self.template)
-        self._default_banner_speed_ms = defaults.require(
+        self._default_banner_speed_ms: int = defaults.require(
             "status-banner-speed-milliseconds"
         ).value
-        self._default_banner_max_chars = defaults.require(
+        self._default_banner_max_chars: int = defaults.require(
             "status-banner-max-characters"
         ).value
-        self._default_animation_speed_ms = defaults.require(
+        self._default_animation_speed_ms: int = defaults.require(
             "status-animation-speed-milliseconds"
         ).value
-        self._tick_interval_seconds = defaults.require(
+        self._tick_interval_seconds: float = defaults.require(
             "status-tick-interval-seconds"
         ).value
-        self._git_fast_tick_interval_seconds = defaults.require(
+        self._git_fast_tick_interval_seconds: float = defaults.require(
             "status-git-fast-tick-interval-seconds"
         ).value
-        self._git_fast_tick_window_seconds = defaults.require(
+        self._git_fast_tick_window_seconds: float = defaults.require(
             "status-git-fast-tick-window-seconds"
         ).value
-        self._git_sync_prefix_cycle_pause_seconds = defaults.require(
+        self._git_sync_prefix_cycle_pause_seconds: float = defaults.require(
             "status-git-sync-prefix-cycle-pause-seconds"
         ).value
         self._git_repo_lock_wait_timeout_seconds: float | None = None

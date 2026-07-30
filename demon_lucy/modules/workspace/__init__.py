@@ -49,9 +49,7 @@ class Workspace(AbstractModule):
 
     @staticmethod
     def _lucy_home() -> str:
-        return canonical_path(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..")
-        )
+        return canonical_path(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
     def _template_values(
         self,
@@ -259,9 +257,7 @@ class Workspace(AbstractModule):
             return None
 
         trigger_changed = (
-            self._write_success_to_trigger(ctx, workspace_root)
-            if write_trigger
-            else {}
+            self._write_success_to_trigger(ctx, workspace_root) if write_trigger else {}
         )
         changed.update(trigger_changed)
         logger.info(
