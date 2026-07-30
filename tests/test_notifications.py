@@ -5,23 +5,41 @@ import sys
 import types
 
 import demon_lucy.lib.notifications as notifications_mod
+from demon_lucy.lib.args.models import KnownArg, ParsedArgs
 
-_TERMUX_CONFIG = {
-    "sys_notification_provider": "termuxapi",
-    "sys_notification_min_interval_seconds": 10.0,
-    "sys_notification_error_backoff_base_seconds": 10.0,
-    "sys_notification_error_backoff_max_seconds": 1800.0,
-    "sys_notification_error_burst_limit": 3,
-    "sys_notification_error_burst_window_seconds": 600.0,
-}
-_AUTO_CONFIG = {
-    "sys_notification_provider": "auto",
-    "sys_notification_min_interval_seconds": 10.0,
-    "sys_notification_error_backoff_base_seconds": 10.0,
-    "sys_notification_error_backoff_max_seconds": 1800.0,
-    "sys_notification_error_burst_limit": 3,
-    "sys_notification_error_burst_window_seconds": 600.0,
-}
+
+def _args(values: dict[str, object]) -> ParsedArgs:
+    return ParsedArgs(
+        known=tuple(
+            KnownArg(
+                name=key.replace("_", "-"),
+                value=value,
+            )
+            for key, value in values.items()
+        )
+    )
+
+
+_TERMUX_ARGS = _args(
+    {
+        "sys_notification_provider": notifications_mod.NotificationProvider.TERMUX_API,
+        "sys_notification_min_interval_seconds": 10.0,
+        "sys_notification_error_backoff_base_seconds": 10.0,
+        "sys_notification_error_backoff_max_seconds": 1800.0,
+        "sys_notification_error_burst_limit": 3,
+        "sys_notification_error_burst_window_seconds": 600.0,
+    }
+)
+_AUTO_ARGS = _args(
+    {
+        "sys_notification_provider": notifications_mod.NotificationProvider.AUTO,
+        "sys_notification_min_interval_seconds": 10.0,
+        "sys_notification_error_backoff_base_seconds": 10.0,
+        "sys_notification_error_backoff_max_seconds": 1800.0,
+        "sys_notification_error_burst_limit": 3,
+        "sys_notification_error_burst_window_seconds": 600.0,
+    }
+)
 
 
 def _reset_notify_state() -> None:
@@ -38,17 +56,17 @@ def test_safe_notify_throttles_per_key(monkeypatch):
     monkeypatch.setattr(
         notifications_mod,
         "notify",
-        lambda message, title="Demon Lucy Note Manager", icon_path="", config=None: calls.append(
+        lambda message, title="Demon Lucy Note Manager", icon_path="", args=None: calls.append(
             message
         ),
     )
     monkeypatch.setattr(notifications_mod.time, "time", lambda: next(times))
     _reset_notify_state()
 
-    notifications_mod.safe_notify("k1", "first", config=_TERMUX_CONFIG)
-    notifications_mod.safe_notify("k2", "second", config=_TERMUX_CONFIG)
-    notifications_mod.safe_notify("k1", "third", config=_TERMUX_CONFIG)
-    notifications_mod.safe_notify("k1", "fourth", config=_TERMUX_CONFIG)
+    notifications_mod.safe_notify("k1", "first", args=_TERMUX_ARGS)
+    notifications_mod.safe_notify("k2", "second", args=_TERMUX_ARGS)
+    notifications_mod.safe_notify("k1", "third", args=_TERMUX_ARGS)
+    notifications_mod.safe_notify("k1", "fourth", args=_TERMUX_ARGS)
 
     assert calls == ["first", "second", "fourth"]
 
@@ -60,7 +78,7 @@ def test_safe_notify_error_uses_exponential_backoff(monkeypatch):
     monkeypatch.setattr(
         notifications_mod,
         "notify",
-        lambda message, title="Demon Lucy Note Manager", icon_path="", config=None: calls.append(
+        lambda message, title="Demon Lucy Note Manager", icon_path="", args=None: calls.append(
             message
         ),
     )
@@ -68,19 +86,19 @@ def test_safe_notify_error_uses_exponential_backoff(monkeypatch):
     _reset_notify_state()
 
     notifications_mod.safe_notify(
-        "err:key", "m1", config=_TERMUX_CONFIG, use_rare_mode=True
+        "err:key", "m1", args=_TERMUX_ARGS, use_rare_mode=True
     )
     notifications_mod.safe_notify(
-        "err:key", "m2", config=_TERMUX_CONFIG, use_rare_mode=True
+        "err:key", "m2", args=_TERMUX_ARGS, use_rare_mode=True
     )
     notifications_mod.safe_notify(
-        "err:key", "m3", config=_TERMUX_CONFIG, use_rare_mode=True
+        "err:key", "m3", args=_TERMUX_ARGS, use_rare_mode=True
     )
     notifications_mod.safe_notify(
-        "err:key", "m4", config=_TERMUX_CONFIG, use_rare_mode=True
+        "err:key", "m4", args=_TERMUX_ARGS, use_rare_mode=True
     )
     notifications_mod.safe_notify(
-        "err:key", "m5", config=_TERMUX_CONFIG, use_rare_mode=True
+        "err:key", "m5", args=_TERMUX_ARGS, use_rare_mode=True
     )
 
     assert calls == ["m1", "m3", "m5"]
@@ -89,29 +107,31 @@ def test_safe_notify_error_uses_exponential_backoff(monkeypatch):
 def test_safe_notify_error_burst_limit_applies_globally(monkeypatch):
     calls: list[str] = []
     times = iter([0.0, 1.0, 2.0, 61.0])
-    cfg = {
-        "sys_notification_provider": "termuxapi",
-        "sys_notification_min_interval_seconds": 0.0,
-        "sys_notification_error_backoff_base_seconds": 0.0,
-        "sys_notification_error_backoff_max_seconds": 0.0,
-        "sys_notification_error_burst_limit": 2,
-        "sys_notification_error_burst_window_seconds": 60.0,
-    }
+    args = _args(
+        {
+            "sys_notification_provider": notifications_mod.NotificationProvider.TERMUX_API,
+            "sys_notification_min_interval_seconds": 0.0,
+            "sys_notification_error_backoff_base_seconds": 0.0,
+            "sys_notification_error_backoff_max_seconds": 0.0,
+            "sys_notification_error_burst_limit": 2,
+            "sys_notification_error_burst_window_seconds": 60.0,
+        }
+    )
 
     monkeypatch.setattr(
         notifications_mod,
         "notify",
-        lambda message, title="Demon Lucy Note Manager", icon_path="", config=None: calls.append(
+        lambda message, title="Demon Lucy Note Manager", icon_path="", args=None: calls.append(
             message
         ),
     )
     monkeypatch.setattr(notifications_mod.time, "time", lambda: next(times))
     _reset_notify_state()
 
-    notifications_mod.safe_notify("err:a", "a1", config=cfg, use_rare_mode=True)
-    notifications_mod.safe_notify("err:b", "b1", config=cfg, use_rare_mode=True)
-    notifications_mod.safe_notify("err:c", "c1", config=cfg, use_rare_mode=True)
-    notifications_mod.safe_notify("err:d", "d1", config=cfg, use_rare_mode=True)
+    notifications_mod.safe_notify("err:a", "a1", args=args, use_rare_mode=True)
+    notifications_mod.safe_notify("err:b", "b1", args=args, use_rare_mode=True)
+    notifications_mod.safe_notify("err:c", "c1", args=args, use_rare_mode=True)
+    notifications_mod.safe_notify("err:d", "d1", args=args, use_rare_mode=True)
 
     assert calls == ["a1", "b1", "d1"]
 
@@ -134,7 +154,7 @@ def test_notify_termux_provider_uses_termux_api(monkeypatch):
     )
 
     result = notifications_mod.notify(
-        "hello termux", title="Demon Lucy", config=_TERMUX_CONFIG
+        "hello termux", title="Demon Lucy", args=_TERMUX_ARGS
     )
 
     assert result is True
@@ -149,7 +169,7 @@ def test_notify_termux_provider_logs_when_termux_missing(monkeypatch, caplog):
 
     with caplog.at_level(logging.ERROR, logger="demon_lucy.lib.notifications"):
         result = notifications_mod.notify(
-            "missing-termux", title="Demon Lucy", config=_TERMUX_CONFIG
+            "missing-termux", title="Demon Lucy", args=_TERMUX_ARGS
         )
 
     assert result is False
@@ -169,10 +189,11 @@ def test_notify_disable_provider_skips_termux_call(monkeypatch, caplog):
     with caplog.at_level(logging.ERROR, logger="demon_lucy.lib.notifications"):
         result = notifications_mod.notify(
             "disabled",
-            config={
-                "sys_notification_provider": "disable",
-                "sys_notification_min_interval_seconds": 10.0,
-            },
+            args=_args(
+                {
+                    "sys_notification_provider": notifications_mod.NotificationProvider.DISABLE,
+                }
+            ),
         )
     assert result is False
     assert called["value"] is False
@@ -207,10 +228,11 @@ def test_notify_desktop_provider_uses_desktop_notifier(monkeypatch):
     result = notifications_mod.notify(
         "desktop notification",
         title="Demon Lucy",
-        config={
-            "sys_notification_provider": "desktop",
-            "sys_notification_min_interval_seconds": 10.0,
-        },
+        args=_args(
+            {
+                "sys_notification_provider": notifications_mod.NotificationProvider.DESKTOP,
+            }
+        ),
     )
 
     assert result is True
@@ -265,10 +287,11 @@ def test_notify_desktop_provider_logs_backend_false(monkeypatch, caplog):
         result = notifications_mod.notify(
             "desktop notification",
             title="Demon Lucy",
-            config={
-                "sys_notification_provider": "desktop",
-                "sys_notification_min_interval_seconds": 10.0,
-            },
+            args=_args(
+                {
+                    "sys_notification_provider": notifications_mod.NotificationProvider.DESKTOP,
+                }
+            ),
         )
 
     assert result is False
@@ -287,10 +310,11 @@ def test_notify_desktop_provider_logs_exception(monkeypatch, caplog):
         result = notifications_mod.notify(
             "desktop notification",
             title="Demon Lucy",
-            config={
-                "sys_notification_provider": "desktop",
-                "sys_notification_min_interval_seconds": 10.0,
-            },
+            args=_args(
+                {
+                    "sys_notification_provider": notifications_mod.NotificationProvider.DESKTOP,
+                }
+            ),
         )
 
     assert result is False
@@ -322,7 +346,7 @@ def test_notify_auto_provider_uses_termux_on_termux(monkeypatch):
     )
 
     result = notifications_mod.notify(
-        "auto termux", title="Demon Lucy", config=_AUTO_CONFIG
+        "auto termux", title="Demon Lucy", args=_AUTO_ARGS
     )
 
     assert result is True
@@ -347,7 +371,7 @@ def test_notify_auto_provider_uses_desktop_when_termux_missing(monkeypatch):
     )
 
     result = notifications_mod.notify(
-        "auto desktop", title="Demon Lucy", config=_AUTO_CONFIG
+        "auto desktop", title="Demon Lucy", args=_AUTO_ARGS
     )
 
     assert result is True

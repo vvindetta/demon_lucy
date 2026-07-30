@@ -4,6 +4,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TypeAlias
 
+from demon_lucy.lib.args.models import ParsedArgs
+
 
 @dataclass(frozen=True)
 class DynamicBlock:
@@ -21,6 +23,6 @@ class DynamicBlock:
 
 
 DynamicBlockRenderer: TypeAlias = Callable[
-    [DynamicBlock, str, Mapping[str, object]],
+    [DynamicBlock, str, ParsedArgs],
     str,
 ]

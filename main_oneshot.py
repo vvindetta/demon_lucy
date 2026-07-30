@@ -4,7 +4,6 @@ import logging
 import sys
 import time
 from enum import StrEnum
-from typing import Sequence
 
 from watchdog.events import (
     FileCreatedEvent,
@@ -15,14 +14,13 @@ from watchdog.events import (
     FileSystemEvent,
 )
 
-from demon_lucy.lib.args.parser import (
-    ArgTemplate,
+from demon_lucy.lib.args.models import (
+    KnownArg,
+    ParsedArgs,
     Template,
-    enum_value_text,
-    parse_args,
-    parse_enum_value,
-    setup_config_and_cli_args,
 )
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.args.sources import load_args
 from demon_lucy.lib.logfmt import (
     event_paths,
     ignore_summary,
@@ -49,32 +47,36 @@ class OneShotEvent(StrEnum):
 
 
 ONESHOT_STARTUP_TEMPLATE: Template = DEMON_LUCY_STARTUP_TEMPLATE + [
-    ArgTemplate(
-        name="--oneshot-event",
+    KnownArg(
+        name="oneshot-event",
         value_type=OneShotEvent,
         default=OneShotEvent.MODIFIED,
         description=(
             "Single event to trigger once. Allowed: created modified moved "
             "deleted opened."
         ),
+        required=False,
     ),
-    ArgTemplate(
-        name="--oneshot-paths",
+    KnownArg(
+        name="oneshot-paths",
         value_type=str,
         default=[],
         description="One or more file or directory paths to process in one-shot mode.",
+        required=False,
     ),
-    ArgTemplate(
-        name="--oneshot-move-src-path",
+    KnownArg(
+        name="oneshot-move-src-path",
         value_type=str,
         default="",
         description="Source path for moved event.",
+        required=False,
     ),
-    ArgTemplate(
-        name="--oneshot-move-dest-path",
+    KnownArg(
+        name="oneshot-move-dest-path",
         value_type=str,
         default="",
         description="Destination path for moved event.",
+        required=False,
     ),
 ]
 
@@ -95,17 +97,15 @@ def _build_event(
     return factories[event_name](src_path=src_path, is_synthetic=True)
 
 
-def _build_event_plan(config: dict) -> list[tuple[str, FileSystemEvent]]:
-    raw_event = config.get("oneshot_event", OneShotEvent.MODIFIED)
-    if "," in enum_value_text(raw_event):
-        raise ValueError(
-            "Only one --oneshot-event is supported. Use one of: created modified moved deleted opened."
-        )
-    event_name = parse_enum_value(OneShotEvent, raw_event)
+def _build_event_plan(args: ParsedArgs) -> list[tuple[str, FileSystemEvent]]:
+    event_name: OneShotEvent = args.require("oneshot-event").value
 
-    target_paths = [abs_expand_path(path_item) for path_item in config["oneshot_paths"]]
-    moved_src = str(config["oneshot_move_src_path"]).strip()
-    moved_dest = str(config["oneshot_move_dest_path"]).strip()
+    target_paths = [
+        abs_expand_path(path_item)
+        for path_item in args.require("oneshot-paths").value
+    ]
+    moved_src = args.require("oneshot-move-src-path").value.strip()
+    moved_dest = args.require("oneshot-move-dest-path").value.strip()
 
     if event_name is OneShotEvent.MOVED:
         if not moved_src or not moved_dest:
@@ -142,26 +142,78 @@ def _build_event_plan(config: dict) -> list[tuple[str, FileSystemEvent]]:
     return plan
 
 
-def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
-    configure_logging(config)
-    modules = select_demon_lucy_modules(
-        include_names=config["sys_modules"],
-        exclude_names=config["sys_modules_exclude"],
-    )
-    manager = ModuleManager(
+def _uses_cli_flow(args: ParsedArgs) -> bool:
+    if args.require("oneshot-paths").value:
+        return False
+    return args.require("oneshot-event").value is not OneShotEvent.MOVED
+
+
+def _run_cli_flow(
+    *,
+    manager: ModuleManager,
+    modules: list,
+    args: ParsedArgs,
+) -> int:
+    event_id = next_event_id()
+    log_startup_message(
+        run_mode="cli",
         modules=modules,
-        args=list(unknown_args),
-        system_config=config,
-        run_mode="oneshot",
+        args=args,
+        extra_items=[("flow", "cli")],
     )
 
-    plan = _build_event_plan(config)
+    started_at = time.monotonic()
+    status = "ok"
+    ignore_paths = None
+    modules_run = 0
+    logging.info(log_record("cli_run.start", id=event_id, mode="cli"))
+    try:
+        ignore_paths, modules_run = manager.run_cli(event_id=event_id)
+        if modules_run == 0:
+            raise ValueError(
+                "CLI run requires at least one module argument."
+            )
+    except Exception:
+        status = "error"
+        logging.error(log_record("cli_run.error", id=event_id, mode="cli"))
+        raise
+    finally:
+        changed_paths_count, changed_events_count = ignore_summary(ignore_paths)
+        logging.info(
+            log_record(
+                "cli_run.done",
+                id=event_id,
+                mode="cli",
+                status=status,
+                modules=modules_run,
+                changed_paths=changed_paths_count,
+                changed_events=changed_events_count,
+                duration_ms=(time.monotonic() - started_at) * 1000.0,
+            )
+        )
+
+    logging.info(
+        log_record(
+            "oneshot.done",
+            flow="cli",
+            modules=modules_run,
+        )
+    )
+    return 0
+
+
+def _run_event_flow(
+    *,
+    manager: ModuleManager,
+    modules: list,
+    args: ParsedArgs,
+) -> int:
+    plan = _build_event_plan(args)
     first_event_type = plan[0][1].event_type if plan else "none"
     log_startup_message(
         run_mode="oneshot",
         modules=modules,
-        config=config,
-        unknown_args=list(unknown_args),
+        args=args,
         extra_items=[
             ("events", len(plan)),
             ("event_type", first_event_type),
@@ -219,23 +271,58 @@ def run_oneshot(config: dict, unknown_args: Sequence[str]) -> int:
                 )
             )
 
-    logging.info(log_record("oneshot.done", events=len(plan), modules=len(modules)))
+    logging.info(
+        log_record(
+            "oneshot.done",
+            flow="event",
+            events=len(plan),
+            modules=len(modules),
+        )
+    )
     return 0
+
+
+def run_oneshot(
+    startup_args: ParsedArgs,
+) -> int:
+    configure_logging(startup_args)
+    modules = select_demon_lucy_modules(
+        include_names=startup_args.require("sys-modules").value,
+        exclude_names=startup_args.require("sys-modules-exclude").value,
+    )
+    use_cli_flow = _uses_cli_flow(startup_args)
+    manager = ModuleManager(
+        modules=modules,
+        startup_args=startup_args,
+        run_mode="cli" if use_cli_flow else "oneshot",
+    )
+
+    if use_cli_flow:
+        return _run_cli_flow(
+            manager=manager,
+            modules=modules,
+            args=startup_args,
+        )
+    return _run_event_flow(
+        manager=manager,
+        modules=modules,
+        args=startup_args,
+    )
 
 
 def main() -> int:
     try:
-        startup_args, _unknown_startup_args = parse_args(
+        initial_args = parse_args(
             template=ONESHOT_STARTUP_TEMPLATE,
             args=sys.argv[1:],
         )
-        config_path = startup_args.get("sys_config_path")
-        if isinstance(config_path, str) and config_path.strip():
-            run_config_migrations(config_path)
-        config, unknown_args = setup_config_and_cli_args(
+        config_path_arg = initial_args.find("sys-config-path")
+        if config_path_arg is not None:
+            run_config_migrations(config_path_arg.value)
+        startup_args = load_args(
             template=ONESHOT_STARTUP_TEMPLATE
         )
-        return run_oneshot(config=config, unknown_args=unknown_args)
+        return run_oneshot(startup_args=startup_args)
     except (ValueError, KeyError) as exc:
         logging.basicConfig(level=logging.ERROR, force=True)
         logging.error(log_record("runtime.config_error", error=exc))

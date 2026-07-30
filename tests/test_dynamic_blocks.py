@@ -7,10 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from demon_lucy.lib.args.parser import (
-    ArgTemplate,
-    normalize_template_params,
-)
+from demon_lucy.lib.args.models import ArgParam, KnownArg, ParsedArgs
+from demon_lucy.lib.args.parser import normalize_arg_params
 from demon_lucy.lib.dynamic_blocks.parser import (
     format_dynamic_block,
     format_fenced_body,
@@ -60,10 +58,10 @@ def test_parse_fenced_block_uses_arg_params_and_body_offsets() -> None:
 
 
 def test_format_block_shows_and_hides_enum_values() -> None:
-    arg_template = ArgTemplate(
-        name="--graph",
+    arg_template = KnownArg(
+        name="graph",
         params=(
-            ArgTemplate(
+            ArgParam(
                 name="period",
                 value_type=_Period,
                 default=_Period.YEAR,
@@ -95,25 +93,25 @@ def test_format_block_shows_and_hides_enum_values() -> None:
 
 def test_arg_template_normalizes_enum_values_and_defaults() -> None:
     params = (
-        ArgTemplate(name="source", required=True),
-        ArgTemplate(
+        ArgParam(name="source", required=True),
+        ArgParam(
             name="period",
             value_type=_Period,
             default=_Period.YEAR,
         ),
     )
 
-    assert normalize_template_params(
+    assert normalize_arg_params(
         {"source": " past.md ", "period": "WEEK"},
         params,
     ) == {"source": "past.md", "period": _Period.WEEK}
-    assert normalize_template_params(
+    assert normalize_arg_params(
         {"source": "past.md"},
         params,
     ) == {"source": "past.md", "period": _Period.YEAR}
 
     with pytest.raises(ValueError, match="unsupported.*period"):
-        normalize_template_params(
+        normalize_arg_params(
             {"source": "past.md", "period": "day"},
             params,
         )
@@ -238,34 +236,6 @@ def test_parse_accepts_empty_body_with_any_header_spacing(text: str) -> None:
     assert block.updated_timestamp is not None
 
 
-def test_refresh_normalizes_compact_legacy_metadata_and_empty_body() -> None:
-    text = (
-        "--- include begin ---\n"
-        "- source: test.md\n"
-        "updated: 2026.07.12 16:35\n"
-        "--- include end ---\n"
-    )
-
-    refreshed, changed = refresh_dynamic_blocks(
-        text=text,
-        target_path="note.md",
-        renderers={"include": lambda _block, _path, _config: "\tcontent"},
-        config={},
-    )
-
-    assert changed == 1
-    lines = refreshed.splitlines()
-    assert lines[0] == "--- include begin ---"
-    assert lines[1].startswith("- updated: ")
-    assert lines[2:] == [
-        "- source: test.md",
-        "",
-        "\tcontent",
-        "",
-        "--- include end ---",
-    ]
-
-
 def test_refresh_recovers_body_with_unclosed_code_fence() -> None:
     text = (
         "--- graph begin ---\n"
@@ -285,12 +255,12 @@ def test_refresh_recovers_body_with_unclosed_code_fence() -> None:
         text=text,
         target_path="graph.md",
         renderers={
-            "graph": lambda _block, _path, _config: format_fenced_body(
+            "graph": lambda _block, _path, _args: format_fenced_body(
                 "restored graph",
                 info="text",
             )
         },
-        config={},
+        args=ParsedArgs(),
     )
 
     assert changed == 1
@@ -313,9 +283,9 @@ def test_refresh_updates_same_arg_blocks_independently(tmp_path: Path) -> None:
         text=text,
         target_path=str(tmp_path / "note.md"),
         renderers={
-            "graph": lambda block, _path, _config: f"new {block.params['pattern']}"
+            "graph": lambda block, _path, _args: f"new {block.params['pattern']}"
         },
-        config={},
+        args=ParsedArgs(),
         event_id="evt-test",
     )
 
@@ -346,8 +316,8 @@ def test_refresh_preserves_update_time_when_rendered_body_is_unchanged(
     refreshed, changed = refresh_dynamic_blocks(
         text=text,
         target_path=str(tmp_path / "note.md"),
-        renderers={"example": lambda _block, _path, _config: "same body"},
-        config={},
+        renderers={"example": lambda _block, _path, _args: "same body"},
+        args=ParsedArgs(),
     )
 
     assert changed == 1
@@ -370,8 +340,8 @@ def test_refresh_sets_update_time_when_rendered_body_changes(tmp_path: Path) -> 
     refreshed, changed = refresh_dynamic_blocks(
         text=text,
         target_path=str(tmp_path / "note.md"),
-        renderers={"example": lambda _block, _path, _config: "new body"},
-        config={},
+        renderers={"example": lambda _block, _path, _args: "new body"},
+        args=ParsedArgs(),
     )
 
     assert changed == 1
@@ -398,7 +368,7 @@ def test_refresh_preserves_failed_unknown_and_successful_blocks(
         body="old",
     )
 
-    def render(block, _path: str, _config) -> str:
+    def render(block, _path: str, _args) -> str:
         if block.params["pattern"] == "fail":
             raise ValueError("invalid test block")
         return "new markdown"
@@ -407,7 +377,7 @@ def test_refresh_preserves_failed_unknown_and_successful_blocks(
         text=failed + unknown + good,
         target_path=str(tmp_path / "note.md"),
         renderers={"graph": render},
-        config={},
+        args=ParsedArgs(),
     )
 
     assert changed == 1
@@ -428,6 +398,6 @@ def test_refresh_raises_before_partial_change_on_invalid_structure() -> None:
         refresh_dynamic_blocks(
             text=valid + malformed,
             target_path="note.md",
-            renderers={"graph": lambda _block, _path, _config: "new"},
-            config={},
+            renderers={"graph": lambda _block, _path, _args: "new"},
+            args=ParsedArgs(),
         )

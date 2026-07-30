@@ -6,6 +6,7 @@ from typing import Dict
 
 from watchdog.events import FileSystemEventHandler
 
+from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.logfmt import (
     event_paths,
     ignore_summary,
@@ -27,7 +28,9 @@ class FileHandler(FileSystemEventHandler):
     ):
         self._ignore_paths: Dict[str, int] = {}
         self.modules = modules
-        self._move_ignore_dirs = self._move_ignore_dirs_from_config(self.modules.config)
+        self._move_ignore_dirs = self._move_ignore_dirs_from_args(
+            self.modules.args
+        )
         self._process_opened_events = process_opened_events
 
         # on_opened throttle (per file)
@@ -37,11 +40,11 @@ class FileHandler(FileSystemEventHandler):
         self._open_cache_max_entries = 4096
 
     @classmethod
-    def _move_ignore_dirs_from_config(cls, config: dict) -> list[str]:
+    def _move_ignore_dirs_from_args(cls, args: ParsedArgs) -> list[str]:
         raw_dirs: list[str] = []
-        for watch_path in config["sys_watch_paths"]:
+        for watch_path in args.require("sys-watch-paths").value:
             watch_root = canonical_path(watch_path)
-            for ignore_path in config["sys_ignore_move_paths"]:
+            for ignore_path in args.require("sys-ignore-move-paths").value:
                 raw_path = str(ignore_path).strip()
                 if not raw_path:
                     continue

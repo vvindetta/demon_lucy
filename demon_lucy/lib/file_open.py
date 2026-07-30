@@ -3,7 +3,7 @@ from __future__ import annotations
 import errno
 import os
 
-from demon_lucy.lib.runtime_system import RuntimeSystem
+from demon_lucy.lib.operating_system import OperatingSystem
 
 
 def _open_windows_file_no_follow(path_value: str, flags: int) -> int:
@@ -132,13 +132,13 @@ def open_file_no_follow(
     path_value: str,
     flags: int,
     *,
-    runtime_system: RuntimeSystem,
+    operating_system: OperatingSystem,
     mode: int = 0o666,
 ) -> int:
     if flags & os.O_TRUNC:
         raise ValueError("truncate only after validating the opened file")
 
-    if runtime_system == "windows":
+    if operating_system == "windows":
         return _open_windows_file_no_follow(path_value, flags)
 
     no_follow_flag = getattr(os, "O_NOFOLLOW", None)

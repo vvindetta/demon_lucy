@@ -3,22 +3,19 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Mapping
+from enum import Enum
 
-from demon_lucy.lib.args.parser import (
-    ArgTemplate,
-    enum_value_text,
-    template_allowed_values,
-)
+from demon_lucy.lib.args.models import KnownArg
+from demon_lucy.lib.args.parser import ARG_NAME_PATTERN
 from demon_lucy.lib.dynamic_blocks import metadata
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlock
 from demon_lucy.lib.text_file import normalize_newlines
 
 
-_ARG_PATTERN = r"[a-z][a-z0-9-]*"
-_BEGIN_RE = re.compile(rf"^--- (?P<arg>{_ARG_PATTERN}) begin ---[ \t]*$")
-_END_RE = re.compile(rf"^--- (?P<arg>{_ARG_PATTERN}) end ---[ \t]*$")
+_BEGIN_RE = re.compile(rf"^--- (?P<arg>{ARG_NAME_PATTERN}) begin ---[ \t]*$")
+_END_RE = re.compile(rf"^--- (?P<arg>{ARG_NAME_PATTERN}) end ---[ \t]*$")
 _PARAM_RE = re.compile(
-    r"^- (?P<key>[a-z][a-z0-9-]*)"
+    rf"^- (?P<key>{ARG_NAME_PATTERN})"
     r"(?: \[(?P<allowed_values>[^\]\r\n]+)\])?:(?P<value>.*)$"
 )
 _FENCE_RE = re.compile(r"^(?P<ticks>`{3,})(?P<info>[^`]*)$")
@@ -56,15 +53,6 @@ def _parse_header(
 
         match = _PARAM_RE.fullmatch(content)
         if match is None:
-            legacy_prefix = "updated:"
-            if content.startswith(legacy_prefix):
-                if updated_timestamp is not None:
-                    raise ValueError(f"line {index + 1}: duplicate updated metadata")
-                updated_timestamp = metadata.parse_updated_timestamp(
-                    content[len(legacy_prefix) :].strip()
-                )
-                index += 1
-                continue
             return params, tuple(raw_params), updated_timestamp, index
 
         key = match.group("key")
@@ -98,7 +86,14 @@ def _find_body(
     while index < len(lines):
         content = _without_newline(lines[index])
         end_match = _END_RE.fullmatch(content)
-        if end_match is not None and end_match.group("arg") == arg:
+        if end_match is not None and (
+            closing_fence is None or end_match.group("arg") == arg
+        ):
+            if end_match.group("arg") != arg:
+                raise ValueError(
+                    f"line {index + 1}: end marker '{end_match.group('arg')}' "
+                    f"does not match '{arg}'"
+                )
             break
 
         if closing_fence is not None:
@@ -119,14 +114,6 @@ def _find_body(
             raise ValueError(
                 f"line {index + 1}: nested block '{nested.group('arg')}' is not allowed"
             )
-
-        if end_match is not None:
-            if end_match.group("arg") != arg:
-                raise ValueError(
-                    f"line {index + 1}: end marker '{end_match.group('arg')}' "
-                    f"does not match '{arg}'"
-                )
-            break
         index += 1
 
     if index >= len(lines):
@@ -266,20 +253,24 @@ def format_dynamic_block(
     arg: str,
     params: Mapping[str, object],
     body: str,
-    arg_template: ArgTemplate | None = None,
+    arg_template: KnownArg | None = None,
     show_allowed_values: bool = True,
     newline: str = "\n",
     updated_timestamp: float | None = None,
 ) -> str:
-    if re.fullmatch(_ARG_PATTERN, arg) is None:
+    if re.fullmatch(ARG_NAME_PATTERN, arg) is None:
         raise ValueError(f"invalid dynamic block arg: {arg}")
     raw_params: list[str] = []
     for key, raw_value in params.items():
-        if re.fullmatch(r"[a-z][a-z0-9-]*", key) is None:
+        if re.fullmatch(ARG_NAME_PATTERN, key) is None:
             raise ValueError(f"invalid dynamic block parameter: {key}")
         if key == "updated":
             raise ValueError("dynamic block parameter 'updated' is reserved")
-        value = enum_value_text(raw_value)
+        value = str(
+            raw_value.value
+            if isinstance(raw_value, Enum)
+            else raw_value
+        )
         if "\n" in value or "\r" in value:
             raise ValueError(f"multiline dynamic block parameter: {key}")
         label = key
@@ -289,7 +280,11 @@ def format_dynamic_block(
                 (item for item in arg_template.params if item.name == key),
                 None,
             )
-        allowed_values = template_allowed_values(param) if param is not None else ()
+        allowed_values = (
+            tuple(str(member.value) for member in param.value_type)
+            if param is not None and issubclass(param.value_type, Enum)
+            else ()
+        )
         if show_allowed_values and allowed_values:
             if any(
                 not allowed or any(char in allowed for char in "|]\r\n")
@@ -299,9 +294,8 @@ def format_dynamic_block(
             label += f" [{'|'.join(allowed_values)}]"
         raw_params.append(f"- {label}: {value}")
 
-    now_timestamp = time.time()
     if updated_timestamp is None:
-        updated_timestamp = now_timestamp
+        updated_timestamp = time.time()
     section = format_dynamic_block_section(
         raw_params=tuple(raw_params),
         body=body,

@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 from watchdog.events import FileModifiedEvent
 
-from demon_lucy.lib.args.parser import ArgTemplate, Template
+from demon_lucy.lib.args.models import (
+    ArgSource,
+    KnownArg,
+    ParsedArgs,
+    Template,
+)
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 
 
@@ -21,7 +26,7 @@ def test_default_module_priority_is_15():
 )
 def test_default_module_hooks_are_noops(hook_name: str):
     module = DemoModule()
-    ctx = Context(path="/tmp/x", config={}, arg_lines={})
+    ctx = Context(path="/tmp/x", args=ParsedArgs())
     system = System(
         event=FileModifiedEvent("/tmp/x"), global_template=[], modules=[module]
     )
@@ -33,12 +38,25 @@ def test_default_module_hooks_are_noops(hook_name: str):
 def test_context_and_system_dataclasses_keep_values():
     module = DemoModule()
     event = FileModifiedEvent("/tmp/file")
-    template: Template = [ArgTemplate(name="--x")]
-    ctx = Context(path="/tmp/file", config={"x": ["1"]}, arg_lines={"x": [1]})
+    template: Template = [KnownArg(name="x")]
+    parsed_args = ParsedArgs(
+        known=(
+            KnownArg(
+                name="x",
+                value=["1"],
+                source=ArgSource.FILE,
+                lines=(1,),
+            ),
+        )
+    )
+    ctx = Context(path="/tmp/file", args=parsed_args)
     system = System(event=event, global_template=template, modules=[module])
 
     assert ctx.path == "/tmp/file"
-    assert ctx.config["x"] == ["1"]
+    assert ctx.args is parsed_args
+    assert ctx.args.require("x").value == ["1"]
+    assert ctx.args.require("x").source is ArgSource.FILE
+    assert ctx.args.require("x").lines == (1,)
     assert system.event is event
     assert system.global_template == template
     assert system.modules == [module]

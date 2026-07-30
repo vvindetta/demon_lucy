@@ -9,7 +9,8 @@ watchdog file events.
 - `main_daemon.py`: long-running watcher. Parses startup config, selects modules,
   creates `ModuleManager`, and schedules `FileHandler` for `--sys-watch-paths`.
 - `main_oneshot.py`: synthetic single-run entry point for created/modified/moved/
-  deleted/opened events. Useful for scripts, systemd timers, and Termux.
+  deleted/opened events and direct CLI module runs without a target file.
+  Useful for scripts, systemd timers, and Termux.
 - `demon_lucy/runtime.py`: startup template, config migration hook, logging,
   module selection, module include/exclude validation, startup log line.
 - `demon_lucy/file_handler.py`: watchdog event filtering, `.git`/dotfile skips,
@@ -20,13 +21,16 @@ watchdog file events.
   modules, merges defaults/system config/file flags, sorts by priority, runs
   event handlers, and refreshes registered dynamic blocks afterward.
 - `demon_lucy/modules/abstract_module.py`: module contract (`created`,
-  `modified`, `moved`, `deleted`, `opened`) plus `Context` and `System`.
+  `modified`, `moved`, `deleted`, `opened`) plus `Context` with resolved
+  `ParsedArgs` and runtime `System`.
 
 ## Core Helpers
 
-- `demon_lucy/lib/args/parser.py`: recursive `ArgTemplate` definitions,
-  argparse setup, nested parameter normalization, config-file parsing,
-  per-note flag parsing, and config/CLI merge helpers.
+- `demon_lucy/lib/args/models.py`: argument schemas and parsed runtime models.
+- `demon_lucy/lib/args/parser.py`: tokenization, Enum conversion, parameter
+  normalization, and parsing tokens into models.
+- `demon_lucy/lib/args/sources.py`: config, note, and CLI argument sources and
+  their merge order.
 - `demon_lucy/lib/args/line_edit.py`: reusable arg-segment helpers and flag
   deletion from note lines.
 - `demon_lucy/lib/ascii_art.py`: reusable Demon Lucy ASCII art.
@@ -45,7 +49,7 @@ watchdog file events.
   UTF-8 text replacement with mode preservation.
 - `demon_lucy/lib/dynamic_blocks/`: parsing, serialization, and pure-text
   refresh of `--- <arg> begin ---` generated blocks; parameter schemas come
-  from the owning module's main `ArgTemplate`.
+  from the owning module's main `KnownArg`.
 - `demon_lucy/migrations/`: class-based config migration modules. `__init__.py`
   owns the sync `Migration` interface, config-file migration methods using
   `lib.args.line_edit` arg-segment helpers, and the `MIGRATIONS` registry.

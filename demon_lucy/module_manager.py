@@ -5,24 +5,31 @@ from typing import Dict, List
 
 from watchdog.events import FileSystemEvent
 
-from demon_lucy.lib.args.parser import (
-    ArgTemplate,
+from demon_lucy.lib.args.models import (
+    ArgSource,
+    KnownArg,
+    ParsedArgs,
     Template,
-    flag_to_dest,
-    get_args_from_file,
-    merge_known_args,
-    parse_args,
 )
+from demon_lucy.lib.args.parser import (
+    parse_args,
+    resolve_unknown_args,
+)
+from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.logfmt import ignore_summary, log_record, next_event_id
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path, path_is_inside
-from demon_lucy.lib.runtime_system import RuntimeSystem, detect_runtime_system
+from demon_lucy.lib.operating_system import (
+    OperatingSystem,
+    detect_operating_system,
+)
 from demon_lucy.lib.text_file import write_text_atomic
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlockRenderer
 from demon_lucy.lib.dynamic_blocks.refresh import refresh_dynamic_blocks
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
+    IgnoreMap,
     RunMode,
     System,
 )
@@ -35,20 +42,19 @@ class ModuleManager:
     def __init__(
         self,
         modules: List[AbstractModule],
-        args,
-        system_config: dict,
+        startup_args: ParsedArgs,
         run_mode: RunMode = "daemon",
     ):
         self.modules = modules
         self.run_mode: RunMode = run_mode
-        self.runtime_system: RuntimeSystem = detect_runtime_system()
+        self.operating_system: OperatingSystem = detect_operating_system()
         self.runtime_started_at_monotonic = time.monotonic()
         self.dynamic_block_renderers = self._collect_dynamic_block_renderers(
             self.modules
         )
         self.template: Template = [
-            ArgTemplate(
-                name="--sys-modules-priority",
+            KnownArg(
+                name="sys-modules-priority",
                 value_type=str,
                 default=[],
                 description="Override module execution order (lower runs first). "
@@ -61,23 +67,39 @@ class ModuleManager:
         for module in self.modules:
             self.template.extend(module.template)
 
-        template_defaults, _ = parse_args(args=[], template=self.template)
-        inherited_system_config = dict(system_config)
-        explicit_args, _ = parse_args(
-            args=args,
+        template_defaults = parse_args(
+            args=[],
             template=self.template,
-            include_defaults=False,
         )
-        self.config = merge_known_args(
-            args=template_defaults,
-            overwrite_args=inherited_system_config,
+        config_module_args = resolve_unknown_args(
+            args=startup_args.unknown_from(ArgSource.CONFIG),
+            template=self.template,
         )
-        self.config = merge_known_args(
-            args=self.config,
-            overwrite_args=explicit_args,
+        explicit_args = resolve_unknown_args(
+            args=startup_args.unknown_from(ArgSource.CLI),
+            template=self.template,
         )
-        priority_dict = self._parse_priority_list(self.config["sys_modules_priority"])
+        merged_args = template_defaults.merged_with(
+            ParsedArgs(
+                known=startup_args.known,
+            ),
+        )
+        merged_args = merged_args.merged_with(config_module_args)
+        merged_args = merged_args.merged_with(explicit_args)
+        self.args = merged_args
+        priority_dict = self._parse_priority_list(
+            self.args.require("sys-modules-priority").value
+        )
         self.modules.sort(key=lambda m: priority_dict.get(m.name, m.priority))
+
+    @staticmethod
+    def _merge_ignore_map(target: IgnoreMap, item: IgnoreMap | None) -> None:
+        if not item:
+            return
+        for changed_path, times in item.items():
+            if not times:
+                continue
+            target[changed_path] = target.get(changed_path, 0) + int(times)
 
     @staticmethod
     def _collect_dynamic_block_renderers(
@@ -102,7 +124,7 @@ class ModuleManager:
         path: str,
         event_id: str,
         event_type: str,
-        config: dict,
+        args: ParsedArgs,
     ) -> bool:
         if event_type not in {"created", "modified", "moved"}:
             return False
@@ -131,7 +153,7 @@ class ModuleManager:
                 text=text,
                 target_path=path,
                 renderers=self.dynamic_block_renderers,
-                config=config,
+                args=args,
                 event_id=event_id,
             )
         except ValueError as exc:
@@ -162,7 +184,7 @@ class ModuleManager:
             safe_notify(
                 f"dynamic-block-write:{path}",
                 f"Dynamic block write failed for {path}: {exc}",
-                config=config,
+                args=args,
                 use_rare_mode=True,
             )
             return False
@@ -178,8 +200,8 @@ class ModuleManager:
         return True
 
     def _is_blacklisted_path(self, path: str, values: list[str]) -> bool:
-        for value in values or []:
-            raw_value = str(value).strip()
+        for value in values:
+            raw_value = value.strip()
             if not raw_value:
                 continue
             if path_is_inside(path, raw_value):
@@ -189,23 +211,19 @@ class ModuleManager:
     def _module_missing_required_flags(
         self,
         module: AbstractModule,
-        config: dict,
+        parsed_args: ParsedArgs,
     ) -> list[str]:
-        missing_flags: list[str] = []
+        missing: list[str] = []
         for item in module.template:
-            if not item.required:
-                continue
-            dest = flag_to_dest(item.name)
-            value = config.get(dest)
-            if value is None:
-                missing_flags.append(item.name)
-                continue
-            if isinstance(value, str) and not value.strip():
-                missing_flags.append(item.name)
-                continue
-            if isinstance(value, list) and len(value) == 0:
-                missing_flags.append(item.name)
-        return missing_flags
+            value = parsed_args.require(item.name).value
+            if item.required and (
+                value is None
+                or value is False
+                or isinstance(value, str) and not value.strip()
+                or isinstance(value, list) and not value
+            ):
+                missing.append(item.name)
+        return missing
 
     def _next_context_path(
         self,
@@ -237,7 +255,10 @@ class ModuleManager:
         event_id = event_id or next_event_id()
         event_type = str(event.event_type)
 
-        if self._is_blacklisted_path(path, self.config["sys_ignore_paths"]):
+        if self._is_blacklisted_path(
+            path,
+            self.args.require("sys-ignore-paths").value,
+        ):
             logger.info(
                 log_record(
                     "event.skip",
@@ -251,17 +272,14 @@ class ModuleManager:
 
         current_path = canonical_path(path)
 
-        def _update_config(config_path: str):
-            known_args, _, arg_lines = get_args_from_file(
+        def _update_args(config_path: str) -> ParsedArgs:
+            file_args = parse_note_args(
                 path=config_path,
                 template=self.template,
             )
-            merged_known_args = merge_known_args(
-                args=self.config, overwrite_args=known_args
-            )
-            return merged_known_args, arg_lines
+            return self.args.merged_with(file_args)
 
-        config, arg_lines = _update_config(current_path)
+        parsed_args = _update_args(current_path)
 
         ignore_paths: Dict[str, int] = {}
 
@@ -269,7 +287,10 @@ class ModuleManager:
             if event.event_type not in module.__class__.__dict__:  # not from parent
                 continue
 
-            missing_required = self._module_missing_required_flags(module, config)
+            missing_required = self._module_missing_required_flags(
+                module,
+                parsed_args,
+            )
             if missing_required:
                 missing_text = ", ".join(missing_required)
                 message = f"Skipping module '{module.name}': missing required args: {missing_text}"
@@ -287,7 +308,7 @@ class ModuleManager:
                 safe_notify(
                     f"module_missing_required:{module.name}",
                     message,
-                    config=config,
+                    args=parsed_args,
                     use_rare_mode=True,
                 )
                 continue
@@ -308,16 +329,15 @@ class ModuleManager:
                 event_ignore = action(
                     Context(
                         path=current_path,
-                        config=config,
-                        arg_lines=arg_lines,
-                    ),
-                    System(
-                        event=event,
-                        global_template=self.template,
-                        modules=self.modules,
+                        args=parsed_args,
                         run_mode=self.run_mode,
                         event_id=event_id,
-                        runtime_system=self.runtime_system,
+                        event=event,
+                    ),
+                    System(
+                        global_template=self.template,
+                        modules=self.modules,
+                        operating_system=self.operating_system,
                         runtime_started_at_monotonic=self.runtime_started_at_monotonic,
                     ),
                 )
@@ -349,25 +369,127 @@ class ModuleManager:
             )
 
             if event_ignore:
-                for changed_path, times in event_ignore.items():
-                    if not times:
-                        continue
-                    ignore_paths[changed_path] = ignore_paths.get(
-                        changed_path, 0
-                    ) + int(times)
+                self._merge_ignore_map(ignore_paths, event_ignore)
 
                 current_path = self._next_context_path(current_path, event_ignore)
-                config, arg_lines = _update_config(current_path)
+                parsed_args = _update_args(current_path)
 
         if self._refresh_dynamic_blocks(
             path=current_path,
             event_id=event_id,
             event_type=event_type,
-            config=config,
+            args=parsed_args,
         ):
             ignore_paths[current_path] = ignore_paths.get(current_path, 0) + 1
 
         return ignore_paths or None
+
+    def run_cli(
+        self,
+        event_id: str | None = None,
+    ) -> tuple[IgnoreMap | None, int]:
+        event_id = event_id or next_event_id()
+        cwd = canonical_path(os.getcwd())
+        ignore_paths: IgnoreMap = {}
+        modules_run = 0
+
+        for module in self.modules:
+            if type(module).cli is AbstractModule.cli:
+                continue
+
+            cli_args = [
+                argument
+                for item in module.template
+                if (argument := self.args.find(item.name)) is not None
+                and argument.source is ArgSource.CLI
+            ]
+            if not cli_args:
+                continue
+
+            missing_required = self._module_missing_required_flags(
+                module,
+                self.args,
+            )
+            if missing_required:
+                missing_text = ", ".join(missing_required)
+                logger.error(
+                    log_record(
+                        "module.skip",
+                        id=event_id,
+                        module=module.name,
+                        mode="cli",
+                        reason="missing_required_args",
+                        missing=missing_text,
+                        path=cwd,
+                    )
+                )
+                safe_notify(
+                    f"module_missing_required:{module.name}",
+                    f"Skipping module '{module.name}': "
+                    f"missing required args: {missing_text}",
+                    args=self.args,
+                    use_rare_mode=True,
+                )
+                continue
+
+            logger.info(
+                log_record(
+                    "module.start",
+                    id=event_id,
+                    module=module.name,
+                    mode="cli",
+                    args=[argument.name for argument in cli_args],
+                    path=cwd,
+                )
+            )
+            started_at = time.monotonic()
+            modules_run += 1
+            try:
+                module_ignore = module.cli(
+                    Context(
+                        path=cwd,
+                        args=self.args,
+                        run_mode="cli",
+                        event_id=event_id,
+                    ),
+                    System(
+                        global_template=self.template,
+                        modules=self.modules,
+                        operating_system=self.operating_system,
+                        runtime_started_at_monotonic=self.runtime_started_at_monotonic,
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    log_record(
+                        "module.error",
+                        id=event_id,
+                        module=module.name,
+                        mode="cli",
+                        path=cwd,
+                        duration_ms=(time.monotonic() - started_at) * 1000.0,
+                    )
+                )
+                raise
+
+            changed_paths_count, changed_events_count = ignore_summary(
+                module_ignore
+            )
+            logger.info(
+                log_record(
+                    "module.done",
+                    id=event_id,
+                    module=module.name,
+                    mode="cli",
+                    path=cwd,
+                    changed_paths=changed_paths_count,
+                    changed_events=changed_events_count,
+                    duration_ms=(time.monotonic() - started_at) * 1000.0,
+                )
+            )
+            self._merge_ignore_map(ignore_paths, module_ignore)
+
+        return ignore_paths or None, modules_run
 
     def _parse_priority_list(self, values: List[str]) -> Dict[str, int]:
         """

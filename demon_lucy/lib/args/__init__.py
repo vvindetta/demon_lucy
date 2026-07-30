@@ -1,1 +1,1 @@
-"""Argument helper package. Import parser or line_edit helpers directly."""
+"""Argument parsing package."""

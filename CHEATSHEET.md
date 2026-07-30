@@ -55,7 +55,7 @@ Used by `main_oneshot.py`.
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--oneshot-event` | `str` | Synthetic event to run once: `created`, `modified`, `moved`, `deleted`, `opened`. |
-| `--oneshot-paths` | `str[]` | File or directory paths to process. Required unless event is `moved`. |
+| `--oneshot-paths` | `str[]` | File or directory paths to process. Omit for a direct CLI module run or a `moved` event. |
 | `--oneshot-move-src-path` | `str` | Source path for a synthetic `moved` event. |
 | `--oneshot-move-dest-path` | `str` | Destination path for a synthetic `moved` event. |
 
@@ -63,9 +63,14 @@ Examples:
 
 ```text
 python3 main_oneshot.py --oneshot-event modified --oneshot-paths ~/Notes
+python3 main_oneshot.py --oneshot-event modified --oneshot-paths ~/Notes/note.md --banner Hello
 python3 main_oneshot.py --oneshot-event modified --oneshot-paths ~/Notes --sys-modules git
+python3 main_oneshot.py --workspace-init ~/Notes
 python3 main_oneshot.py --oneshot-event moved --oneshot-move-src-path old.md --oneshot-move-dest-path new.md
 ```
+
+Without `--oneshot-paths`, module arguments supplied on the CLI run their
+module directly with the current working directory as `Context.path`.
 
 ## Module Manager Args
 

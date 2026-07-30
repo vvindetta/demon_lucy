@@ -4,38 +4,37 @@ import time
 from abc import ABC
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+from typing import Literal
 
 from watchdog.events import FileSystemEvent
 
-from demon_lucy.lib.args.parser import Template
-from demon_lucy.lib.runtime_system import RuntimeSystem, detect_runtime_system
+from demon_lucy.lib.args.models import ParsedArgs, Template
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlockRenderer
+from demon_lucy.lib.operating_system import (
+    OperatingSystem,
+    detect_operating_system,
+)
 
-IgnoreMap = Dict[str, int]
-RunMode = Literal["daemon", "oneshot"]
+IgnoreMap = dict[str, int]
+RunMode = Literal["daemon", "oneshot", "cli"]
 
 
 @dataclass(frozen=True)
 class System:
     """
-    Runtime system info.
+    Shared Lucy runtime services and state.
 
-    - event: watchdog event that triggered the run
-    - event_id: short id shared by logs from the same event block
     - global_template: full args template used by ModuleManager
     - modules: ordered module instances in the pipeline
-    - run_mode: runtime mode ("daemon" or "oneshot")
-    - runtime_system: detected system ("linux", "macos", "windows", or "other")
+    - operating_system: detected OS ("linux", "macos", "windows", or "other")
     - runtime_started_at_monotonic: monotonic time when this Lucy runtime started
     """
 
-    event: FileSystemEvent
     global_template: Template
-    modules: List["AbstractModule"]
-    run_mode: RunMode = "daemon"
-    event_id: str = ""
-    runtime_system: RuntimeSystem = field(default_factory=detect_runtime_system)
+    modules: list["AbstractModule"]
+    operating_system: OperatingSystem = field(
+        default_factory=detect_operating_system
+    )
     runtime_started_at_monotonic: float = field(default_factory=time.monotonic)
 
 
@@ -44,23 +43,26 @@ class Context:
     """
     Module input for one run.
 
-    - path: absolute file path (event.src_path; for moved = event.dest_path)
-    - config: resolved args for this file (global + file flags; includes defaults)
-    - arg_lines: arg -> 1-based line numbers where it appeared in the file
-    - system: runtime info (see class System)
+    - path: event file path, or working directory for a direct CLI run
+    - args: resolved arguments with their values, sources, and line numbers
+    - run_mode: runtime mode ("daemon", "oneshot", or "cli")
+    - event_id: short id shared by logs from the same run
+    - event: watchdog event that triggered the run; absent for direct CLI runs
     """
 
     path: str
-    config: dict
-    arg_lines: dict
+    args: ParsedArgs
+    run_mode: RunMode
+    event_id: str
+    event: FileSystemEvent | None = None
 
 
 class AbstractModule(ABC):
     """
     Base interface for all processing modules.
 
-    Every module optionally handles events:
-    - created, modified, moved, deleted, opened
+    Every module optionally handles events and direct CLI runs:
+    - created, modified, moved, deleted, opened, cli
 
     Return value
     - None:
@@ -78,19 +80,19 @@ class AbstractModule(ABC):
 
     - example:
         [
-            ArgTemplate(
-                name="--rename",
+            KnownArg(
+                name="rename",
                 value_type=str,
                 description="Will rename file",
             ),
-            ArgTemplate(
-                name="--banner",
+            KnownArg(
+                name="banner",
                 value_type=str,
                 default="date",
                 description="Draws ASCII banner",
             ),
-            ArgTemplate(
-                name="--tags",
+            KnownArg(
+                name="tags",
                 value_type=str,
                 default=[],
                 description="Multi-value argument",
@@ -103,17 +105,20 @@ class AbstractModule(ABC):
     template: Template = []
     dynamic_block_renderers: Mapping[str, DynamicBlockRenderer] = {}
 
-    def created(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def created(self, ctx: Context, system: System) -> IgnoreMap | None:
         return None
 
-    def modified(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def modified(self, ctx: Context, system: System) -> IgnoreMap | None:
         return None
 
-    def moved(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def moved(self, ctx: Context, system: System) -> IgnoreMap | None:
         return None
 
-    def deleted(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def deleted(self, ctx: Context, system: System) -> IgnoreMap | None:
         return None
 
-    def opened(self, ctx: Context, system: System) -> Optional[IgnoreMap]:
+    def opened(self, ctx: Context, system: System) -> IgnoreMap | None:
+        return None
+
+    def cli(self, ctx: Context, system: System) -> IgnoreMap | None:
         return None

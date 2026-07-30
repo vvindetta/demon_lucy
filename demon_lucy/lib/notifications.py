@@ -8,16 +8,15 @@ import threading
 import time
 from collections import deque
 from enum import StrEnum
-from typing import Any, Dict, Mapping
 
-from demon_lucy.lib.args.parser import parse_enum_value
+from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.logfmt import log_record
 
 logger = logging.getLogger(__name__)
 
-_NOTIFY_LAST: Dict[str, float] = {}
-_ERROR_NOTIFY_LAST: Dict[str, float] = {}
-_ERROR_NOTIFY_LEVEL: Dict[str, int] = {}
+_NOTIFY_LAST: dict[str, float] = {}
+_ERROR_NOTIFY_LAST: dict[str, float] = {}
+_ERROR_NOTIFY_LEVEL: dict[str, int] = {}
 _ERROR_NOTIFY_HISTORY: deque[float] = deque()
 _NOTIFY_STATE_LOCK = threading.Lock()
 DEFAULT_NOTIFICATION_ICON_PATH = os.path.abspath(
@@ -38,12 +37,11 @@ def _prune_error_notify_history(now: float, window_seconds: float) -> None:
 
 
 def _resolve_notification_provider(
-    config: Mapping[str, Any],
+    args: ParsedArgs,
 ) -> NotificationProvider:
-    provider = parse_enum_value(
-        NotificationProvider,
-        config["sys_notification_provider"],
-    )
+    provider: NotificationProvider = args.require(
+        "sys-notification-provider"
+    ).value
     if provider is not NotificationProvider.AUTO:
         return provider
     if shutil.which("termux-notification"):
@@ -88,7 +86,7 @@ def safe_notify(
     name: str,
     message: str,
     *,
-    config: Mapping[str, Any],
+    args: ParsedArgs,
     title: str = "Demon Lucy Note Manager",
     icon_path: str = DEFAULT_NOTIFICATION_ICON_PATH,
     use_rare_mode: bool = True,
@@ -100,26 +98,35 @@ def safe_notify(
     - Otherwise calls notify(message=...) and returns whether backend accepted it.
     - Rare mode supports exponential backoff + burst window limit.
     """
-    min_interval_seconds = max(0.0, config["sys_notification_min_interval_seconds"])
+    min_interval_seconds = max(
+        0.0,
+        args.require("sys-notification-min-interval-seconds").value,
+    )
     now = time.time()
 
     with _NOTIFY_STATE_LOCK:
         if use_rare_mode:
             backoff_base_seconds = max(
                 min_interval_seconds,
-                config["sys_notification_error_backoff_base_seconds"],
+                args.require(
+                    "sys-notification-error-backoff-base-seconds"
+                ).value,
             )
             backoff_max_seconds = max(
                 backoff_base_seconds,
-                config["sys_notification_error_backoff_max_seconds"],
+                args.require(
+                    "sys-notification-error-backoff-max-seconds"
+                ).value,
             )
             burst_limit = max(
                 0,
-                config["sys_notification_error_burst_limit"],
+                args.require("sys-notification-error-burst-limit").value,
             )
             burst_window_seconds = max(
                 0.0,
-                config["sys_notification_error_burst_window_seconds"],
+                args.require(
+                    "sys-notification-error-burst-window-seconds"
+                ).value,
             )
 
             if burst_limit > 0 and burst_window_seconds > 0.0:
@@ -146,7 +153,7 @@ def safe_notify(
                 return False
             _NOTIFY_LAST[name] = now
 
-    return notify(message=message, title=title, icon_path=icon_path, config=config)
+    return notify(message=message, title=title, icon_path=icon_path, args=args)
 
 
 def notify(
@@ -154,23 +161,13 @@ def notify(
     title: str = "Demon Lucy Note Manager",
     *,
     icon_path: str = DEFAULT_NOTIFICATION_ICON_PATH,
-    config: Mapping[str, Any],
+    args: ParsedArgs,
 ) -> bool:
     """
     Send a notification via configured provider.
     Returns whether the backend accepted it and logs failed delivery attempts.
     """
-    try:
-        provider = _resolve_notification_provider(config)
-    except ValueError:
-        logger.error(
-            log_record(
-                "notification.failed",
-                provider=config["sys_notification_provider"],
-                reason="unsupported_provider",
-            )
-        )
-        return False
+    provider = _resolve_notification_provider(args)
 
     try:
         if provider is NotificationProvider.DESKTOP:

@@ -69,52 +69,70 @@ def test_select_demon_lucy_modules_can_return_empty_after_unknown_include(caplog
 
 
 def test_sys_modules_default_is_defined_in_startup_template():
-    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
-    assert known_args["sys_modules"]
-    assert "alias" in known_args["sys_modules"]
-    assert "workspace" in known_args["sys_modules"]
-    assert "graph" in known_args["sys_modules"]
-    assert "include" in known_args["sys_modules"]
-    assert "ai" not in known_args["sys_modules"]
-    assert "status" in known_args["sys_modules"]
+    parsed = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+    modules = parsed.require("sys-modules").value
+    assert modules
+    assert "alias" in modules
+    assert "workspace" in modules
+    assert "graph" in modules
+    assert "include" in modules
+    assert "ai" not in modules
+    assert "status" in modules
 
 
 def test_fixed_system_string_domains_use_enums():
-    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+    parsed = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
 
-    assert known_args["sys_log_level"] is LogLevel.WARNING
-    assert known_args["sys_notification_provider"] is NotificationProvider.AUTO
+    assert parsed.require("sys-log-level").value is LogLevel.WARNING
+    assert (
+        parsed.require("sys-notification-provider").value
+        is NotificationProvider.AUTO
+    )
 
 
 def test_startup_template_system_flags_use_sys_prefix():
     flags = [item.name for item in DEMON_LUCY_STARTUP_TEMPLATE]
 
     assert flags
-    assert all(flag.startswith("--sys-") for flag in flags)
+    assert all(flag.startswith("sys-") for flag in flags)
 
 
 def test_voice_module_is_available_only_when_requested():
     requested = select_demon_lucy_modules(include_names=["voice"])
-    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
-    default_modules = select_demon_lucy_modules(include_names=known_args["sys_modules"])
+    parsed = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+    default_modules = select_demon_lucy_modules(
+        include_names=parsed.require("sys-modules").value
+    )
 
     assert _module_names(requested) == ["voice"]
     assert "voice" not in _module_names(default_modules)
 
 
 def test_sys_ignore_move_paths_default_is_defined_in_startup_template():
-    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
-    assert known_args["sys_ignore_move_paths"] == [".status"]
+    parsed = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+    assert parsed.require("sys-ignore-move-paths").value == [".status"]
 
 
 def test_dynamic_block_allowed_values_are_visible_by_default():
-    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+    parsed = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
 
-    assert known_args["sys_dynamic_block_hide_allowed_values"] is False
+    assert (
+        parsed.require("sys-dynamic-block-hide-allowed-values").value
+        is False
+    )
 
 
 def test_sys_git_repo_lock_defaults_are_defined_in_startup_template():
-    known_args, _unknown = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
-    assert known_args["sys_git_repo_lock_wait_timeout_seconds"] == 30.0
-    assert known_args["sys_git_repo_lock_retry_sleep_seconds"] == 0.2
-    assert known_args["sys_git_repo_lock_stale_seconds"] == 1800.0
+    parsed = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
+    assert (
+        parsed.require("sys-git-repo-lock-wait-timeout-seconds").value
+        == 30.0
+    )
+    assert (
+        parsed.require("sys-git-repo-lock-retry-sleep-seconds").value
+        == 0.2
+    )
+    assert (
+        parsed.require("sys-git-repo-lock-stale-seconds").value
+        == 1800.0
+    )

@@ -12,6 +12,7 @@ from watchdog.events import (
 )
 
 from demon_lucy.file_handler import FileHandler
+from demon_lucy.lib.args.models import KnownArg, ParsedArgs
 from demon_lucy.module_manager import ModuleManager
 
 
@@ -19,16 +20,25 @@ class _FakeModules:
     def __init__(
         self,
         ignore_maps: list[dict[str, int] | None] | None = None,
-        config: dict | None = None,
+        values: dict | None = None,
     ) -> None:
         self.calls = 0
         self.paths: list[str] = []
         self._ignore_maps = list(ignore_maps or [])
-        self.config = {
+        resolved_values = {
             "sys_watch_paths": [],
             "sys_ignore_move_paths": [".status"],
         }
-        self.config.update(config or {})
+        resolved_values.update(values or {})
+        self.args = ParsedArgs(
+            known=tuple(
+                KnownArg(
+                    name=key.replace("_", "-"),
+                    value=value,
+                )
+                for key, value in resolved_values.items()
+            )
+        )
 
     def run(
         self,
@@ -211,10 +221,10 @@ def test_moved_event_uses_destination_path(tmp_path: Path) -> None:
     assert modules.paths[0] == str(dst.resolve())
 
 
-def test_move_ignore_dirs_are_derived_from_module_config(tmp_path: Path) -> None:
+def test_move_ignore_dirs_are_derived_from_module_args(tmp_path: Path) -> None:
     extra_move_ignore_dir = tmp_path / "panel-status"
     modules = _FakeModules(
-        config={
+        values={
             "sys_watch_paths": [str(tmp_path)],
             "sys_ignore_move_paths": [".status", str(extra_move_ignore_dir)],
         },
@@ -234,7 +244,7 @@ def test_moved_event_inside_move_ignore_dir_is_skipped(tmp_path: Path) -> None:
     dst = status_dir / "08:10"
     src.write_text("x\n", encoding="utf-8")
 
-    modules = _FakeModules(config={"sys_watch_paths": [str(tmp_path)]})
+    modules = _FakeModules(values={"sys_watch_paths": [str(tmp_path)]})
     handler = _mk_handler(modules)
 
     handler.on_moved(_moved_event(str(src), str(dst)))
@@ -251,7 +261,7 @@ def test_move_ignore_dir_consumes_pending_ignore_map(tmp_path: Path) -> None:
 
     modules = _FakeModules(
         ignore_maps=[{str(src): 1, str(dst): 1}, None],
-        config={"sys_watch_paths": [str(tmp_path)]},
+        values={"sys_watch_paths": [str(tmp_path)]},
     )
     handler = _mk_handler(modules)
 
@@ -269,7 +279,7 @@ def test_modified_event_inside_status_dir_is_processed(tmp_path: Path) -> None:
     path = status_dir / "08:09"
     path.write_text("x\n", encoding="utf-8")
 
-    modules = _FakeModules(config={"sys_watch_paths": [str(tmp_path)]})
+    modules = _FakeModules(values={"sys_watch_paths": [str(tmp_path)]})
     handler = _mk_handler(modules)
 
     handler.on_modified(_modified_event(str(path)))
@@ -285,7 +295,7 @@ def test_moved_event_into_status_dir_from_outside_is_processed(tmp_path: Path) -
     dst = status_dir / "note.md"
     src.write_text("x\n", encoding="utf-8")
 
-    modules = _FakeModules(config={"sys_watch_paths": [str(tmp_path)]})
+    modules = _FakeModules(values={"sys_watch_paths": [str(tmp_path)]})
     handler = _mk_handler(modules)
 
     handler.on_moved(_moved_event(str(src), str(dst)))

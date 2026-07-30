@@ -5,10 +5,10 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import List
 
-from demon_lucy.lib.args.parser import (
-    ArgTemplate,
+from demon_lucy.lib.args.models import (
+    KnownArg,
+    ParsedArgs,
     Template,
-    parse_enum_value,
 )
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import NotificationProvider
@@ -44,135 +44,135 @@ class LogLevel(StrEnum):
 
 
 DEMON_LUCY_STARTUP_TEMPLATE: Template = [
-    ArgTemplate(
-        name="--sys-config-path",
+    KnownArg(
+        name="sys-config-path",
         value_type=str,
         default="config.txt",
         description="Path to the config file. Default: config.txt",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-log-level",
+    KnownArg(
+        name="sys-log-level",
         value_type=LogLevel,
         default=LogLevel.WARNING,
         description="Logging level: debug, info, warning, error, critical. Info shows Lucy event decisions; debug can include low-level library logs. Default: warning.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-log-format",
+    KnownArg(
+        name="sys-log-format",
         value_type=str,
         default="%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d: %(message)s",
         description="Python logging format string. Default includes time, level, file, line, message.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-watch-paths",
+    KnownArg(
+        name="sys-watch-paths",
         value_type=str,
         default=[],
         description="One or more directories to watch recursively. Example: --sys-watch-paths ~/notes ~/work/notes",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-opened-event-cooldown-seconds",
+    KnownArg(
+        name="sys-opened-event-cooldown-seconds",
         value_type=int,
         default=60,
         description="Cooldown for 'opened' events per file, in seconds. Prevents editor spam. Default: 60 seconds).",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-disable-opened-events",
+    KnownArg(
+        name="sys-disable-opened-events",
         value_type=bool,
         default=False,
         description="Ignore filesystem 'opened' events. Useful on Termux to reduce background wakeups.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-dynamic-block-hide-allowed-values",
+    KnownArg(
+        name="sys-dynamic-block-hide-allowed-values",
         value_type=bool,
         default=False,
         description="Hide allowed parameter values in newly created dynamic blocks.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-notification-provider",
+    KnownArg(
+        name="sys-notification-provider",
         value_type=NotificationProvider,
         default=NotificationProvider.AUTO,
         description="Notification provider. Supported: auto, termuxapi, desktop, disable. "
         "Default: auto (termuxapi when available, otherwise desktop).",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-notification-min-interval-seconds",
+    KnownArg(
+        name="sys-notification-min-interval-seconds",
         value_type=float,
         default=10.0,
         description="Minimum seconds between repeated notifications with the same key. Default: 10.0.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-notification-error-backoff-base-seconds",
+    KnownArg(
+        name="sys-notification-error-backoff-base-seconds",
         value_type=float,
         default=10.0,
         description="Base interval (seconds) for exponential error notification backoff.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-notification-error-backoff-max-seconds",
+    KnownArg(
+        name="sys-notification-error-backoff-max-seconds",
         value_type=float,
         default=1800.0,
         description="Maximum interval cap (seconds) for exponential error notification backoff.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-notification-error-burst-limit",
+    KnownArg(
+        name="sys-notification-error-burst-limit",
         value_type=int,
         default=3,
         description="Maximum number of error notifications allowed inside one burst window.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-notification-error-burst-window-seconds",
+    KnownArg(
+        name="sys-notification-error-burst-window-seconds",
         value_type=float,
         default=600.0,
         description="Burst window length (seconds) used for global error notification limiting.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-ignore-paths",
+    KnownArg(
+        name="sys-ignore-paths",
         value_type=str,
         default=[],
         description="Skip module execution for files inside these paths. Example: --sys-ignore-paths ~/.cache ~/Notes/private",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-ignore-move-paths",
+    KnownArg(
+        name="sys-ignore-move-paths",
         value_type=str,
         default=[".status"],
         description="Ignore internal move events under these paths. Relative paths are resolved under every watched root. Default: .status.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-git-repo-lock-wait-timeout-seconds",
+    KnownArg(
+        name="sys-git-repo-lock-wait-timeout-seconds",
         value_type=float,
         default=30.0,
         description="Maximum seconds to wait for Lucy's shared Git repo lock before skipping this cycle.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-git-repo-lock-retry-sleep-seconds",
+    KnownArg(
+        name="sys-git-repo-lock-retry-sleep-seconds",
         value_type=float,
         default=0.2,
         description="Seconds to sleep between attempts to acquire Lucy's shared Git repo lock.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-git-repo-lock-stale-seconds",
+    KnownArg(
+        name="sys-git-repo-lock-stale-seconds",
         value_type=float,
         default=1800.0,
         description="Age in seconds after which Lucy's shared Git repo lock is treated as stale.",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-modules",
+    KnownArg(
+        name="sys-modules",
         value_type=str,
         default=[
             "alias",
@@ -190,8 +190,8 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         description="Run only selected modules by name. Example: --sys-modules git status",
         required=False,
     ),
-    ArgTemplate(
-        name="--sys-modules-exclude",
+    KnownArg(
+        name="sys-modules-exclude",
         value_type=str,
         default=[],
         description="Exclude modules from the selected/default module list. Example: --sys-modules-exclude status",
@@ -223,8 +223,8 @@ def run_config_migrations(config_path: str) -> list[Migration]:
     return migrated
 
 
-def configure_logging(config: dict) -> None:
-    level = parse_enum_value(LogLevel, config["sys_log_level"])
+def configure_logging(args: ParsedArgs) -> None:
+    level: LogLevel = args.require("sys-log-level").value
     by_name = {
         LogLevel.DEBUG: logging.DEBUG,
         LogLevel.INFO: logging.INFO,
@@ -234,7 +234,7 @@ def configure_logging(config: dict) -> None:
     }
     logging.basicConfig(
         level=by_name[level],
-        format=config["sys_log_format"],
+        format=args.require("sys-log-format").value,
         datefmt="%Y-%m-%d %H:%M:%S",
         force=True,
     )
@@ -244,17 +244,20 @@ def log_startup_message(
     *,
     run_mode: str,
     modules: list[AbstractModule],
-    config: dict,
-    unknown_args: list[str] | None = None,
+    args: ParsedArgs,
     extra_items: list[tuple[str, object]] | None = None,
 ) -> None:
     details: dict[str, object] = {
-        "watch_paths": len(config.get("sys_watch_paths") or []),
-        "opened_events": "off" if config.get("sys_disable_opened_events") else "on",
-        "log_level": config.get("sys_log_level", ""),
+        "watch_paths": len(args.require("sys-watch-paths").value),
+        "opened_events": (
+            "off"
+            if args.require("sys-disable-opened-events").value
+            else "on"
+        ),
+        "log_level": args.require("sys-log-level").value,
     }
-    if unknown_args:
-        details["unknown_args"] = len(unknown_args)
+    if args.unknown:
+        details["unknown_args"] = len(args.unknown)
     for key, value in extra_items or []:
         details[key] = value
 

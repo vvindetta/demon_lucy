@@ -4,6 +4,7 @@ import logging
 import time
 from collections.abc import Mapping
 
+from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.dynamic_blocks.model import DynamicBlock, DynamicBlockRenderer
 from demon_lucy.lib.dynamic_blocks.parser import (
@@ -40,7 +41,7 @@ def refresh_dynamic_blocks(
     text: str,
     target_path: str,
     renderers: Mapping[str, DynamicBlockRenderer],
-    config: Mapping[str, object],
+    args: ParsedArgs,
     event_id: str = "",
 ) -> tuple[str, int]:
     if not renderers:
@@ -67,7 +68,7 @@ def refresh_dynamic_blocks(
             continue
 
         try:
-            rendered = renderer(block, target_path, config)
+            rendered = renderer(block, target_path, args)
         except (OSError, ValueError) as exc:
             logger.warning(
                 log_record(

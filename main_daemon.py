@@ -7,7 +7,8 @@ import threading
 from watchdog.observers import Observer
 
 from demon_lucy.file_handler import FileHandler
-from demon_lucy.lib.args.parser import parse_args, setup_config_and_cli_args
+from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.args.sources import load_args
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.path import abs_expand_path
 from demon_lucy.module_manager import ModuleManager
@@ -23,17 +24,17 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> int:
-    startup_args, _unknown_startup_args = parse_args(
+    initial_args = parse_args(
         template=DEMON_LUCY_STARTUP_TEMPLATE,
         args=sys.argv[1:],
     )
-    config_path = startup_args.get("sys_config_path")
-    if isinstance(config_path, str) and config_path.strip():
-        run_config_migrations(config_path)
-    config, unknown_args = setup_config_and_cli_args(
+    config_path_arg = initial_args.find("sys-config-path")
+    if config_path_arg is not None:
+        run_config_migrations(config_path_arg.value)
+    startup_args = load_args(
         template=DEMON_LUCY_STARTUP_TEMPLATE
     )
-    notes_dirs = config.get("sys_watch_paths")
+    notes_dirs = startup_args.require("sys-watch-paths").value
     if not notes_dirs:
         raise ValueError("No --sys-watch-paths was setuped")
     if "/path/to/note/dir" in notes_dirs:
@@ -41,29 +42,30 @@ def main() -> int:
             "--sys-watch-paths: '/path/to/note/dir' is not a valid path. Please edit your config."
         )
 
-    configure_logging(config)
+    configure_logging(startup_args)
 
     modules = ModuleManager(
         modules=select_demon_lucy_modules(
-            include_names=config["sys_modules"],
-            exclude_names=config["sys_modules_exclude"],
+            include_names=startup_args.require("sys-modules").value,
+            exclude_names=startup_args.require("sys-modules-exclude").value,
         ),
-        args=list(unknown_args),
-        system_config=config,
+        startup_args=startup_args,
         run_mode="daemon",
     )
     log_startup_message(
         run_mode="daemon",
         modules=modules.modules,
-        config=config,
-        unknown_args=list(unknown_args),
+        args=startup_args,
     )
 
-    if modules.runtime_system != "linux" and not config["sys_disable_opened_events"]:
+    disable_opened_events = startup_args.require(
+        "sys-disable-opened-events"
+    ).value
+    if modules.operating_system != "linux" and not disable_opened_events:
         system_name = {
             "macos": "macOS",
             "windows": "Windows",
-        }.get(modules.runtime_system, "this system")
+        }.get(modules.operating_system, "this system")
         logger.info(
             log_record(
                 "watcher.opened_events_unavailable",
@@ -80,8 +82,10 @@ def main() -> int:
         observer.schedule(
             FileHandler(
                 modules=modules,
-                open_cooldown_seconds=config["sys_opened_event_cooldown_seconds"],
-                process_opened_events=not config["sys_disable_opened_events"],
+                open_cooldown_seconds=startup_args.require(
+                    "sys-opened-event-cooldown-seconds"
+                ).value,
+                process_opened_events=not disable_opened_events,
             ),
             path=abs_expand_path(path),
             recursive=True,
