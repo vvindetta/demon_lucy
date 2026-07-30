@@ -3,5 +3,5 @@ Description=Lucy Notes oneshot run
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/user/lucy_notes_daemon
-ExecStart=/usr/bin/python3 /home/user/lucy_notes_daemon/main_oneshot.py --oneshot-event opened --oneshot-paths "/home/user/Notes/file.txt" --sys-modules git archive
+WorkingDirectory=/home/user/demon_lucy
+ExecStart=/usr/bin/python3 /home/user/demon_lucy/main_oneshot.py --sys-config-path /home/user/Notes/.lucy/config.txt --oneshot-paths /home/user/Notes --sys-modules git archive

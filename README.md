@@ -27,13 +27,33 @@ Then press ```CTRL+S``` - Lucy will detect the change and run the modules.
 
 See [available modules](#modules).
 
+### Modules
 
-### Sync your notes with Android
-Run Lucy in [Termux](https://f-droid.org/packages/com.termux/). [Setup guide](#termux-setup).
+**Basic:**
+- `sys`: writes runtime debug information, event details, and manual help text.
+- `linker`: creates symlinks for active notes, and keeps file path markdown links in sync with note moves.
+- `archive`: automatically moves idle stale notes from the active note to a past/archive note, keeping one daily scratch note current and older text in history.
+- `alias`: creates aliases for module args.
+- `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.
+- `banner`: inserts ASCII banner text or date banners into notes.
+- `formatter`: formats note text, including todo list conversion and blank-space padding.
+- `graph`: creates graph blocks for word and regex frequency.
+- `include`: renders complete files or matching source paragraphs inside notes.
+- `workspace`: initializes a default notes workspace with Git and systemd files.
+- `status`: updates standalone status filenames with dynamic tokens (time/date/git state, animations, prefixes).
 
-Or use [GitSync app](https://github.com/ViscousPot/GitSync).
+**Integrations:**
+- `git`: syncs notes with a remote Git repository.
+- `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
-Btw [Markor](https://github.com/gsantner/markor) is a good text editor.
+**Experimental:**
+- `dropdir`: handles moved files in configured drop directories. Useful for inbox/drop folders where a move should trigger temporary Lucy flags.
+- `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.
+- `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
+- `voice`: transcribes speech locally with Vosk, stopping after speech ends.
+- `ai`: edits the current note from an inline prompt using local Codex.
+
+See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
 ## Theory
 
@@ -51,6 +71,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 ```--help``` for help message: 
 ```
 * --mods: print loaded modules and their priorities
+* --ping: send notification and rewrite command line to ++pong!
 * --config: print config values that differ from defaults
 * --man <name>: print one argument with description (example: --man mods or --man --mods)
 * --neofetch: print Demon Lucy runtime information
@@ -77,41 +98,21 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 * --man: print one argument with description (example: --man mods or --man --mods). (type=str, default=None)
 ```
 
-### Modules
 
-**Basic:**
-- `sys`: writes runtime debug information, event details, and manual help text.
-- `linker`: creates symlinks for active notes, and updates file path markdown links on move/rename.
-- `archive`: automatically moves idle stale notes from the active note to a past/archive note, keeping one daily scratch note current and older text in history.
-- `alias`: creates aliases for module args.
-- `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.
-- `banner`: inserts ASCII banner text or date banners into notes.
-- `formatter`: formats note text, including todo list conversion and blank-space padding.
-- `graph`: creates graph blocks for word and regex frequency.
-- `include`: renders complete files or matching source paragraphs inside notes.
-- `workspace`: initializes a default notes workspace.
+### Sync your notes with Android
+Run Lucy in [Termux](https://f-droid.org/packages/com.termux/). [Setup guide](#termux-setup).
 
-**Integrations:**
-- `git`: syncs notes with a remote Git repository.
-- `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
+Or use [GitSync app](https://github.com/ViscousPot/GitSync).
 
-**Experimental:**
-- `dropdir`: handles moved files in configured drop directories. Useful for inbox/drop folders where a move should trigger temporary Lucy flags.
-- `status`: updates standalone status filenames with dynamic tokens (time/date/git state, animations, prefixes).
-- `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.
-- `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
-- `voice`: transcribes speech locally with Vosk, stopping after speech ends.
-- `ai`: edits the current note from an inline prompt using local Codex.
+Btw [Markor](https://github.com/gsantner/markor) is a good text editor.
 
-See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
 ## Install
 
-Tested on GNU/Linux based distros only.
-
-### Opened events on macOS and Windows
-
-macOS and Windows do not provide daemon `opened` events. Other events and synthetic oneshot `opened` continue to work.
+Warnings:
+- **Turn on file auto-update in your text editor!**
+- The project has only been tested on GNU/Linux-based distributions.
+- macOS and Windows do not support daemon `opened` events. Other daemon events and synthetic oneshot `opened` events continue to work.
 
 1. Clone the repository:
 ```
@@ -127,18 +128,24 @@ pip install -r requirements.txt
    - `config.txt` is a commented template. Uncomment and edit the lines you need.
    - At minimum, set `--sys-watch-paths "/home/user/Notes"`.
    - Or pass it directly at run time: `python3 main_daemon.py --sys-watch-paths "/home/user/Notes"`
-   - Use `--sys-modules` to choose modules. Basic set: `alias workspace banner renamer linker formatter archive sys`.
+   - Use `--sys-modules` to choose modules. Basic set: `alias workspace banner renamer linker formatter archive status sys`.
 
-#### **Turn on file auto-update in your text editor!**
+Initialize a workspace:
+```text
+python3 main_oneshot.py --workspace-init "/home/user/Notes"
+```
+
+Workspace init also initializes Git when available and writes matching
+`setup-systemd/` files inside the workspace.
 
 ### Manual run
 
-Run the daemon:
+Run daemon mode:
 ```text
 python3 main_daemon.py
 ```
 
-Run oneshot tasks manually (useful for scripts, scheduled runs, and Termux/Tasker):
+Run oneshot mode (useful for scripts, scheduled runs):
 ```text
 python3 main_oneshot.py \
   --oneshot-event opened \
@@ -153,25 +160,27 @@ The repo includes three units in `setup-systemd/`:
 - [lucy-oneshot.service](setup-systemd/lucy-oneshot.service): single-run job (runs once and exits), used for periodic/manual tasks.
 - [lucy-oneshot.timer](setup-systemd/lucy-oneshot.timer): schedule that starts `lucy-oneshot.service`.
 
-Edit the service files and set your real repo path, config path, and oneshot target note.
+Edit the service files and set your real repo, notes, and config paths.
+Alternatively, use the files generated by the `workspace` module, but verify
+all paths before enabling the services.
 
 Services default paths:
 - repo: `$HOME/demon_lucy`
 - notes: `$HOME/Notes`
-- config (daemon): `$HOME/Notes/config.txt`
+- config: `$HOME/Notes/.lucy/config.txt`
 
-Link the units:
-```text
-mkdir -p ~/.config/systemd/user
-ln -sf "$PWD/setup-systemd/lucy-daemon.service" ~/.config/systemd/user/lucy-daemon.service
-ln -sf "$PWD/setup-systemd/lucy-oneshot.service" ~/.config/systemd/user/lucy-oneshot.service
-ln -sf "$PWD/setup-systemd/lucy-oneshot.timer" ~/.config/systemd/user/lucy-oneshot.timer
+Move the units:
+```bash
+mkdir -p ~/.config/systemd/user; \
+mv setup-systemd/lucy-daemon.service ~/.config/systemd/user/; \
+mv setup-systemd/lucy-oneshot.service ~/.config/systemd/user/; \
+mv setup-systemd/lucy-oneshot.timer ~/.config/systemd/user/
 ```
 
 Reload and enable:
-```text
-systemctl --user daemon-reload
-systemctl --user enable --now lucy-daemon.service
+```bash
+systemctl --user daemon-reload; \
+systemctl --user enable --now lucy-daemon.service; \
 systemctl --user enable --now lucy-oneshot.timer
 ```
 
@@ -201,7 +210,7 @@ Ready-to-use Termux scripts are in `setup-termux`:
 Script default paths:
 - repo: `$HOME/demon_lucy`
 - notes: `$HOME/storage/shared/Notes`
-- config (daemon): `$HOME/storage/shared/Notes/.lucy/config-termux.txt`
+- config: `$HOME/storage/shared/Notes/.lucy/config.txt`
 - state/logs: `$HOME/.lucy`
 
 Periodic mobile sync can also be registered through Android JobScheduler with [lucy-job-scheduler.sh](setup-termux/lucy-job-scheduler.sh). Use Termux:Boot for this mode only to register the persisted job after reboot.

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
 
 from watchdog.events import FileModifiedEvent
 
+import demon_lucy.modules.workspace as workspace_mod
+import demon_lucy.modules.workspace.template as workspace_template_mod
 from demon_lucy.lib.args.models import ArgSource, ParsedArgs, Template
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.module_manager import ModuleManager
@@ -23,15 +26,30 @@ def _startup_args(
     tmp_path: Path,
     *,
     log_level: str | None = None,
+    config_args: list[str] | None = None,
+    cli_args: list[str] | None = None,
 ) -> ParsedArgs:
     tokens = ["--sys-watch-paths", str(tmp_path)]
     if log_level is not None:
         tokens.extend(["--sys-log-level", log_level])
-    return parse_args(
+    startup_args = parse_args(
         args=tokens,
         template=DEMON_LUCY_STARTUP_TEMPLATE,
         source=ArgSource.CONFIG,
     )
+    for extra_args, source in (
+        (config_args, ArgSource.CONFIG),
+        (cli_args, ArgSource.CLI),
+    ):
+        startup_args = startup_args.merged_with(
+            parse_args(
+                args=extra_args or [],
+                template=[],
+                source=source,
+                include_defaults=False,
+            )
+        )
+    return startup_args
 
 
 def _context(
@@ -71,6 +89,80 @@ def test_workspace_default_template_contains_created_files() -> None:
     assert (template_root / "welcome.md").exists()
 
 
+def test_workspace_setup_templates_are_loaded_from_repo_tree() -> None:
+    repo_root = Path(workspace_template_mod.REPO_ROOT)
+
+    assert workspace_template_mod.SETUP_TEMPLATE_DIRS == (
+        (str(repo_root / "setup-systemd"), "setup-systemd"),
+    )
+    assert (repo_root / "setup-systemd" / "lucy-daemon.service").exists()
+    assert (repo_root / "setup-systemd" / "lucy-oneshot.service").exists()
+    assert (repo_root / "setup-systemd" / "lucy-oneshot.timer").exists()
+
+
+def test_workspace_default_template_uses_windows_safe_file_names() -> None:
+    template = workspace_template_mod.WorkspaceTemplate()
+    forbidden = set('<>:"|?*')
+    reserved = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "CONIN$",
+        "CONOUT$",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+    }
+
+    bad_names: list[str] = []
+    for source_dir, destination_prefix in template.source_dirs():
+        source_root = Path(source_dir)
+        for path in source_root.rglob("*"):
+            stem = path.stem.upper()
+            if (
+                any(char in path.name for char in forbidden)
+                or any(ord(char) < 32 for char in path.name)
+                or path.name.endswith((" ", "."))
+                or stem in reserved
+            ):
+                relative_path = path.relative_to(source_root)
+                if destination_prefix:
+                    relative_path = Path(destination_prefix) / relative_path
+                bad_names.append(str(relative_path))
+
+    assert bad_names == []
+
+
+def test_workspace_template_skips_chmod_on_windows(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = tmp_path / "script.sh"
+
+    def fail_chmod(*_args) -> None:
+        raise AssertionError("chmod should not be called on Windows")
+
+    monkeypatch.setattr(workspace_template_mod.os, "name", "nt")
+    monkeypatch.setattr(workspace_template_mod.os, "chmod", fail_chmod)
+
+    changed = workspace_template_mod.WorkspaceTemplate.write_file_if_missing(
+        str(target),
+        "echo ok\n",
+        executable=True,
+    )
+
+    assert changed is True
+    assert target.read_text(encoding="utf-8") == "echo ok\n"
+
+
+def _setup_paths(workspace_root: Path) -> list[Path]:
+    return [
+        workspace_root / "setup-systemd" / "lucy-daemon.service",
+        workspace_root / "setup-systemd" / "lucy-oneshot.service",
+        workspace_root / "setup-systemd" / "lucy-oneshot.timer",
+    ]
+
+
 def test_workspace_init_creates_workspace_files_from_note_flag(
     tmp_path: Path,
     caplog,
@@ -93,13 +185,16 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
     assert (workspace_root / "now.md").read_text(encoding="utf-8") == ""
     welcome_text = (workspace_root / "welcome.md").read_text(encoding="utf-8")
     assert "Demon Lucy initialized this workspace." in welcome_text
+    assert "Lucy settings." in welcome_text
     assert "daily notes and tasks" in welcome_text
     assert "after 10 hours without changes" in welcome_text
-    assert "(you can change this rule in config)" in welcome_text
+    assert "(you can change this rule in config)" not in welcome_text
+    assert "Config:" not in welcome_text
     assert "Archive pair:" not in welcome_text
     assert f"- `{workspace_root}`" in welcome_text
-    assert f"- `--sys-watch-paths {workspace_root}`" in welcome_text
-    assert "- `--archive-auto-pair now.md .archive/past.md 10 text`" in welcome_text
+    assert "setup-systemd/" in welcome_text
+    assert "setup-termux/" not in welcome_text
+    assert str(Workspace._lucy_home()) in welcome_text
     assert "--sys-config-path" not in welcome_text
     assert (workspace_root / ".archive" / "past.md").read_text(encoding="utf-8") == ""
     assert (workspace_root / ".status" / "-- ---- --").read_text(
@@ -111,13 +206,34 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
 
     config_path = workspace_root / ".lucy" / "config.txt"
     config_text = config_path.read_text(encoding="utf-8")
+    assert "# One or more directories to watch recursively." in config_text
     assert f"--sys-watch-paths {workspace_root}" in config_text
     assert "--sys-config-path" not in config_text
+    assert "# Run only selected modules by name." in config_text
     assert "--sys-modules workspace archive status" in config_text
+    assert "# Automatic pair archive rule:" in config_text
     assert "--archive-auto-pair now.md .archive/past.md 10 text" in config_text
     assert "--sys-log-level" not in config_text
     assert "--sys-notification-provider" not in config_text
     assert "--workspace-init" not in config_text
+    config_path_text = str(config_path)
+    daemon_service = (
+        workspace_root / "setup-systemd" / "lucy-daemon.service"
+    ).read_text(encoding="utf-8")
+    oneshot_service = (
+        workspace_root / "setup-systemd" / "lucy-oneshot.service"
+    ).read_text(encoding="utf-8")
+
+    assert f"WorkingDirectory={Workspace._lucy_home()}" in daemon_service
+    assert "\nExecStart=" in daemon_service
+    assert "\nRestart=on-failure" in daemon_service
+    assert f"--sys-config-path {config_path_text}" in daemon_service
+    assert "\nExecStart=" in oneshot_service
+    assert f"--oneshot-paths {workspace_root}" in oneshot_service
+    assert not (workspace_root / "setup-termux").exists()
+    for setup_path in _setup_paths(workspace_root):
+        assert setup_path.exists()
+
     assert trigger.read_text(encoding="utf-8") == (
         f"workspace init ok: {workspace_root}\n"
     )
@@ -133,6 +249,7 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
         str((workspace_root / ".status" / "Sync").resolve()): 1,
         str((workspace_root / "now.md").resolve()): 1,
         str((workspace_root / ".archive" / "past.md").resolve()): 1,
+        **{str(path.resolve()): 1 for path in _setup_paths(workspace_root)},
     }
 
 
@@ -159,6 +276,151 @@ def test_workspace_init_resolves_relative_path_from_note_dir(tmp_path: Path) -> 
     assert (note_dir / "project" / "now.md").exists()
 
 
+def test_workspace_init_runs_from_cli(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "notes"
+    manager = ModuleManager(
+        modules=[Workspace()],
+        startup_args=_startup_args(
+            tmp_path,
+            cli_args=["--workspace-init", str(workspace_root)],
+        ),
+        run_mode="cli",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    changed, modules_run = manager.run_cli(event_id="evt-workspace-cli")
+
+    assert modules_run == 1
+    assert (workspace_root / ".lucy" / "config.txt").exists()
+    assert (workspace_root / "welcome.md").exists()
+    assert (workspace_root / "now.md").exists()
+    assert (workspace_root / "setup-systemd" / "lucy-daemon.service").exists()
+    assert not (workspace_root / "setup-termux").exists()
+    assert changed is not None
+    assert str((workspace_root / "welcome.md").resolve()) in changed
+
+
+def test_workspace_init_config_arg_is_not_cli(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "notes"
+    manager = ModuleManager(
+        modules=[Workspace()],
+        startup_args=_startup_args(
+            tmp_path,
+            config_args=["--workspace-init", str(workspace_root)],
+        ),
+        run_mode="cli",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    changed, modules_run = manager.run_cli(event_id="evt-workspace-cli")
+
+    assert modules_run == 0
+    assert changed is None
+    assert not workspace_root.exists()
+    argument = manager.args.require("workspace-init")
+    assert argument.value == str(workspace_root)
+    assert argument.source is ArgSource.CONFIG
+
+
+def test_workspace_init_cli_handler_accepts_any_source(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "notes"
+    module = Workspace()
+    ctx = Context(
+        path=str(tmp_path),
+        args=parse_args(
+            args=["--workspace-init", str(workspace_root)],
+            template=_WORKSPACE_TEMPLATE,
+            source=ArgSource.CONFIG,
+        ),
+        run_mode="cli",
+        event_id="evt-workspace-cli",
+    )
+
+    result = module.cli(ctx, _system(module))
+
+    assert result is not None
+    assert (workspace_root / ".lucy" / "config.txt").exists()
+
+
+def test_workspace_init_runs_git_init(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    workspace_root = tmp_path / "notes"
+    calls: list[tuple[list[str], str]] = []
+
+    def fake_run(
+        args,
+        *,
+        cwd,
+        stdout,
+        stderr,
+        text,
+        check,
+        timeout,
+    ):
+        _ = (stdout, stderr, text, check, timeout)
+        calls.append((list(args), cwd))
+        (Path(cwd) / ".git").mkdir()
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(workspace_mod.shutil, "which", lambda name: "/usr/bin/git")
+    monkeypatch.setattr(workspace_mod.subprocess, "run", fake_run)
+    manager = ModuleManager(
+        modules=[Workspace()],
+        startup_args=_startup_args(
+            tmp_path,
+            cli_args=["--workspace-init", str(workspace_root)],
+        ),
+        run_mode="cli",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with caplog.at_level(logging.INFO, logger="demon_lucy.modules.workspace"):
+        changed, modules_run = manager.run_cli(event_id="evt-workspace-cli")
+
+    assert modules_run == 1
+    assert calls == [(["/usr/bin/git", "init"], str(workspace_root))]
+    assert (workspace_root / ".git").is_dir()
+    assert changed is not None
+    assert "workspace.git_initialized" in caplog.text
+
+
+def test_workspace_init_warns_when_git_binary_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    workspace_root = tmp_path / "notes"
+    monkeypatch.setattr(workspace_mod.shutil, "which", lambda name: None)
+    manager = ModuleManager(
+        modules=[Workspace()],
+        startup_args=_startup_args(
+            tmp_path,
+            cli_args=["--workspace-init", str(workspace_root)],
+        ),
+        run_mode="cli",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with caplog.at_level(logging.WARNING, logger="demon_lucy.modules.workspace"):
+        changed, modules_run = manager.run_cli(event_id="evt-workspace-cli")
+
+    assert modules_run == 1
+    assert changed is not None
+    assert (workspace_root / ".lucy" / "config.txt").exists()
+    assert not (workspace_root / ".git").exists()
+    assert "workspace.git_missing" in caplog.text
+    assert f"workspace={workspace_root}" in caplog.text
+
+
 def test_workspace_init_keeps_non_default_system_values(tmp_path: Path) -> None:
     trigger = tmp_path / "trigger.md"
     workspace_root = tmp_path / "notes"
@@ -172,8 +434,9 @@ def test_workspace_init_keeps_non_default_system_values(tmp_path: Path) -> None:
 
     config_text = (workspace_root / ".lucy" / "config.txt").read_text(encoding="utf-8")
     welcome_text = (workspace_root / "welcome.md").read_text(encoding="utf-8")
+    assert "# Logging level:" in config_text
     assert "--sys-log-level info" in config_text
-    assert "- `--sys-log-level info`" in welcome_text
+    assert "--sys-log-level info" not in welcome_text
 
 
 def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> None:
@@ -216,4 +479,5 @@ def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> Non
     assert result_changes(changed) == {
         str((workspace_root / ".status" / "-- ---- --").resolve()): 1,
         str((workspace_root / ".status" / "Sync").resolve()): 1,
+        **{str(path.resolve()): 1 for path in _setup_paths(workspace_root)},
     }

@@ -6,9 +6,9 @@ After=network.target
 Type=simple
 
 # IMPORTANT: set working directory to the project root
-WorkingDirectory=/home/user/lucy_notes_daemon
+WorkingDirectory=/home/user/demon_lucy
 
-ExecStart=/usr/bin/python3 /home/user/lucy_notes_daemon/main_daemon.py --sys-config-path /home/user/Notes/config.txt
+ExecStart=/usr/bin/python3 /home/user/demon_lucy/main_daemon.py --sys-config-path /home/user/Notes/.lucy/config.txt
 
 Restart=on-failure
 RestartSec=2

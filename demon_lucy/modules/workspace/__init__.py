@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import subprocess
+import sys
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.models import KnownArg, Template
@@ -43,6 +46,25 @@ class Workspace(AbstractModule):
     @staticmethod
     def _config_path(workspace_root: str) -> str:
         return os.path.join(workspace_root, ".lucy", "config.txt")
+
+    @staticmethod
+    def _lucy_home() -> str:
+        return canonical_path(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
+
+    def _template_values(
+        self,
+        workspace_root: str,
+        config_lines: str,
+    ) -> dict[str, str]:
+        return {
+            "CONFIG_LINES": config_lines,
+            "CONFIG_PATH": self._config_path(workspace_root),
+            "LUCY_HOME": self._lucy_home(),
+            "PYTHON_BIN": sys.executable,
+            "WORKSPACE_ROOT": workspace_root,
+        }
 
     @staticmethod
     def _base_dir(ctx: Context) -> str:
@@ -126,13 +148,77 @@ class Workspace(AbstractModule):
 
         return {canonical_path(ctx.path): 1}
 
-    def _apply(self, ctx: Context, system: System) -> ModuleResult | None:
+    @staticmethod
+    def _init_git(*, workspace_root: str, event_id: str) -> None:
+        if os.path.exists(os.path.join(workspace_root, ".git")):
+            return
+
+        git_bin = shutil.which("git")
+        if not git_bin:
+            logger.warning(
+                log_record(
+                    "workspace.git_missing",
+                    id=event_id,
+                    workspace=workspace_root,
+                )
+            )
+            return
+
+        try:
+            result = subprocess.run(
+                [git_bin, "init"],
+                cwd=workspace_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.warning(
+                log_record(
+                    "workspace.git_init_failed",
+                    id=event_id,
+                    workspace=workspace_root,
+                    error=exc,
+                )
+            )
+            return
+
+        if result.returncode != 0:
+            error_text = (result.stderr or result.stdout or "").strip()
+            logger.warning(
+                log_record(
+                    "workspace.git_init_failed",
+                    id=event_id,
+                    workspace=workspace_root,
+                    status=result.returncode,
+                    error=error_text[:300],
+                )
+            )
+            return
+
+        logger.info(
+            log_record(
+                "workspace.git_initialized",
+                id=event_id,
+                workspace=workspace_root,
+            )
+        )
+
+    def _apply(
+        self,
+        ctx: Context,
+        system: System,
+        *,
+        write_trigger: bool,
+    ) -> ModuleResult | None:
         workspace_root = self._workspace_root(ctx)
         if workspace_root is None:
             return None
 
-        config_path = self._config_path(workspace_root)
         config_lines = self._config_builder.lines(ctx, system, workspace_root)
+        template_values = self._template_values(workspace_root, config_lines)
         welcome_path = os.path.join(workspace_root, "welcome.md")
 
         changed: dict[str, int] = {}
@@ -141,22 +227,19 @@ class Workspace(AbstractModule):
             changed.update(
                 self._workspace_template.copy_files(
                     workspace_root,
-                    {
-                        "CONFIG_LINES": config_lines,
-                    },
+                    template_values,
                     skip={"welcome.md"},
                 )
             )
-            with open(config_path, "r", encoding="utf-8") as handle:
-                actual_config_text = handle.read()
             if self._workspace_template.write_file_if_missing(
                 welcome_path,
-                self._workspace_template.welcome_text(
-                    workspace_root,
-                    actual_config_text,
-                ),
+                self._workspace_template.welcome_text(template_values),
             ):
                 changed[canonical_path(welcome_path)] = 1
+            self._init_git(
+                workspace_root=workspace_root,
+                event_id=ctx.event_id,
+            )
         except OSError as exc:
             logger.error(
                 log_record(
@@ -175,7 +258,11 @@ class Workspace(AbstractModule):
             )
             return None
 
-        trigger_changed = self._write_success_to_trigger(ctx, workspace_root)
+        trigger_changed = (
+            self._write_success_to_trigger(ctx, workspace_root)
+            if write_trigger
+            else {}
+        )
         changed.update(trigger_changed)
         logger.info(
             log_record(
@@ -190,13 +277,13 @@ class Workspace(AbstractModule):
         return ModuleResult(context=ctx, changed=changed) if changed else None
 
     def created(self, ctx: Context, system: System) -> ModuleResult | None:
-        return self._apply(ctx, system)
+        return self._apply(ctx, system, write_trigger=True)
 
     def modified(self, ctx: Context, system: System) -> ModuleResult | None:
-        return self._apply(ctx, system)
+        return self._apply(ctx, system, write_trigger=True)
 
     def opened(self, ctx: Context, system: System) -> ModuleResult | None:
-        return self._apply(ctx, system)
+        return self._apply(ctx, system, write_trigger=True)
 
     def cli(self, ctx: Context, system: System) -> ModuleResult | None:
-        return self._apply(ctx, system)
+        return self._apply(ctx, system, write_trigger=False)

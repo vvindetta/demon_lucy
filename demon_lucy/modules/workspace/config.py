@@ -5,6 +5,9 @@ from typing import Any
 
 from demon_lucy.lib.args.models import ArgSource
 from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.modules.archive.constants import ARCHIVE_TEMPLATE
+
+WORKSPACE_CONFIG_TEMPLATE_SOURCES = (ARCHIVE_TEMPLATE,)
 
 
 class WorkspaceConfig:
@@ -20,6 +23,36 @@ class WorkspaceConfig:
             template_item.name: template_item.default
             for template_item in system.global_template
         }
+
+    @staticmethod
+    def descriptions_by_name(system: System) -> dict[str, str]:
+        descriptions: dict[str, str] = {}
+        template_items = list(system.global_template)
+        for extra_template in WORKSPACE_CONFIG_TEMPLATE_SOURCES:
+            template_items.extend(extra_template)
+        for template_item in template_items:
+            descriptions.setdefault(
+                template_item.name,
+                template_item.description.strip(),
+            )
+        return descriptions
+
+    @staticmethod
+    def comment_for_description(description: str) -> str:
+        lines = [line.strip() for line in description.splitlines() if line.strip()]
+        return "".join(f"# {line}\n" for line in lines)
+
+    def line_with_comment(
+        self,
+        *,
+        line: str,
+        name: str,
+        descriptions: dict[str, str],
+    ) -> str:
+        description = descriptions.get(name, "")
+        if not description:
+            return line
+        return self.comment_for_description(description) + line
 
     @staticmethod
     def module_name_set(values: list[str]) -> set[str]:
@@ -44,20 +77,39 @@ class WorkspaceConfig:
 
     def required_lines(self, workspace_root: str, system: System) -> list[str]:
         defaults = self.defaults_by_name(system)
+        descriptions = self.descriptions_by_name(system)
         module_names = self.module_names(system)
-        lines = [f"--sys-watch-paths {self.quote(workspace_root)}\n"]
+        lines = [
+            self.line_with_comment(
+                line=f"--sys-watch-paths {self.quote(workspace_root)}\n",
+                name="sys-watch-paths",
+                descriptions=descriptions,
+            )
+        ]
         if self.module_name_set(module_names) != self.module_name_set(
             defaults["sys-modules"]
         ):
             lines.append(
-                "--sys-modules "
-                + " ".join(self.quote(name) for name in module_names)
-                + "\n"
+                self.line_with_comment(
+                    line=(
+                        "--sys-modules "
+                        + " ".join(self.quote(name) for name in module_names)
+                        + "\n"
+                    ),
+                    name="sys-modules",
+                    descriptions=descriptions,
+                )
             )
         lines.append(
-            "--archive-auto-pair "
-            + " ".join(self.quote(value) for value in self.archive_pair_values)
-            + "\n"
+            self.line_with_comment(
+                line=(
+                    "--archive-auto-pair "
+                    + " ".join(self.quote(value) for value in self.archive_pair_values)
+                    + "\n"
+                ),
+                name="archive-auto-pair",
+                descriptions=descriptions,
+            )
         )
         return lines
 
@@ -94,6 +146,7 @@ class WorkspaceConfig:
             "archive-auto-pair",
             "workspace-init",
         }
+        descriptions = self.descriptions_by_name(system)
         lines: list[str] = []
 
         for argument in ctx.args.known:
@@ -110,7 +163,13 @@ class WorkspaceConfig:
                 default=argument.default,
             )
             if line is not None:
-                lines.append(line)
+                lines.append(
+                    self.line_with_comment(
+                        line=line,
+                        name=argument.name,
+                        descriptions=descriptions,
+                    )
+                )
 
         return lines
 

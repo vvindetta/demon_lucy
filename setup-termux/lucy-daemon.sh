@@ -6,7 +6,7 @@ set -euo pipefail
 # Termux home so logs and pid files survive shared-storage remounts.
 LUCY_HOME="$HOME/demon_lucy"
 NOTES_REPO="$HOME/storage/shared/Notes"
-CONFIG_PATH="$NOTES_REPO/.lucy/config-termux.txt"
+CONFIG_PATH="$NOTES_REPO/.lucy/config.txt"
 
 LUCY_STATE_DIR="$HOME/.lucy"
 DAEMON_LAUNCH_LOG="$LUCY_STATE_DIR/lucy-daemon-launch.log"

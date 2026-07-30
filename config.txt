@@ -11,10 +11,10 @@
 # --- runtime/system ---
 
 # Common desktop modules. The cmd module is intentionally excluded.
-# --sys-modules "alias" "workspace" "banner" "renamer" "linker" "formatter" "archive" "sys" "git"
+# --sys-modules "alias" "workspace" "banner" "renamer" "linker" "formatter" "archive" "status" "sys" "git"
 
 # Override module order. Lower number runs earlier.
-# --sys-modules-priority alias=0 workspace=1 sys=2 banner=10 renamer=20 linker=22 formatter=23 archive=25 git=50
+# --sys-modules-priority alias=0 workspace=1 sys=2 banner=10 renamer=20 linker=22 formatter=23 archive=25 status=30 git=50
 
 # Ignore generated/internal trees when modules should not run there.
 # --sys-ignore-paths "/home/user/Notes/.archive"
@@ -43,7 +43,7 @@
 
 # --- linker ---
 
-# Keep markdown links valid when a note is moved or renamed.
+# Keep markdown links and note files in sync both ways.
 # --linker-auto-update-md-links
 
 # Cleanup for --linker-root: if a note used to create a root symlink and later
@@ -56,7 +56,8 @@
 
 # --- renamer ---
 
-# On create, rename any one-letter scratch file to a dated filename. Useful when you need a quick note but do not know how to name it yet.
+# On create, add the default extension to extensionless files. One-letter files
+# with an extension become dated filenames.
 # --rename-auto
 # Set the output extension. Default: Markdown (`md`).
 # --rename-auto-format md

@@ -122,7 +122,7 @@ Then a note can use:
 |---|---:|---|
 | `--neofetch` | `bool` | Print Demon Lucy runtime information. |
 | `--mods` | `bool` | Print loaded modules and priorities. |
-| `--ping` | `bool` | Rewrite command line to `++pong!`. |
+| `--ping` | `bool` | Send notification and rewrite command line to `++pong!`. |
 | `--config` | `bool` | Print config values that differ from defaults. |
 | `--man` | `str[]` | Print manual text for a module or flag. |
 | `--help` | `bool` | Print Sys module command help. |
@@ -144,12 +144,13 @@ Examples:
 |---|---:|---|
 | `--workspace-init` | `str` | Initialize a Lucy workspace at the given directory path. |
 
-Initializes a default notes workspace.
+Initializes a default notes workspace, initializes Git when available, and
+generates systemd setup files.
 
 Example:
 
 ```text
---workspace-init ~/Notes
+python3 main_oneshot.py --workspace-init ~/Notes
 ```
 
 
@@ -165,7 +166,7 @@ Example:
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--rename` | `str` | Rename the current file to the given name. |
-| `--rename-auto` | `bool` | On create, rename any one-letter scratch filename to a dated filename. |
+| `--rename-auto` | `bool` | On create, add the default extension to extensionless files; one-letter files with an extension become dated filenames. |
 | `--rename-auto-format` | `str` | Auto rename output extension. Default: `md`. 
 
 ## Linker
@@ -175,7 +176,7 @@ Example:
 | `--linker-root` | `bool` | Create a root link; Windows falls back to a hard link when needed. |
 | `--linker-auto-clean-root-links` | `bool` | If `--linker-root` is not set, remove managed root links. |
 | `--linker-ignore` | `str[]` | Ignore files/links for linker actions (basename or absolute/repo-relative path). |
-| `--linker-auto-update-md-links` | `bool` | On move/rename, scan markdown files in repo and update links to moved note. |
+| `--linker-auto-update-md-links` | `bool` | Keep markdown links and note files in sync both ways. |
 
 ## Graph
 
