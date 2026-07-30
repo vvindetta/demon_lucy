@@ -11,7 +11,7 @@ WORKSPACE_CONFIG_TEMPLATE_SOURCES = (ARCHIVE_TEMPLATE,)
 
 
 class WorkspaceConfig:
-    archive_pair_values = ["now.md", ".archive/past.md", "10", "text"]
+    archive_pair_values = ["now.md", "past.md", "10", "text"]
 
     @staticmethod
     def quote(value: object) -> str:

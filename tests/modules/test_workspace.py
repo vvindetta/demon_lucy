@@ -84,7 +84,7 @@ def test_workspace_default_template_contains_created_files() -> None:
     assert (template_root / ".lucy" / "config.txt").exists()
     assert (template_root / ".status" / "-- ---- --").exists()
     assert (template_root / ".status" / "Sync").exists()
-    assert (template_root / ".archive" / "past.md").exists()
+    assert (template_root / "past.md").exists()
     assert (template_root / "now.md").exists()
     assert (template_root / "welcome.md").exists()
 
@@ -179,7 +179,7 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
     with caplog.at_level(logging.INFO, logger="demon_lucy.modules.workspace"):
         changed = manager.run(str(trigger), FileModifiedEvent(str(trigger)))
 
-    assert (workspace_root / ".archive").is_dir()
+    assert not (workspace_root / ".archive").exists()
     assert (workspace_root / ".status").is_dir()
     assert (workspace_root / ".lucy").is_dir()
     assert (workspace_root / "now.md").read_text(encoding="utf-8") == ""
@@ -196,7 +196,7 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
     assert "setup-termux/" not in welcome_text
     assert str(Workspace._lucy_home()) in welcome_text
     assert "--sys-config-path" not in welcome_text
-    assert (workspace_root / ".archive" / "past.md").read_text(encoding="utf-8") == ""
+    assert (workspace_root / "past.md").read_text(encoding="utf-8") == ""
     assert (workspace_root / ".status" / "-- ---- --").read_text(
         encoding="utf-8"
     ) == '--status-animation "-- ---- --" "-<( ✷ )>-" "-< --- >-"\n'
@@ -212,7 +212,7 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
     assert "# Run only selected modules by name." in config_text
     assert "--sys-modules workspace archive status" in config_text
     assert "# Automatic pair archive rule:" in config_text
-    assert "--archive-auto-pair now.md .archive/past.md 10 text" in config_text
+    assert "--archive-auto-pair now.md past.md 10 text" in config_text
     assert "--sys-log-level" not in config_text
     assert "--sys-notification-provider" not in config_text
     assert "--workspace-init" not in config_text
@@ -248,7 +248,7 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
         str((workspace_root / ".status" / "-- ---- --").resolve()): 1,
         str((workspace_root / ".status" / "Sync").resolve()): 1,
         str((workspace_root / "now.md").resolve()): 1,
-        str((workspace_root / ".archive" / "past.md").resolve()): 1,
+        str((workspace_root / "past.md").resolve()): 1,
         **{str(path.resolve()): 1 for path in _setup_paths(workspace_root)},
     }
 
@@ -443,7 +443,7 @@ def test_workspace_init_keeps_non_default_system_values(tmp_path: Path) -> None:
 
 def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> None:
     workspace_root = tmp_path / "notes"
-    (workspace_root / ".archive").mkdir(parents=True)
+    workspace_root.mkdir(parents=True)
     (workspace_root / ".status").mkdir()
     (workspace_root / ".lucy").mkdir()
     (workspace_root / ".lucy" / "config.txt").write_text(
@@ -452,9 +452,7 @@ def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> Non
     )
     (workspace_root / "welcome.md").write_text("custom welcome\n", encoding="utf-8")
     (workspace_root / "now.md").write_text("keep now\n", encoding="utf-8")
-    (workspace_root / ".archive" / "past.md").write_text(
-        "keep past\n", encoding="utf-8"
-    )
+    (workspace_root / "past.md").write_text("keep past\n", encoding="utf-8")
 
     module = Workspace()
     trigger = tmp_path / "trigger.md"
@@ -475,9 +473,7 @@ def test_workspace_init_does_not_overwrite_existing_files(tmp_path: Path) -> Non
         "custom welcome\n"
     )
     assert (workspace_root / "now.md").read_text(encoding="utf-8") == "keep now\n"
-    assert (workspace_root / ".archive" / "past.md").read_text(
-        encoding="utf-8"
-    ) == "keep past\n"
+    assert (workspace_root / "past.md").read_text(encoding="utf-8") == "keep past\n"
     assert result_changes(changed) == {
         str((workspace_root / ".status" / "-- ---- --").resolve()): 1,
         str((workspace_root / ".status" / "Sync").resolve()): 1,
