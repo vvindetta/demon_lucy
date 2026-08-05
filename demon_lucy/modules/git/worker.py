@@ -56,6 +56,8 @@ _CORRUPTED_INDEX_ERROR_MARKERS = (
     "fatal: .git/index:",
 )
 
+SyncFailureNotifier = Callable[[str, str], None]
+
 
 @dataclass(frozen=True)
 class DirtyTreeCommitResult:
@@ -74,6 +76,24 @@ class PatchPacketBuildResult:
     patch_path: str = ""
     metadata_path: str = ""
     error_text: str = ""
+
+
+@dataclass
+class _PendingSyncFailure:
+    summary_text: str = ""
+    details_text: str = ""
+
+    def clear(self) -> None:
+        self.summary_text = ""
+        self.details_text = ""
+
+    def record(self, summary_text: str, details_text: str = "") -> None:
+        self.summary_text = summary_text
+        self.details_text = details_text
+
+    @property
+    def exists(self) -> bool:
+        return bool(self.summary_text)
 
 
 def _repo_event_lock(repo_root: str) -> threading.Lock:
@@ -130,7 +150,12 @@ def _notify_git_sync_issue(
     summary_text: str,
     args: ParsedArgs,
     details_text: str = "",
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> None:
+    if failure_notifier is not None:
+        failure_notifier(summary_text, details_text)
+        return
+
     message_text = f"Repository:\n{repo_root}\n\n{summary_text}"
     if details_text:
         message_text += f"\n\nDetails:\n{details_text[:1200]}"
@@ -140,6 +165,16 @@ def _notify_git_sync_issue(
         args=args,
         use_rare_mode=True,
     )
+
+
+def _log_sync_failure(
+    action: str,
+    *,
+    failure_notifier: SyncFailureNotifier | None,
+    **fields,
+) -> None:
+    log_method = logger.warning if failure_notifier is not None else logger.error
+    log_method(log_record(action, **fields))
 
 
 def _should_log_index_lock_error(repo_root: str) -> bool:
@@ -168,6 +203,7 @@ def _attempt_rebuild_git_index(
     repo_root: str,
     environment: dict[str, str],
     git_timeout_seconds: float,
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> bool:
     logger.warning(
         log_record("git.index_recovery_start", reason="corrupted_index", repo=repo_root)
@@ -181,8 +217,11 @@ def _attempt_rebuild_git_index(
             timeout_seconds=git_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error(
-            log_record("git.index_recovery_failed", reason="timeout", repo=repo_root)
+        _log_sync_failure(
+            "git.index_recovery_failed",
+            failure_notifier=failure_notifier,
+            reason="timeout",
+            repo=repo_root,
         )
         return False
 
@@ -193,12 +232,11 @@ def _attempt_rebuild_git_index(
     reset_error = (
         reset_result.stderr or reset_result.stdout or "git reset failed"
     ).strip()
-    logger.error(
-        log_record(
-            "git.index_recovery_failed",
-            repo=repo_root,
-            error=reset_error[:1200],
-        )
+    _log_sync_failure(
+        "git.index_recovery_failed",
+        failure_notifier=failure_notifier,
+        repo=repo_root,
+        error=reset_error[:1200],
     )
     return False
 
@@ -347,6 +385,7 @@ def _process_event_once(
     paths: list[str],
     args: ParsedArgs,
     operating_system: OperatingSystem,
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> bool:
     batch = make_repo_batch(
         repo_root=repo_root,
@@ -355,11 +394,19 @@ def _process_event_once(
         args=args,
         environment=git_environment(),
     )
+    if failure_notifier is None:
+        return process_batch(
+            self,
+            batch,
+            args,
+            operating_system=operating_system,
+        )
     return process_batch(
         self,
         batch,
         args,
         operating_system=operating_system,
+        failure_notifier=failure_notifier,
     )
 
 
@@ -385,11 +432,17 @@ def _run_event_with_retry_window(
     )
 
     deadline = None
+    pending_failure = None
     if retry_window_seconds > 0.0:
         deadline = time.monotonic() + retry_window_seconds
+        pending_failure = _PendingSyncFailure()
 
     delay_seconds = backoff_start_seconds
+    attempt_number = 0
     while True:
+        attempt_number += 1
+        if pending_failure is not None:
+            pending_failure.clear()
         success = _process_event_once(
             self=self,
             repo_root=repo_root,
@@ -397,8 +450,19 @@ def _run_event_with_retry_window(
             paths=paths,
             args=args,
             operating_system=operating_system,
+            failure_notifier=(
+                pending_failure.record if pending_failure is not None else None
+            ),
         )
         if success:
+            if attempt_number > 1:
+                logger.info(
+                    log_record(
+                        "git.sync_recovered",
+                        repo=repo_root,
+                        attempt=attempt_number,
+                    )
+                )
             return
 
         if deadline is None:
@@ -406,9 +470,46 @@ def _run_event_with_retry_window(
 
         now_timestamp = time.monotonic()
         if now_timestamp >= deadline:
+            if pending_failure is not None and pending_failure.exists:
+                final_error = (
+                    pending_failure.details_text or pending_failure.summary_text
+                )
+                logger.error(
+                    log_record(
+                        "git.sync_failed",
+                        reason="retry_window_exhausted",
+                        repo=repo_root,
+                        attempt=attempt_number,
+                        error=final_error[:1200],
+                    )
+                )
+                _notify_git_sync_issue(
+                    repo_root=repo_root,
+                    summary_text=pending_failure.summary_text,
+                    details_text=pending_failure.details_text,
+                    args=args,
+                )
+            else:
+                logger.warning(
+                    log_record(
+                        "git.sync_retry_exhausted",
+                        reason="retryable_failure",
+                        repo=repo_root,
+                        attempt=attempt_number,
+                    )
+                )
             return
 
         sleep_seconds = min(delay_seconds, deadline - now_timestamp)
+        logger.info(
+            log_record(
+                "git.sync_retry",
+                reason="batch_failed",
+                repo=repo_root,
+                attempt=attempt_number,
+                retry_in_seconds=round(sleep_seconds, 3),
+            )
+        )
         if sleep_seconds > 0.0:
             time.sleep(sleep_seconds)
         delay_seconds = min(delay_seconds * 2.0, backoff_max_seconds)
@@ -456,6 +557,7 @@ def _ensure_merge_state_clean(
     git_timeout_seconds: float,
     autoresolve_mode: MergeAutoresolveMode,
     args: ParsedArgs,
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> bool:
     if not merge_in_progress(self, repo_root, environment, git_timeout_seconds):
         return True
@@ -466,6 +568,7 @@ def _ensure_merge_state_clean(
         environment,
         git_timeout_seconds,
         autoresolve_mode=autoresolve_mode,
+        failure_is_deferred=failure_notifier is not None,
     )
     if resolved:
         return True
@@ -475,6 +578,7 @@ def _ensure_merge_state_clean(
         repo_root=repo_root,
         environment=environment,
         timeout_seconds=git_timeout_seconds,
+        failure_is_deferred=failure_notifier is not None,
     )
     if not abort_ok:
         rebuilt = _attempt_rebuild_git_index(
@@ -482,6 +586,7 @@ def _ensure_merge_state_clean(
             repo_root=repo_root,
             environment=environment,
             git_timeout_seconds=git_timeout_seconds,
+            failure_notifier=failure_notifier,
         )
         if rebuilt:
             abort_ok = abort_merge_safely(
@@ -489,6 +594,7 @@ def _ensure_merge_state_clean(
                 repo_root=repo_root,
                 environment=environment,
                 timeout_seconds=git_timeout_seconds,
+                failure_is_deferred=failure_notifier is not None,
             )
             if abort_ok:
                 logger.warning(
@@ -497,18 +603,18 @@ def _ensure_merge_state_clean(
                     )
                 )
     abort_note = "" if abort_ok else " Merge abort failed or timed out."
-    logger.error(
-        log_record(
-            "git.merge_unfinished",
-            autoresolve="failed",
-            abort="failed" if not abort_ok else "done",
-            repo=repo_root,
-        )
+    _log_sync_failure(
+        "git.merge_unfinished",
+        failure_notifier=failure_notifier,
+        autoresolve="failed",
+        abort="failed" if not abort_ok else "done",
+        repo=repo_root,
     )
     _notify_git_sync_issue(
         repo_root=repo_root,
         summary_text=f"Found unfinished merge; auto-resolve failed; merge aborted.{abort_note}",
         args=args,
+        failure_notifier=failure_notifier,
     )
     return False
 
@@ -519,6 +625,7 @@ def _stage_and_collect_changes(
     environment: dict[str, str],
     git_timeout_seconds: float,
     args: ParsedArgs,
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> tuple[bool, str, list[str]]:
     recovered_index = False
     while True:
@@ -531,13 +638,17 @@ def _stage_and_collect_changes(
                 timeout_seconds=git_timeout_seconds,
             )
         except subprocess.TimeoutExpired:
-            logger.error(
-                log_record("git.stage_failed", reason="timeout", repo=repo_root)
+            _log_sync_failure(
+                "git.stage_failed",
+                failure_notifier=failure_notifier,
+                reason="timeout",
+                repo=repo_root,
             )
             _notify_git_sync_issue(
                 repo_root=repo_root,
                 summary_text="git add timed out.",
                 args=args,
+                failure_notifier=failure_notifier,
             )
             return False, "", []
 
@@ -563,18 +674,23 @@ def _stage_and_collect_changes(
                 repo_root=repo_root,
                 environment=environment,
                 git_timeout_seconds=git_timeout_seconds,
+                failure_notifier=failure_notifier,
             )
             if recovered_index:
                 continue
 
-        logger.error(
-            log_record("git.stage_failed", repo=repo_root, error=add_error[:1200])
+        _log_sync_failure(
+            "git.stage_failed",
+            failure_notifier=failure_notifier,
+            repo=repo_root,
+            error=add_error[:1200],
         )
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git add failed.",
             args=args,
             details_text=add_error,
+            failure_notifier=failure_notifier,
         )
         return False, "", []
 
@@ -587,11 +703,17 @@ def _stage_and_collect_changes(
             timeout_seconds=git_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error(log_record("git.status_failed", reason="timeout", repo=repo_root))
+        _log_sync_failure(
+            "git.status_failed",
+            failure_notifier=failure_notifier,
+            reason="timeout",
+            repo=repo_root,
+        )
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git status timed out.",
             args=args,
+            failure_notifier=failure_notifier,
         )
         return False, "", []
 
@@ -599,18 +721,18 @@ def _stage_and_collect_changes(
         status_error = (
             status_result.stderr or status_result.stdout or "git status failed"
         ).strip()
-        logger.error(
-            log_record(
-                "git.status_failed",
-                repo=repo_root,
-                error=status_error[:1200],
-            )
+        _log_sync_failure(
+            "git.status_failed",
+            failure_notifier=failure_notifier,
+            repo=repo_root,
+            error=status_error[:1200],
         )
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git status failed.",
             args=args,
             details_text=status_error,
+            failure_notifier=failure_notifier,
         )
         return False, "", []
 
@@ -683,6 +805,7 @@ def _commit_if_needed(
     porcelain_text: str,
     changed_paths: list[str],
     args: ParsedArgs,
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> bool:
     if not porcelain_text:
         return True
@@ -745,11 +868,17 @@ def _commit_if_needed(
             timeout_seconds=git_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error(log_record("git.commit_failed", reason="timeout", repo=repo_root))
+        _log_sync_failure(
+            "git.commit_failed",
+            failure_notifier=failure_notifier,
+            reason="timeout",
+            repo=repo_root,
+        )
         _notify_git_sync_issue(
             repo_root=repo_root,
             summary_text="git commit timed out.",
             args=args,
+            failure_notifier=failure_notifier,
         )
         return False
 
@@ -777,14 +906,18 @@ def _commit_if_needed(
     commit_error = (
         commit_result.stderr or commit_result.stdout or "git commit failed"
     ).strip()
-    logger.error(
-        log_record("git.commit_failed", repo=repo_root, error=commit_error[:1200])
+    _log_sync_failure(
+        "git.commit_failed",
+        failure_notifier=failure_notifier,
+        repo=repo_root,
+        error=commit_error[:1200],
     )
     _notify_git_sync_issue(
         repo_root=repo_root,
         summary_text="git commit failed.",
         args=args,
         details_text=commit_error,
+        failure_notifier=failure_notifier,
     )
     return False
 
@@ -817,6 +950,7 @@ def _attempt_push_with_retry(
     push_timeout_seconds: float,
     git_timeout_seconds: float,
     args: ParsedArgs,
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> bool:
     try:
         first_push_result = _run_push_once(
@@ -873,6 +1007,8 @@ def _attempt_push_with_retry(
             auto_set_upstream=batch.policy.auto_set_upstream,
             network_probe_timeout_seconds=batch.policy.network_probe_timeout_seconds,
             pull_offline_error_markers=list(batch.policy.pull_offline_error_markers),
+            remote_already_reached=True,
+            failure_notifier=failure_notifier,
         )
         if not pulled:
             logger.warning(
@@ -882,6 +1018,7 @@ def _attempt_push_with_retry(
                     repo=repo_root,
                 )
             )
+            return False
 
     try:
         second_push_result = _run_push_once(
@@ -891,20 +1028,24 @@ def _attempt_push_with_retry(
             push_timeout_seconds=push_timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error(log_record("git.push_failed", reason="timeout", repo=repo_root))
+        _log_sync_failure(
+            "git.push_failed",
+            failure_notifier=failure_notifier,
+            reason="timeout",
+            repo=repo_root,
+        )
         return False
 
     if second_push_result.returncode == 0:
         return True
 
     push_error = _push_error_text(second_push_result)
-    logger.error(
-        log_record(
-            "git.push_failed",
-            repo=repo_root,
-            attempt="2/2",
-            error=push_error[:1200],
-        )
+    _log_sync_failure(
+        "git.push_failed",
+        failure_notifier=failure_notifier,
+        repo=repo_root,
+        attempt="2/2",
+        error=push_error[:1200],
     )
     if failure_looks_like_network_issue(
         output_text=push_error,
@@ -917,6 +1058,7 @@ def _attempt_push_with_retry(
         summary_text="git push failed.",
         args=args,
         details_text=push_error,
+        failure_notifier=failure_notifier,
     )
     return False
 
@@ -925,6 +1067,7 @@ def _process_batch_unlocked(
     self,
     batch: _RepoBatch,
     args: ParsedArgs,
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> bool:
     repo_root = batch.repo_root
     environment = batch.environment
@@ -939,6 +1082,7 @@ def _process_batch_unlocked(
         git_timeout_seconds=git_timeout_seconds,
         autoresolve_mode=batch.policy.autoresolve_mode,
         args=args,
+        failure_notifier=failure_notifier,
     ):
         return False
 
@@ -948,6 +1092,7 @@ def _process_batch_unlocked(
         environment=environment,
         git_timeout_seconds=git_timeout_seconds,
         args=args,
+        failure_notifier=failure_notifier,
     )
     if not staged_ok:
         return False
@@ -961,6 +1106,7 @@ def _process_batch_unlocked(
         porcelain_text=porcelain_text,
         changed_paths=changed_paths,
         args=args,
+        failure_notifier=failure_notifier,
     ):
         return False
 
@@ -973,6 +1119,7 @@ def _process_batch_unlocked(
         push_timeout_seconds=push_timeout_seconds,
         git_timeout_seconds=git_timeout_seconds,
         args=args,
+        failure_notifier=failure_notifier,
     )
     if not pushed_ok:
         return False
@@ -988,10 +1135,21 @@ def process_batch(
     args: ParsedArgs,
     *,
     operating_system: OperatingSystem,
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> bool:
+    def _run_batch() -> bool:
+        if failure_notifier is None:
+            return _process_batch_unlocked(self, batch, args)
+        return _process_batch_unlocked(
+            self,
+            batch,
+            args,
+            failure_notifier=failure_notifier,
+        )
+
     return _with_repo_process_lock(
         batch.repo_root,
-        lambda: _process_batch_unlocked(self, batch, args),
+        _run_batch,
         wait_timeout_seconds=max(
             0.0,
             args.require("sys-git-repo-lock-wait-timeout-seconds").value,
@@ -1069,8 +1227,19 @@ def commit_dirty_tree(
         args=args,
         environment=git_environment(),
     )
+    pending_failure = _PendingSyncFailure()
+
+    def _error_text(fallback_text: str) -> str:
+        if not pending_failure.exists:
+            return fallback_text
+        if pending_failure.details_text:
+            return (
+                f"{pending_failure.summary_text}\n{pending_failure.details_text[:1200]}"
+            )
+        return pending_failure.summary_text
 
     def _run_commit() -> DirtyTreeCommitResult:
+        pending_failure.clear()
         if not _ensure_merge_state_clean(
             self=self,
             repo_root=repo_root,
@@ -1078,11 +1247,12 @@ def commit_dirty_tree(
             git_timeout_seconds=batch.git_timeout_seconds,
             autoresolve_mode=batch.policy.autoresolve_mode,
             args=args,
+            failure_notifier=pending_failure.record,
         ):
             return DirtyTreeCommitResult(
                 status="error",
                 repo_root=repo_root,
-                error_text="merge state is not clean",
+                error_text=_error_text("merge state is not clean"),
             )
 
         staged_ok, porcelain_text, changed_paths = _stage_and_collect_changes(
@@ -1091,12 +1261,13 @@ def commit_dirty_tree(
             environment=batch.environment,
             git_timeout_seconds=batch.git_timeout_seconds,
             args=args,
+            failure_notifier=pending_failure.record,
         )
         if not staged_ok:
             return DirtyTreeCommitResult(
                 status="error",
                 repo_root=repo_root,
-                error_text="failed to stage changes",
+                error_text=_error_text("failed to stage changes"),
             )
         if not porcelain_text:
             return DirtyTreeCommitResult(
@@ -1113,12 +1284,13 @@ def commit_dirty_tree(
             porcelain_text=porcelain_text,
             changed_paths=changed_paths,
             args=args,
+            failure_notifier=pending_failure.record,
         )
         if not committed_ok:
             return DirtyTreeCommitResult(
                 status="error",
                 repo_root=repo_root,
-                error_text="git commit failed",
+                error_text=_error_text("git commit failed"),
             )
 
         commit_sha = _head_commit_sha(

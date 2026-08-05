@@ -602,6 +602,53 @@ def test_safe_pull_merge_waits_for_network_without_notification(
     assert notifications == []
 
 
+def test_safe_pull_merge_skips_probe_after_remote_answered_push(
+    git_module, monkeypatch
+):
+    pull_calls: list[list[str]] = []
+
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin"
+    )
+    monkeypatch.setattr(
+        git_ops,
+        "remote_is_reachable",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "a successful remote push response makes the probe redundant"
+            )
+        ),
+    )
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        pull_calls.append(list(arguments))
+        return subprocess.CompletedProcess(
+            args=["git"] + arguments,
+            returncode=0,
+            stdout="Already up to date.",
+            stderr="",
+        )
+
+    monkeypatch.setattr(git_ops, "run_git", _run_git)
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode=MergeAutoresolveMode.UNION,
+        args=_args(),
+        auto_set_upstream=True,
+        remote_already_reached=True,
+    )
+
+    assert pulled is True
+    assert pull_calls == [["pull", "--no-rebase", "--no-edit"]]
+
+
 def test_safe_pull_merge_skips_remote_branch_lookup_without_notification_when_offline(
     git_module, monkeypatch
 ):
@@ -715,6 +762,45 @@ def test_safe_pull_merge_offline_marker_does_not_notify(git_module, monkeypatch)
 
     assert pulled is False
     assert notifications == []
+
+
+def test_safe_pull_merge_reports_non_network_failure(git_module, monkeypatch):
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(
+        git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
+    monkeypatch.setattr(git_ops, "has_upstream", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops, "upstream_remote_name", lambda *_args, **_kwargs: "origin"
+    )
+    monkeypatch.setattr(git_ops, "remote_is_reachable", lambda **_kwargs: True)
+    monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        git_ops,
+        "run_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["git", "pull"],
+            returncode=1,
+            stdout="",
+            stderr="fatal: refusing to merge unrelated histories",
+        ),
+    )
+
+    pulled = git_ops.safe_pull_merge(
+        git_module,
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=10.0,
+        operation_timeout_seconds=5.0,
+        autoresolve_mode=MergeAutoresolveMode.UNION,
+        args=_args(),
+        auto_set_upstream=True,
+    )
+
+    assert pulled is False
+    assert [item["name"] for item in notifications] == ["git-sync:/repo"]
+    assert "refusing to merge unrelated histories" in notifications[0]["message"]
 
 
 def test_run_git_retries_after_stale_index_lock(git_module, monkeypatch, tmp_path):
@@ -966,7 +1052,54 @@ def test_safe_pull_merge_conflict_abort_timeout_does_not_raise(git_module, monke
     )
 
     assert pulled is False
-    assert any(item["name"] == "pull-conflict:/repo" for item in notifications)
+    assert any(item["name"] == "git-sync:/repo" for item in notifications)
+
+
+def test_pull_conflict_defers_notification_for_background_retry(
+    git_module, monkeypatch
+):
+    notifications: list[dict] = []
+    deferred_failures: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        git_ops, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
+    monkeypatch.setattr(git_ops, "merge_in_progress", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        git_ops,
+        "resolve_merge_conflicts_with_fallback",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(git_ops, "abort_merge_safely", lambda *_args, **_kwargs: True)
+
+    pulled = git_ops._handle_pull_failure(
+        self=git_module,
+        repo_root="/repo",
+        environment={},
+        operation_timeout_seconds=5.0,
+        autoresolve_mode=MergeAutoresolveMode.UNION,
+        pull_result=subprocess.CompletedProcess(
+            args=["git", "pull"],
+            returncode=1,
+            stdout="",
+            stderr="pull conflict",
+        ),
+        pull_offline_error_markers=[],
+        args=_args(),
+        failure_notifier=lambda summary, details: deferred_failures.append(
+            (summary, details)
+        ),
+    )
+
+    assert pulled is False
+    assert notifications == []
+    assert deferred_failures == [
+        (
+            "Auto-merge conflict resolution failed; merge aborted "
+            "(no rebase / no force).",
+            "pull conflict",
+        )
+    ]
 
 
 def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkeypatch):
@@ -1035,7 +1168,7 @@ def test_safe_pull_merge_conflict_union_falls_back_to_markers(git_module, monkey
         MergeAutoresolveMode.UNION,
         MergeAutoresolveMode.MARKERS,
     ]
-    assert not any(item["name"] == "pull-conflict:/repo" for item in notifications)
+    assert not any(item["name"] == "git-sync:/repo" for item in notifications)
 
 
 def test_safe_pull_merge_conflict_markers_mode_commits_and_returns_true(
@@ -1099,7 +1232,7 @@ def test_safe_pull_merge_conflict_markers_mode_commits_and_returns_true(
     )
 
     assert pulled is True
-    assert not any(item["name"] == "pull-conflict:/repo" for item in notifications)
+    assert not any(item["name"] == "git-sync:/repo" for item in notifications)
 
 
 def test_ensure_merge_state_clean_handles_merge_abort_timeout(git_module, monkeypatch):
@@ -1605,6 +1738,42 @@ def test_stage_handles_index_lock_as_transient_without_addfail_notification(
     assert notifications == []
 
 
+def test_stage_defers_failure_notification_for_background_retry(
+    git_module, monkeypatch
+):
+    notifications: list[dict] = []
+    deferred_failures: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
+    monkeypatch.setattr(
+        git_worker,
+        "run_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["git", "add", "-A"],
+            returncode=1,
+            stdout="",
+            stderr="temporary filesystem failure",
+        ),
+    )
+
+    staged_ok, _porcelain_text, _changed_paths = git_worker._stage_and_collect_changes(
+        self=git_module,
+        repo_root="/repo",
+        environment={},
+        git_timeout_seconds=5.0,
+        args=_args(),
+        failure_notifier=lambda summary, details: deferred_failures.append(
+            (summary, details)
+        ),
+    )
+
+    assert staged_ok is False
+    assert notifications == []
+    assert deferred_failures == [("git add failed.", "temporary filesystem failure")]
+
+
 def test_commit_skips_untracked_file_created_after_staging(
     git_module,
     monkeypatch,
@@ -1946,6 +2115,138 @@ def test_retry_window_retries_with_backoff_until_success(git_module, monkeypatch
     assert sleeps == [1.0, 2.0]
 
 
+def test_retry_window_suppresses_intermediate_failure_notification(
+    git_module, monkeypatch
+):
+    notifications: list[dict] = []
+    attempts = {"count": 0}
+    clock = {"t": 0.0}
+
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
+    monkeypatch.setattr(git_worker.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(
+        git_worker.time,
+        "sleep",
+        lambda seconds: clock.__setitem__("t", clock["t"] + seconds),
+    )
+
+    def _process_once(*_args, failure_notifier, **_kwargs):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            failure_notifier("git push failed.", "non-fast-forward")
+            return False
+        return True
+
+    monkeypatch.setattr(git_worker, "_process_event_once", _process_once)
+
+    git_worker._run_event_with_retry_window(
+        self=git_module,
+        repo_root="/repo",
+        event_type="modified",
+        paths=["/repo/note.md"],
+        args=_args(
+            {
+                "git-sync-retry-window-seconds": 30.0,
+                "git-sync-retry-backoff-start-seconds": 1.0,
+                "git-sync-retry-backoff-max-seconds": 4.0,
+            }
+        ),
+        operating_system=OperatingSystem.LINUX,
+    )
+
+    assert attempts["count"] == 2
+    assert notifications == []
+
+
+def test_retry_window_notifies_once_after_final_failure(git_module, monkeypatch):
+    notifications: list[dict] = []
+    attempts = {"count": 0}
+    clock = {"t": 0.0}
+
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
+    monkeypatch.setattr(git_worker.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(
+        git_worker.time,
+        "sleep",
+        lambda seconds: clock.__setitem__("t", clock["t"] + seconds),
+    )
+
+    def _process_once(*_args, failure_notifier, **_kwargs):
+        attempts["count"] += 1
+        failure_notifier(
+            "git push failed.",
+            f"non-fast-forward attempt {attempts['count']}",
+        )
+        return False
+
+    monkeypatch.setattr(git_worker, "_process_event_once", _process_once)
+
+    git_worker._run_event_with_retry_window(
+        self=git_module,
+        repo_root="/repo",
+        event_type="modified",
+        paths=["/repo/note.md"],
+        args=_args(
+            {
+                "git-sync-retry-window-seconds": 2.0,
+                "git-sync-retry-backoff-start-seconds": 1.0,
+                "git-sync-retry-backoff-max-seconds": 1.0,
+            }
+        ),
+        operating_system=OperatingSystem.LINUX,
+    )
+
+    assert attempts["count"] == 3
+    assert [item["name"] for item in notifications] == ["git-sync:/repo"]
+    assert "non-fast-forward attempt 3" in notifications[0]["message"]
+
+
+def test_attempt_push_stops_when_required_pull_cannot_run(git_module, monkeypatch):
+    push_attempts = {"count": 0}
+    pull_kwargs: dict[str, object] = {}
+
+    def _safe_pull_merge(*_args, **kwargs):
+        pull_kwargs.update(kwargs)
+        return False
+
+    monkeypatch.setattr(git_worker, "safe_pull_merge", _safe_pull_merge)
+
+    def _run_git(_self, _repo_root, arguments, _environment, timeout_seconds):
+        _ = timeout_seconds
+        if arguments != ["push"]:
+            raise AssertionError(f"Unexpected command: {arguments}")
+        push_attempts["count"] += 1
+        if push_attempts["count"] > 1:
+            raise AssertionError("push must wait until the required pull succeeds")
+        return subprocess.CompletedProcess(
+            args=["git", "push"],
+            returncode=1,
+            stdout="",
+            stderr="non-fast-forward",
+        )
+
+    monkeypatch.setattr(git_worker, "run_git", _run_git)
+
+    pushed = git_worker._attempt_push_with_retry(
+        self=git_module,
+        batch=_mk_batch(auto_merge_on_push=True),
+        repo_root="/repo",
+        environment={},
+        pull_timeout_seconds=6.0,
+        push_timeout_seconds=7.0,
+        git_timeout_seconds=5.0,
+        args=_args(),
+    )
+
+    assert pushed is False
+    assert push_attempts["count"] == 1
+    assert pull_kwargs["remote_already_reached"] is True
+
+
 def test_attempt_push_with_retry_second_push_timeout_does_not_notify(
     git_module, monkeypatch
 ):
@@ -2178,6 +2479,48 @@ def test_commit_dirty_tree_returns_busy_when_repo_lock_is_busy(git_module, monke
 
     assert result.status == "busy"
     assert result.repo_root == "/repo"
+
+
+def test_commit_dirty_tree_returns_failure_without_internal_notification(
+    git_module, monkeypatch
+):
+    notifications: list[dict] = []
+
+    monkeypatch.setattr(
+        git_worker, "safe_notify", lambda **kwargs: notifications.append(kwargs)
+    )
+    monkeypatch.setattr(
+        git_worker, "merge_in_progress", lambda *_args, **_kwargs: False
+    )
+    monkeypatch.setattr(
+        git_worker,
+        "run_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["git", "add", "-A"],
+            returncode=1,
+            stdout="",
+            stderr="temporary filesystem failure",
+        ),
+    )
+    monkeypatch.setattr(
+        git_worker,
+        "_with_repo_process_lock_status",
+        lambda _repo_root, run_fn, **_kwargs: run_fn(),
+    )
+
+    result = git_worker.commit_dirty_tree(
+        git_module,
+        repo_root="/repo",
+        event_type="modified",
+        paths=["/repo/note.md"],
+        args=_args(),
+        operating_system=OperatingSystem.LINUX,
+    )
+
+    assert result.status == "error"
+    assert "git add failed" in result.error_text
+    assert "temporary filesystem failure" in result.error_text
+    assert notifications == []
 
 
 def test_build_patch_packet_returns_busy_when_repo_lock_is_busy(

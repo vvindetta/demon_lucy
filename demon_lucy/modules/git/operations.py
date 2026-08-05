@@ -4,7 +4,7 @@ import logging
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.logfmt import log_record
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 _MIN_STALE_INDEX_LOCK_AGE_SECONDS = 60.0
 _RECENT_INDEX_LOCK_RETRY_MAX_ATTEMPTS = 15
 _RECENT_INDEX_LOCK_RETRY_SLEEP_SECONDS = 1.0
+SyncFailureNotifier = Callable[[str, str], None]
 
 
 def clear_stale_index_lock(repo_root: str) -> bool:
@@ -40,6 +41,7 @@ def abort_merge_safely(
     repo_root: str,
     environment: Dict[str, str],
     timeout_seconds: float,
+    failure_is_deferred: bool = False,
 ) -> bool:
     return conflict_ops.abort_merge_safely(
         self_obj=self,
@@ -49,6 +51,7 @@ def abort_merge_safely(
         run_git_fn=run_git,
         combined_output_fn=combined_output,
         logger=logger,
+        failure_is_deferred=failure_is_deferred,
     )
 
 
@@ -271,6 +274,7 @@ def auto_resolve_merge_conflicts(
     environment: Dict[str, str],
     timeout_seconds: float,
     autoresolve_mode: MergeAutoresolveMode,
+    failure_is_deferred: bool = False,
 ) -> bool:
     return conflict_ops.auto_resolve_merge_conflicts(
         self_obj=self,
@@ -281,6 +285,7 @@ def auto_resolve_merge_conflicts(
         run_git_fn=run_git,
         union_resolve_text_fn=union_resolve_text,
         logger=logger,
+        failure_is_deferred=failure_is_deferred,
     )
 
 
@@ -290,14 +295,39 @@ def resolve_merge_conflicts_with_fallback(
     environment: Dict[str, str],
     timeout_seconds: float,
     autoresolve_mode: MergeAutoresolveMode,
+    failure_is_deferred: bool = False,
 ) -> bool:
+    def _auto_resolve(
+        self_obj,
+        root: str,
+        git_environment_value: Dict[str, str],
+        command_timeout_seconds: float,
+        autoresolve_mode: MergeAutoresolveMode,
+    ) -> bool:
+        if not failure_is_deferred:
+            return auto_resolve_merge_conflicts(
+                self_obj,
+                root,
+                git_environment_value,
+                command_timeout_seconds,
+                autoresolve_mode,
+            )
+        return auto_resolve_merge_conflicts(
+            self_obj,
+            root,
+            git_environment_value,
+            command_timeout_seconds,
+            autoresolve_mode,
+            failure_is_deferred=failure_is_deferred,
+        )
+
     return conflict_ops.resolve_merge_conflicts_with_fallback(
         self_obj=self,
         repo_root=repo_root,
         environment=environment,
         timeout_seconds=timeout_seconds,
         autoresolve_mode=autoresolve_mode,
-        auto_resolve_fn=auto_resolve_merge_conflicts,
+        auto_resolve_fn=_auto_resolve,
         logger=logger,
     )
 
@@ -316,18 +346,23 @@ def _resolve_pull_plan(
     operation_timeout_seconds: float,
     auto_set_upstream: bool,
     network_probe_timeout_seconds: float,
+    remote_already_reached: bool,
 ) -> Optional[_PullPlan]:
     if has_upstream(self, repo_root, environment, operation_timeout_seconds):
         remote_name = upstream_remote_name(
             self, repo_root, environment, operation_timeout_seconds
         )
-        if remote_name and not remote_is_reachable(
-            self=self,
-            repo_root=repo_root,
-            remote_name=remote_name,
-            environment=environment,
-            timeout_seconds=operation_timeout_seconds,
-            network_probe_timeout_seconds=network_probe_timeout_seconds,
+        if (
+            remote_name
+            and not remote_already_reached
+            and not remote_is_reachable(
+                self=self,
+                repo_root=repo_root,
+                remote_name=remote_name,
+                environment=environment,
+                timeout_seconds=operation_timeout_seconds,
+                network_probe_timeout_seconds=network_probe_timeout_seconds,
+            )
         ):
             return None
         return _PullPlan(
@@ -349,7 +384,7 @@ def _resolve_pull_plan(
         )
         return None
 
-    if not remote_is_reachable(
+    if not remote_already_reached and not remote_is_reachable(
         self=self,
         repo_root=repo_root,
         remote_name=remote_name,
@@ -441,6 +476,7 @@ def _handle_pull_failure(
     pull_result: subprocess.CompletedProcess[str],
     pull_offline_error_markers: list[str] | None,
     args: ParsedArgs,
+    failure_notifier: SyncFailureNotifier | None,
 ) -> bool:
     if merge_in_progress(self, repo_root, environment, operation_timeout_seconds):
         resolved = resolve_merge_conflicts_with_fallback(
@@ -449,6 +485,7 @@ def _handle_pull_failure(
             environment,
             operation_timeout_seconds,
             autoresolve_mode=autoresolve_mode,
+            failure_is_deferred=failure_notifier is not None,
         )
         if resolved:
             return True
@@ -459,8 +496,10 @@ def _handle_pull_failure(
             repo_root=repo_root,
             environment=environment,
             timeout_seconds=operation_timeout_seconds,
+            failure_is_deferred=failure_notifier is not None,
         )
-        logger.error(
+        log_method = logger.warning if failure_notifier is not None else logger.error
+        log_method(
             log_record(
                 "git.pull_conflict",
                 autoresolve="failed",
@@ -474,18 +513,24 @@ def _handle_pull_failure(
             if abort_ok
             else "\n\nMerge abort failed or timed out; manual cleanup may be required."
         )
-        safe_notify(
-            name=f"pull-conflict:{repo_root}",
-            message=(
-                f"Repository:\n{repo_root}\n\n"
-                f"Auto-merge conflict resolution failed.\n"
-                f"Merge aborted (no rebase / no force).\n\n"
-                f"Error:\n{pull_error[:1200]}"
-                f"{merge_abort_note}"
-            ),
-            args=args,
-            use_rare_mode=True,
+        summary_text = (
+            "Auto-merge conflict resolution failed; merge aborted "
+            "(no rebase / no force)."
         )
+        details_text = f"{pull_error[:1200]}{merge_abort_note}"
+        if failure_notifier is not None:
+            failure_notifier(summary_text, details_text)
+        else:
+            safe_notify(
+                name=f"git-sync:{repo_root}",
+                message=(
+                    f"Repository:\n{repo_root}\n\n"
+                    f"{summary_text}\n\n"
+                    f"Error:\n{details_text}"
+                ),
+                args=args,
+                use_rare_mode=True,
+            )
         return False
 
     pull_error = _pull_error_text(pull_result)
@@ -502,9 +547,22 @@ def _handle_pull_failure(
         )
         return False
 
-    logger.warning(
-        log_record("git.pull_failed", repo=repo_root, error=pull_error[:1200])
-    )
+    log_method = logger.warning if failure_notifier is not None else logger.error
+    log_method(log_record("git.pull_failed", repo=repo_root, error=pull_error[:1200]))
+    summary_text = "git pull before push failed."
+    if failure_notifier is not None:
+        failure_notifier(summary_text, pull_error)
+    else:
+        safe_notify(
+            name=f"git-sync:{repo_root}",
+            message=(
+                f"Repository:\n{repo_root}\n\n"
+                f"{summary_text}\n\n"
+                f"Error:\n{pull_error[:1200]}"
+            ),
+            args=args,
+            use_rare_mode=True,
+        )
     return False
 
 
@@ -519,6 +577,8 @@ def safe_pull_merge(
     auto_set_upstream: bool = True,
     network_probe_timeout_seconds: float = 0.0,
     pull_offline_error_markers: list[str] | None = None,
+    remote_already_reached: bool = False,
+    failure_notifier: SyncFailureNotifier | None = None,
 ) -> bool:
     pull_plan = _resolve_pull_plan(
         self=self,
@@ -528,6 +588,7 @@ def safe_pull_merge(
         operation_timeout_seconds=operation_timeout_seconds,
         auto_set_upstream=auto_set_upstream,
         network_probe_timeout_seconds=network_probe_timeout_seconds,
+        remote_already_reached=remote_already_reached,
     )
     if pull_plan is None:
         return False
@@ -562,4 +623,5 @@ def safe_pull_merge(
         pull_result=pull_result,
         pull_offline_error_markers=pull_offline_error_markers,
         args=args,
+        failure_notifier=failure_notifier,
     )

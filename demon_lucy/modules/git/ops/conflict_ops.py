@@ -17,6 +17,7 @@ def abort_merge_safely(
     run_git_fn: Callable,
     combined_output_fn: Callable[[subprocess.CompletedProcess[str]], str],
     logger,
+    failure_is_deferred: bool = False,
 ) -> bool:
     try:
         abort_result = run_git_fn(
@@ -27,7 +28,8 @@ def abort_merge_safely(
             timeout_seconds=timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        logger.error(
+        log_method = logger.warning if failure_is_deferred else logger.error
+        log_method(
             log_record("git.merge_abort_failed", reason="timeout", repo=repo_root)
         )
         return False
@@ -41,7 +43,8 @@ def abort_merge_safely(
         return True
 
     abort_error = combined_output_fn(abort_result) or "git merge --abort failed"
-    logger.error(
+    log_method = logger.warning if failure_is_deferred else logger.error
+    log_method(
         log_record(
             "git.merge_abort_failed",
             repo=repo_root,
@@ -100,6 +103,7 @@ def auto_resolve_merge_conflicts(
     run_git_fn: Callable,
     union_resolve_text_fn: Callable[[str], str | None],
     logger,
+    failure_is_deferred: bool = False,
 ) -> bool:
     conflicted_paths = conflicted_files(
         self_obj,
@@ -131,7 +135,8 @@ def auto_resolve_merge_conflicts(
                 timeout_seconds,
             )
             if checkout_result.returncode != 0:
-                logger.error(
+                log_method = logger.warning if failure_is_deferred else logger.error
+                log_method(
                     log_record(
                         "git.autoresolve_failed",
                         stage="checkout",
@@ -216,7 +221,8 @@ def auto_resolve_merge_conflicts(
             timeout_seconds,
         )
         if add_result.returncode != 0:
-            logger.error(
+            log_method = logger.warning if failure_is_deferred else logger.error
+            log_method(
                 log_record(
                     "git.autoresolve_failed",
                     stage="add",
@@ -235,7 +241,8 @@ def auto_resolve_merge_conflicts(
         timeout_seconds,
     )
     if commit_result.returncode != 0:
-        logger.error(
+        log_method = logger.warning if failure_is_deferred else logger.error
+        log_method(
             log_record(
                 "git.autoresolve_failed",
                 stage="commit",
