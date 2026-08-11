@@ -1,3 +1,5 @@
 watchdog
 pyfiglet
 notify-py
+PyYAML
+markdown-it-py

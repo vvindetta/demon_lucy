@@ -26,6 +26,7 @@ from demon_lucy.modules.kdeconnect_sync import KdeconnectSync
 from demon_lucy.modules.linker import Linker
 from demon_lucy.modules.plasma_widget import PlasmaWidget
 from demon_lucy.modules.renamer import Renamer
+from demon_lucy.modules.research_map import ResearchMap
 from demon_lucy.modules.status import Status
 from demon_lucy.modules.sys import Sys
 from demon_lucy.modules.archive import Archive
@@ -284,6 +285,7 @@ def select_demon_lucy_modules(
         Git,
         PlasmaWidget,
         Voice,
+        ResearchMap,
     ]
     requested_include = normalize_name_list(include_names or [])
     requested_exclude = normalize_name_list(exclude_names or [])
