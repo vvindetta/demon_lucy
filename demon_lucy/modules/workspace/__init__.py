@@ -4,7 +4,6 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.models import KnownArg, Template
@@ -18,6 +17,10 @@ from demon_lucy.modules.abstract_module import (
     System,
 )
 from demon_lucy.modules.workspace.config import WorkspaceConfig
+from demon_lucy.modules.workspace.systemd_setup import (
+    render_systemd_setup,
+    systemd_setup_supported,
+)
 from demon_lucy.modules.workspace.template import (
     DEFAULT_TEMPLATE_DIR,
     WorkspaceTemplate,
@@ -55,12 +58,19 @@ class Workspace(AbstractModule):
         self,
         workspace_root: str,
         config_lines: str,
+        *,
+        include_systemd_setup: bool,
     ) -> dict[str, str]:
         return {
             "CONFIG_LINES": config_lines,
             "CONFIG_PATH": self._config_path(workspace_root),
             "LUCY_HOME": self._lucy_home(),
-            "PYTHON_BIN": sys.executable,
+            "SETUP_LINE": (
+                "- `setup-systemd/` - systemd service files generated "
+                "for this workspace.\n"
+                if include_systemd_setup
+                else ""
+            ),
             "WORKSPACE_ROOT": workspace_root,
         }
 
@@ -215,8 +225,13 @@ class Workspace(AbstractModule):
         if workspace_root is None:
             return None
 
+        include_systemd_setup = systemd_setup_supported()
         config_lines = self._config_builder.lines(ctx, system, workspace_root)
-        template_values = self._template_values(workspace_root, config_lines)
+        template_values = self._template_values(
+            workspace_root,
+            config_lines,
+            include_systemd_setup=include_systemd_setup,
+        )
         welcome_path = os.path.join(workspace_root, "welcome.md")
 
         changed: dict[str, int] = {}
@@ -229,6 +244,18 @@ class Workspace(AbstractModule):
                     skip={"welcome.md"},
                 )
             )
+            if include_systemd_setup:
+                for relative_path, text in render_systemd_setup(
+                    lucy_home=self._lucy_home(),
+                    workspace_root=workspace_root,
+                    config_path=self._config_path(workspace_root),
+                ).items():
+                    setup_path = os.path.join(workspace_root, relative_path)
+                    if self._workspace_template.write_file_if_missing(
+                        setup_path,
+                        text,
+                    ):
+                        changed[canonical_path(setup_path)] = 1
             if self._workspace_template.write_file_if_missing(
                 welcome_path,
                 self._workspace_template.welcome_text(template_values),

@@ -1,0 +1,9 @@
+[Unit]
+Description=Start Lucy Notes Daemon after user startup
+
+[Timer]
+OnStartupSec=30s
+Unit=lucy-daemon.service
+
+[Install]
+WantedBy=timers.target

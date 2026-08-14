@@ -4,12 +4,15 @@ import logging
 import subprocess
 from pathlib import Path
 
+import pytest
 from watchdog.events import FileModifiedEvent
 
 import demon_lucy.modules.workspace as workspace_mod
+import demon_lucy.modules.workspace.systemd_setup as systemd_setup_mod
 import demon_lucy.modules.workspace.template as workspace_template_mod
 from demon_lucy.lib.args.models import ArgSource, ParsedArgs, Template
 from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.workspace import Workspace
@@ -20,6 +23,11 @@ _WORKSPACE_TEMPLATE: Template = [
     *DEMON_LUCY_STARTUP_TEMPLATE,
     *Workspace.template,
 ]
+
+
+@pytest.fixture(autouse=True)
+def _enable_systemd_setup(monkeypatch) -> None:
+    monkeypatch.setattr(workspace_mod, "systemd_setup_supported", lambda: True)
 
 
 def _startup_args(
@@ -89,15 +97,87 @@ def test_workspace_default_template_contains_created_files() -> None:
     assert (template_root / "welcome.md").exists()
 
 
-def test_workspace_setup_templates_are_loaded_from_repo_tree() -> None:
-    repo_root = Path(workspace_template_mod.REPO_ROOT)
-
-    assert workspace_template_mod.SETUP_TEMPLATE_DIRS == (
-        (str(repo_root / "setup-systemd"), "setup-systemd"),
+def test_workspace_systemd_setup_matches_repo_examples() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    rendered = systemd_setup_mod.render_systemd_setup(
+        lucy_home="/home/user/demon_lucy",
+        workspace_root="/home/user/Notes",
+        config_path="/home/user/Notes/.lucy/config.txt",
     )
-    assert (repo_root / "setup-systemd" / "lucy-daemon.service").exists()
-    assert (repo_root / "setup-systemd" / "lucy-oneshot.service").exists()
-    assert (repo_root / "setup-systemd" / "lucy-oneshot.timer").exists()
+
+    for relative_path, text in rendered.items():
+        assert (repo_root / relative_path).read_text(encoding="utf-8") == text
+
+
+def test_workspace_daemon_starts_after_user_startup_delay() -> None:
+    rendered = systemd_setup_mod.render_systemd_setup(
+        lucy_home="/home/user/demon_lucy",
+        workspace_root="/home/user/Notes",
+        config_path="/home/user/Notes/.lucy/config.txt",
+    )
+    daemon = rendered["setup-systemd/lucy-daemon.service"]
+    timer = rendered["setup-systemd/lucy-daemon.timer"]
+
+    assert "graphical-session.target" not in daemon
+    assert "network.target" not in daemon
+    assert "[Install]" not in daemon
+    assert "OnStartupSec=30s\n" in timer
+    assert "Unit=lucy-daemon.service\n" in timer
+    assert "WantedBy=timers.target\n" in timer
+
+
+def test_workspace_systemd_setup_requires_linux_systemd(monkeypatch) -> None:
+    monkeypatch.setattr(systemd_setup_mod.os.path, "isdir", lambda _path: True)
+    monkeypatch.setattr(
+        systemd_setup_mod.shutil,
+        "which",
+        lambda _name: "/usr/bin/systemctl",
+    )
+    monkeypatch.setattr(
+        systemd_setup_mod,
+        "detect_operating_system",
+        lambda: OperatingSystem.MACOS,
+    )
+
+    assert systemd_setup_mod.systemd_setup_supported() is False
+
+    monkeypatch.setattr(
+        systemd_setup_mod,
+        "detect_operating_system",
+        lambda: OperatingSystem.LINUX,
+    )
+    assert systemd_setup_mod.systemd_setup_supported() is True
+
+    monkeypatch.setattr(systemd_setup_mod.os.path, "isdir", lambda _path: False)
+    assert systemd_setup_mod.systemd_setup_supported() is False
+
+
+def test_workspace_systemd_setup_escapes_values() -> None:
+    rendered = systemd_setup_mod.render_systemd_setup(
+        lucy_home='/tmp/Lucy Notes/100%/$cash/"quoted"/back\\slash',
+        workspace_root="/tmp/Notes with spaces",
+        config_path="/tmp/Notes with spaces/.lucy/config.txt",
+    )
+
+    daemon = rendered["setup-systemd/lucy-daemon.service"]
+    assert (
+        "WorkingDirectory=/tmp/Lucy\\x20Notes/100%%/$cash/"
+        "\\x22quoted\\x22/back\\x5cslash" in daemon
+    )
+    assert (
+        '"/tmp/Lucy Notes/100%%/$$cash/\\"quoted\\"/back\\\\slash/main_daemon.py"'
+        in daemon
+    )
+    assert '"--sys-config-path" "/tmp/Notes with spaces/.lucy/config.txt"' in daemon
+
+
+def test_workspace_systemd_setup_rejects_control_characters() -> None:
+    with pytest.raises(ValueError, match="control characters"):
+        systemd_setup_mod.render_systemd_setup(
+            lucy_home="/tmp/lucy\nRestart=no",
+            workspace_root="/tmp/notes",
+            config_path="/tmp/notes/.lucy/config.txt",
+        )
 
 
 def test_workspace_default_template_uses_windows_safe_file_names() -> None:
@@ -158,6 +238,7 @@ def test_workspace_template_skips_chmod_on_windows(
 def _setup_paths(workspace_root: Path) -> list[Path]:
     return [
         workspace_root / "setup-systemd" / "lucy-daemon.service",
+        workspace_root / "setup-systemd" / "lucy-daemon.timer",
         workspace_root / "setup-systemd" / "lucy-oneshot.service",
         workspace_root / "setup-systemd" / "lucy-oneshot.timer",
     ]
@@ -220,16 +301,29 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
     daemon_service = (
         workspace_root / "setup-systemd" / "lucy-daemon.service"
     ).read_text(encoding="utf-8")
+    daemon_timer = (
+        workspace_root / "setup-systemd" / "lucy-daemon.timer"
+    ).read_text(encoding="utf-8")
     oneshot_service = (
         workspace_root / "setup-systemd" / "lucy-oneshot.service"
+    ).read_text(encoding="utf-8")
+    oneshot_timer = (
+        workspace_root / "setup-systemd" / "lucy-oneshot.timer"
     ).read_text(encoding="utf-8")
 
     assert f"WorkingDirectory={Workspace._lucy_home()}" in daemon_service
     assert "\nExecStart=" in daemon_service
+    assert 'ExecStart="/usr/bin/python3"' in daemon_service
     assert "\nRestart=on-failure" in daemon_service
-    assert f"--sys-config-path {config_path_text}" in daemon_service
+    assert f'"--sys-config-path" "{config_path_text}"' in daemon_service
+    assert "\nOnStartupSec=30s\n" in daemon_timer
+    assert "\nUnit=lucy-daemon.service\n" in daemon_timer
     assert "\nExecStart=" in oneshot_service
-    assert f"--oneshot-paths {workspace_root}" in oneshot_service
+    assert 'ExecStart="/usr/bin/python3"' in oneshot_service
+    assert f'"--oneshot-paths" "{workspace_root}"' in oneshot_service
+    assert "\nOnStartupSec=5s\n" in oneshot_timer
+    assert "\nOnCalendar=hourly\n" in oneshot_timer
+    assert "\nPersistent=true\n" in oneshot_timer
     assert not (workspace_root / "setup-termux").exists()
     for setup_path in _setup_paths(workspace_root):
         assert setup_path.exists()
@@ -301,6 +395,32 @@ def test_workspace_init_runs_from_cli(
     assert not (workspace_root / "setup-termux").exists()
     assert changed is not None
     assert str((workspace_root / "welcome.md").resolve()) in changed
+
+
+def test_workspace_init_skips_systemd_setup_when_unsupported(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(workspace_mod, "systemd_setup_supported", lambda: False)
+    workspace_root = tmp_path / "notes"
+    manager = ModuleManager(
+        modules=[Workspace()],
+        startup_args=_startup_args(
+            tmp_path,
+            cli_args=["--workspace-init", str(workspace_root)],
+        ),
+        run_mode="cli",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    changed, modules_run = manager.run_cli(event_id="evt-workspace-cli")
+
+    assert modules_run == 1
+    assert changed is not None
+    assert not (workspace_root / "setup-systemd").exists()
+    assert "setup-systemd/" not in (workspace_root / "welcome.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_workspace_init_config_arg_is_not_cli(

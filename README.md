@@ -121,7 +121,7 @@ git clone https://codeberg.org/vvindetta/demon_lucy && cd demon_lucy
    
 2. Install dependencies:
 ```
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
 3. Set up startup args (via config or CLI):
@@ -135,8 +135,7 @@ Initialize a workspace:
 python3 main_oneshot.py --workspace-init "/home/user/Notes"
 ```
 
-Workspace init also initializes Git when available and writes matching
-`setup-systemd/` files inside the workspace.
+Workspace init also initializes Git when available. On Linux with systemd, it generates services files inside the `setup-systemd/`.
 
 ### Manual run
 
@@ -155,8 +154,9 @@ python3 main_oneshot.py \
 
 ### Systemd setup
 
-The repo includes three units in `setup-systemd/`:
+The repo includes four units in `setup-systemd/`:
 - [lucy-daemon.service](setup-systemd/lucy-daemon.service): always-running watcher for real-time note events.
+- [lucy-daemon.timer](setup-systemd/lucy-daemon.timer): starts the daemon 30 seconds after the user service manager starts.
 - [lucy-oneshot.service](setup-systemd/lucy-oneshot.service): single-run job (runs once and exits), used for periodic/manual tasks.
 - [lucy-oneshot.timer](setup-systemd/lucy-oneshot.timer): schedule that starts `lucy-oneshot.service`.
 
@@ -173,6 +173,7 @@ Move the units:
 ```bash
 mkdir -p ~/.config/systemd/user; \
 mv setup-systemd/lucy-daemon.service ~/.config/systemd/user/; \
+mv setup-systemd/lucy-daemon.timer ~/.config/systemd/user/; \
 mv setup-systemd/lucy-oneshot.service ~/.config/systemd/user/; \
 mv setup-systemd/lucy-oneshot.timer ~/.config/systemd/user/
 ```
@@ -180,13 +181,14 @@ mv setup-systemd/lucy-oneshot.timer ~/.config/systemd/user/
 Reload and enable:
 ```bash
 systemctl --user daemon-reload; \
-systemctl --user enable --now lucy-daemon.service; \
+systemctl --user enable --now lucy-daemon.timer; \
 systemctl --user enable --now lucy-oneshot.timer
 ```
 
 Useful checks:
 ```text
 systemctl --user status lucy-daemon.service
+systemctl --user status lucy-daemon.timer
 systemctl --user status lucy-oneshot.timer
 systemctl --user start lucy-oneshot.service
 journalctl --user -u lucy-daemon.service -f

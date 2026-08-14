@@ -5,8 +5,6 @@ import os
 from demon_lucy.lib.path import canonical_path
 
 DEFAULT_TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "default_workspace")
-REPO_ROOT = canonical_path(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-SETUP_TEMPLATE_DIRS = ((os.path.join(REPO_ROOT, "setup-systemd"), "setup-systemd"),)
 
 
 class WorkspaceTemplate:
@@ -17,17 +15,6 @@ class WorkspaceTemplate:
         return os.path.join(self.template_dir, relative_path)
 
     @staticmethod
-    def default_path_replacements(
-        values: dict[str, str],
-    ) -> tuple[tuple[str, str], ...]:
-        return (
-            ("/home/user/Notes/.lucy/config.txt", values["CONFIG_PATH"]),
-            ("/home/user/demon_lucy", values["LUCY_HOME"]),
-            ("/home/user/Notes", values["WORKSPACE_ROOT"]),
-            ("/usr/bin/python3", values["PYTHON_BIN"]),
-        )
-
-    @staticmethod
     def render_text(text: str, values: dict[str, str]) -> str:
         rendered = text
         for key, value in values.items():
@@ -35,8 +22,6 @@ class WorkspaceTemplate:
             if value.endswith("\n"):
                 rendered = rendered.replace(token + "\n", value)
             rendered = rendered.replace(token, value)
-        for old_value, new_value in WorkspaceTemplate.default_path_replacements(values):
-            rendered = rendered.replace(old_value, new_value)
         return rendered
 
     def render_source_file(self, source_path: str, values: dict[str, str]) -> str:
@@ -83,7 +68,7 @@ class WorkspaceTemplate:
         )
 
     def source_dirs(self) -> tuple[tuple[str, str], ...]:
-        return ((self.template_dir, ""), *SETUP_TEMPLATE_DIRS)
+        return ((self.template_dir, ""),)
 
     def copy_files(
         self,
