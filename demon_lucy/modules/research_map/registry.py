@@ -16,6 +16,7 @@ ENTRY_RE = re.compile(
     r"\((?P<map_name>[a-z0-9]+(?:-[a-z0-9]+)*_map)/index\.md\)"
     r" - (?P<summary>[^\r\n]+)$"
 )
+DEFAULT_REGISTRY_PREFIX = "# Research Maps\n\n## Active\n"
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,18 @@ def _registry_path(root: Path) -> Path:
     return path
 
 
-def _read_document(root: Path) -> _RegistryDocument:
+def _read_document(
+    root: Path,
+    *,
+    allow_missing: bool = False,
+) -> _RegistryDocument:
+    path = root / "index.md"
+    if allow_missing and not path.exists() and not path.is_symlink():
+        return _RegistryDocument(
+            prefix=DEFAULT_REGISTRY_PREFIX,
+            suffix="",
+            entries=(),
+        )
     path = _registry_path(root)
     text = path.read_text(encoding="utf-8")
     heading = ACTIVE_HEADING_RE.search(text)
@@ -95,13 +107,14 @@ def render_registration(
     map_name: str,
     label: str,
     summary: str,
+    allow_missing_registry: bool = False,
 ) -> str:
     safe_name = validate_map_name(map_name)
     safe_label = single_line(label, "registry label")
     if any(character in safe_label for character in "[]"):
         raise ResearchMapError("registry label must not contain square brackets")
     safe_summary = single_line(summary, "registry summary")
-    document = _read_document(root)
+    document = _read_document(root, allow_missing=allow_missing_registry)
     if any(entry.map_name == safe_name for entry in document.entries):
         raise ResearchMapError(f"map is already registered: {safe_name}")
     return replace(

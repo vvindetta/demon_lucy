@@ -61,6 +61,27 @@ def test_init_map_registers_summary_and_creates_only_required_paths(
     }
 
 
+def test_init_map_creates_registry_when_missing(tmp_path: Path) -> None:
+    root = tmp_path / "maps"
+    root.mkdir()
+
+    init_map(
+        root=root,
+        map_name="lucy_map",
+        title="Lucy research",
+        goal="Create the first map",
+        seed="Initial wording",
+        registry_summary="First map in this root",
+        timestamp="2026-08-08 12:00",
+    )
+
+    assert (root / "index.md").read_text(encoding="utf-8") == (
+        "# Research Maps\n\n"
+        "## Active\n\n"
+        "- [Lucy research](lucy_map/index.md) - First map in this root\n"
+    )
+
+
 def test_init_map_rolls_back_exact_initial_map_when_registry_write_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -88,6 +88,7 @@ def init_map(
         map_name=map_name,
         label=safe_title,
         summary=registry_summary,
+        allow_missing_registry=True,
     )
     replacements = {
         "TIMESTAMP": value_timestamp,
