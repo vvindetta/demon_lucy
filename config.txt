@@ -1,10 +1,10 @@
 # Demon Lucy config template.
 #
-# Every option below is commented out on purpose. Uncomment only the lines you
-# need. Config files use the same Unix-style flags as the CLI and note files.
+# Every option below is commented out on purpose. Uncomment only the lines you need.
+# Config files use the same Unix-style flags as the CLI and note files.
 # See CHEATSHEET.md for the full argument list.
 
-# QUICK START: set your notes directory. Use absolute paths.
+# ! QUICK START: set your notes directory. Use absolute paths.
 # --sys-watch-paths "/home/user/Notes" "/home/user/Projects/wiki"
 
 

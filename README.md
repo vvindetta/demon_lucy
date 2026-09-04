@@ -46,8 +46,8 @@ See [available modules](#modules).
 - `git`: syncs notes with a remote Git repository.
 - `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
-**Experimental:**
-- `dropdir`: handles moved files in configured drop directories. Useful for inbox/drop folders where a move should trigger temporary Lucy flags.
+**Work in progress:**
+- `dropdir`: handles files moved into configured drop directories. Useful for inbox/drop folders where moving a file should trigger temporary Lucy flags.
 - `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.
 - `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
 - `voice`: transcribes speech locally with Vosk, stopping after speech ends.
@@ -124,24 +124,14 @@ git clone https://codeberg.org/vvindetta/demon_lucy && cd demon_lucy
 python3 -m pip install -r requirements.txt
 ```
 
-3. Set up startup args (via config or CLI):
+3. Edit the config file:
    - `config.txt` is a commented template. Uncomment and edit the lines you need.
-   - At minimum, set `--sys-watch-paths "/home/user/Notes"`.
-   - Or pass it directly at run time: `python3 main_daemon.py --sys-watch-paths "/home/user/Notes"`
-   - Use `--sys-modules` to choose modules. Basic set: `alias workspace banner renamer linker formatter archive status sys`.
-
-Initialize a workspace:
-```text
-python3 main_oneshot.py --workspace-init "/home/user/Notes"
-```
-
-Workspace init also initializes Git when available. On Linux with systemd, it generates services files inside the `setup-systemd/`.
 
 ### Manual run
 
 Run daemon mode:
 ```text
-python3 main_daemon.py
+python3 main_daemon.py --sys-config-path "/home/user/Notes/.lucy/config.txt"
 ```
 
 Run oneshot mode (useful for scripts, scheduled runs):
