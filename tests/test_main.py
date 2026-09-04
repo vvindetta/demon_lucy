@@ -147,6 +147,7 @@ def test_main_schedules_observer_and_modules(
         "git",
         "plasma_widget",
         "voice",
+        "research_map",
     ]
 
 
