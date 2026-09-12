@@ -5,8 +5,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from watchdog.events import FileModifiedEvent
+from watchdog.events import FileModifiedEvent, FileMovedEvent
 
+from demon_lucy.file_handler import FileHandler
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.dynamic_blocks.parser import (
@@ -14,6 +15,7 @@ from demon_lucy.lib.dynamic_blocks.parser import (
     format_fenced_body,
     parse_dynamic_blocks,
 )
+from demon_lucy.lib.text_file import write_text_atomic
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.graph import Graph
@@ -343,6 +345,83 @@ def test_existing_block_renders_by_selected_format(
         assert "```" not in parsed.body
     else:
         assert parsed.body.startswith(opening)
+
+
+@pytest.mark.parametrize("atomic_save", [False, True], ids=["in-place", "atomic"])
+@pytest.mark.parametrize(
+    ("parameter", "old_value", "new_value", "expected_body"),
+    [
+        ("pattern", "sleep", "awake", "2026-01-01      2"),
+        ("view", "ascii", "md", "| 2026-01-01 | 1 |"),
+        ("period", "all", "year", "2026-12"),
+        ("source", "past.md", "other.md", "2026-01-01      3"),
+    ],
+)
+def test_block_parameter_edit_refreshes_on_first_save_after_lucy_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    atomic_save: bool,
+    parameter: str,
+    old_value: str,
+    new_value: str,
+    expected_body: str,
+) -> None:
+    (tmp_path / "past.md").write_text(
+        "--- 01.01.2026 ---\nsleep awake awake\n", encoding="utf-8"
+    )
+    (tmp_path / "other.md").write_text(
+        "--- 01.01.2026 ---\nsleep sleep sleep\n", encoding="utf-8"
+    )
+    note = tmp_path / "graph.md"
+    note.write_text(
+        format_dynamic_block(
+            arg="graph",
+            params={
+                "source": "past.md",
+                "pattern": "sleep",
+                "period": "all",
+                "view": "ascii",
+            },
+            body="old graph",
+        ),
+        encoding="utf-8",
+    )
+    handler = FileHandler(
+        modules=_manager(),
+        open_cooldown_seconds=60,
+        process_opened_events=False,
+    )
+    pending_moves: list[FileMovedEvent] = []
+    real_replace = os.replace
+
+    def record_replace(src: str, dest: str) -> None:
+        real_replace(src, dest)
+        pending_moves.append(FileMovedEvent(src, dest))
+
+    monkeypatch.setattr("demon_lucy.lib.text_file.os.replace", record_replace)
+
+    handler.on_modified(FileModifiedEvent(str(note)))
+    original = note.read_text(encoding="utf-8")
+    assert "2026-01-01      1" in parse_dynamic_blocks(original)[0].body
+    assert len(pending_moves) == 1
+    handler.on_moved(pending_moves.pop())
+
+    edited = original.replace(
+        f"- {parameter}: {old_value}\n", f"- {parameter}: {new_value}\n"
+    )
+    if atomic_save:
+        write_text_atomic(str(note), edited)
+        handler.on_moved(pending_moves.pop())
+    else:
+        note.write_text(edited, encoding="utf-8")
+        handler.on_modified(FileModifiedEvent(str(note)))
+
+    block = parse_dynamic_blocks(note.read_text(encoding="utf-8"))[0]
+    assert block.params[parameter] == new_value
+    assert expected_body in block.body
+    assert len(pending_moves) == 1
+    handler.on_moved(pending_moves.pop())
+    assert handler._ignore_paths == {}
 
 
 def test_existing_blocks_refresh_independently_and_preserve_failed_body(

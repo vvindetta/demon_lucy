@@ -221,6 +221,53 @@ def test_moved_event_uses_destination_path(tmp_path: Path) -> None:
     assert modules.paths[0] == str(dst.resolve())
 
 
+def test_moved_event_from_hidden_temp_processes_visible_destination(
+    tmp_path: Path,
+) -> None:
+    src = tmp_path / ".note.md.editor.tmp"
+    dst = tmp_path / "note.md"
+    modules = _FakeModules()
+    handler = _mk_handler(modules)
+
+    handler.on_moved(_moved_event(str(src), str(dst)))
+
+    assert modules.paths == [str(dst.resolve())]
+
+
+def test_hidden_temp_move_consumes_write_ignore_before_next_edit(
+    tmp_path: Path,
+) -> None:
+    note = tmp_path / "note.md"
+    temporary = tmp_path / ".note.md.lucy.tmp"
+    modules = _FakeModules(ignore_maps=[{str(note): 1}, None])
+    handler = _mk_handler(modules)
+
+    handler.on_modified(_modified_event(str(note)))
+    handler.on_moved(_moved_event(str(temporary), str(note)))
+
+    assert modules.calls == 1
+    assert handler._ignore_paths == {}
+
+    handler.on_modified(_modified_event(str(note)))
+
+    assert modules.calls == 2
+
+
+@pytest.mark.parametrize("destination", [".hidden", ".git/config"])
+def test_moved_event_skips_hidden_and_git_destinations(
+    tmp_path: Path,
+    destination: str,
+) -> None:
+    modules = _FakeModules()
+    handler = _mk_handler(modules)
+
+    handler.on_moved(
+        _moved_event(str(tmp_path / "note.md"), str(tmp_path / destination))
+    )
+
+    assert modules.calls == 0
+
+
 def test_move_ignore_dirs_are_derived_from_module_args(tmp_path: Path) -> None:
     extra_move_ignore_dir = tmp_path / "panel-status"
     modules = _FakeModules(

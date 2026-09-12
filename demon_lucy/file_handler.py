@@ -65,10 +65,14 @@ class FileHandler(FileSystemEventHandler):
         src_path = os.fsdecode(event.src_path)
         dest_path = os.fsdecode(getattr(event, "dest_path", ""))
 
-        if event.is_directory or os.path.basename(src_path).startswith("."):
+        if event.is_directory:
             return
 
         file_path = dest_path if event.event_type == "moved" else src_path
+        # Atomic saves move a hidden temporary file onto the visible note.
+        # Let that move consume its ignore count or process an editor save.
+        if os.path.basename(file_path).startswith("."):
+            return
         file_path = canonical_path(file_path)
 
         if path_has_component(file_path, ".git"):
