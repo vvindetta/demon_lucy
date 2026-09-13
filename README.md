@@ -1,4 +1,4 @@
-![lucy.png](media/lucy.png)
+![Demon Lucy](media/lucy.gif)
 
 # D(a)emon Lucy — a modular notes manager
 
