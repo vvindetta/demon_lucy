@@ -78,8 +78,6 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 ```
 
 
-```--neofetch``` prints Demon Lucy runtime information.
-
 ```--mods``` to see loaded modules:
 ```
 * sys (0)
@@ -115,8 +113,9 @@ Warnings:
 - macOS and Windows do not support daemon `opened` events. Other daemon events and synthetic oneshot `opened` events continue to work.
 
 1. Clone the repository:
-```
-git clone https://codeberg.org/vvindetta/demon_lucy && cd demon_lucy
+
+```sh
+git clone --depth 1 https://codeberg.org/vvindetta/demon_lucy && cd demon_lucy
 ```
    
 2. Install dependencies:

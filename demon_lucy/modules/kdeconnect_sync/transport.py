@@ -1,135 +1,123 @@
 from __future__ import annotations
 
+import errno
+import hashlib
 import os
-import shutil
 import subprocess
+import time
 from dataclasses import dataclass
-from typing import Sequence
+from enum import StrEnum
+from pathlib import Path
+
+from demon_lucy.lib.path import path_inside_no_symlinks
+from demon_lucy.lib.text_file import write_bytes_atomic
+from demon_lucy.modules.kdeconnect_sync.config import SyncSettings
+from demon_lucy.modules.kdeconnect_sync.queue import Packet
+
+
+class TransferStatus(StrEnum):
+    SENT = "sent"
+    RETRY = "retry"
+    ERROR = "error"
 
 
 @dataclass(frozen=True)
 class TransferResult:
-    status: str
+    status: TransferStatus
     remote_incoming_dir: str = ""
     error_text: str = ""
 
 
-def _run_command(
-    command: list[str], *, timeout_seconds: float
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=timeout_seconds,
-    )
+def _run_command(command: list[str], *, timeout_seconds: float) -> str:
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("kdeconnect-cli is not installed") from exc
+    if result.returncode:
+        raise OSError(
+            (result.stderr or result.stdout or "KDE Connect command failed").strip()
+        )
+    return result.stdout.strip()
 
 
-def _mounted_remote_root(mount_point: str, remote_root: str) -> str:
-    clean_mount = os.path.normpath(mount_point)
-    remote_rel = remote_root.lstrip(os.sep)
-    return os.path.normpath(os.path.join(clean_mount, remote_rel))
-
-
-def _copy_atomic(src_path: str, dest_path: str) -> None:
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    tmp_path = dest_path + ".tmp"
-    shutil.copy2(src_path, tmp_path)
-    with open(tmp_path, "rb") as handle:
-        os.fsync(handle.fileno())
-    os.replace(tmp_path, dest_path)
+def _publish_file(source: str, destination: str) -> None:
+    content = Path(source).read_bytes()
+    if Path(destination).exists():
+        if Path(destination).read_bytes() != content:
+            raise ValueError(
+                f"remote packet already exists with different content: {destination}"
+            )
+        return
+    write_bytes_atomic(destination, content)
+    # Confirm readable remote bytes before publishing the ready marker or reporting sent.
+    if (
+        hashlib.sha256(Path(destination).read_bytes()).digest()
+        != hashlib.sha256(content).digest()
+    ):
+        raise OSError(f"remote packet verification failed: {destination}")
 
 
 def transfer_packet_to_phone(
-    *,
-    device_id: str,
-    remote_root: str,
-    queue_dir_name: str,
-    packet_paths: Sequence[str],
-    timeout_seconds: float,
-    mount_retry_seconds: float,
-    max_retries: int,
+    *, settings: SyncSettings, packet: Packet
 ) -> TransferResult:
-    if not device_id.strip():
-        return TransferResult(status="error", error_text="empty kdeconnect device id")
-    if not remote_root.strip():
-        return TransferResult(status="error", error_text="empty kdeconnect remote root")
-
-    retries_left = max(1, max_retries)
-    last_error = "kdeconnect transfer failed"
-    while retries_left > 0:
-        retries_left -= 1
+    last_error = ""
+    for attempt in range(settings.attempts):
         try:
-            mount_result = _run_command(
-                ["kdeconnect-cli", "-d", device_id, "--mount"],
-                timeout_seconds=timeout_seconds,
+            _run_command(
+                ["kdeconnect-cli", "-d", settings.device_id, "--mount"],
+                timeout_seconds=settings.timeout_seconds,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            last_error = str(exc)
-            if retries_left > 0:
-                _sleep_seconds(mount_retry_seconds)
-            continue
-
-        if mount_result.returncode != 0:
-            last_error = (
-                mount_result.stderr or mount_result.stdout or "kdeconnect mount failed"
-            ).strip()
-            if retries_left > 0:
-                _sleep_seconds(mount_retry_seconds)
-            continue
-
-        try:
-            mount_point_result = _run_command(
-                ["kdeconnect-cli", "-d", device_id, "--get-mount-point"],
-                timeout_seconds=timeout_seconds,
+            mount_point = _run_command(
+                ["kdeconnect-cli", "-d", settings.device_id, "--get-mount-point"],
+                timeout_seconds=settings.timeout_seconds,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            last_error = str(exc)
-            if retries_left > 0:
-                _sleep_seconds(mount_retry_seconds)
-            continue
-
-        mount_point = (mount_point_result.stdout or "").strip()
-        if mount_point_result.returncode != 0 or not mount_point:
-            last_error = (
-                mount_point_result.stderr
-                or mount_point_result.stdout
-                or "kdeconnect mount point is empty"
-            ).strip()
-            if retries_left > 0:
-                _sleep_seconds(mount_retry_seconds)
-            continue
-
-        remote_repo_root = _mounted_remote_root(
-            mount_point=mount_point, remote_root=remote_root
-        )
-        remote_incoming_dir = os.path.join(
-            remote_repo_root,
-            queue_dir_name,
-            "incoming_pc_to_phone",
-        )
-        try:
-            os.makedirs(remote_incoming_dir, exist_ok=True)
-            for src_path in packet_paths:
-                file_name = os.path.basename(src_path)
-                dest_path = os.path.join(remote_incoming_dir, file_name)
-                _copy_atomic(src_path=src_path, dest_path=dest_path)
+            # KDE's CLI can print the intended path even before sshfs is mounted.
+            if not os.path.isabs(mount_point) or not os.path.ismount(mount_point):
+                raise OSError("KDE Connect filesystem is not mounted yet")
+            remote_root = path_inside_no_symlinks(mount_point, settings.remote_root)
+            if not Path(remote_root).is_dir():
+                raise ValueError(
+                    f"remote repository directory does not exist: {remote_root}"
+                )
+            incoming = path_inside_no_symlinks(
+                remote_root, f"{settings.queue_directory}/incoming_pc_to_phone"
+            )
+            Path(incoming).mkdir(parents=True, exist_ok=True)
+            patch_destination = path_inside_no_symlinks(
+                incoming, Path(packet.patch_path).name
+            )
+            metadata_destination = path_inside_no_symlinks(
+                incoming, Path(packet.metadata_path).name
+            )
+            # The .json file is the ready marker; it must always be copied last.
+            _publish_file(packet.patch_path, patch_destination)
+            _publish_file(packet.metadata_path, metadata_destination)
+            return TransferResult(TransferStatus.SENT, remote_incoming_dir=incoming)
+        except ValueError as exc:
+            return TransferResult(TransferStatus.ERROR, error_text=str(exc))
         except OSError as exc:
+            if exc.errno in {
+                errno.EACCES,
+                errno.EPERM,
+                errno.ENOSPC,
+                errno.EDQUOT,
+                errno.EROFS,
+                errno.ENOTDIR,
+                errno.EISDIR,
+                errno.ENAMETOOLONG,
+                errno.ENOTSUP,
+            }:
+                return TransferResult(TransferStatus.ERROR, error_text=str(exc))
             last_error = str(exc)
-            if retries_left > 0:
-                _sleep_seconds(mount_retry_seconds)
-            continue
-
-        return TransferResult(status="sent", remote_incoming_dir=remote_incoming_dir)
-
-    return TransferResult(status="error", error_text=last_error)
-
-
-def _sleep_seconds(value: float) -> None:
-    if value <= 0:
-        return
-    import time
-
-    time.sleep(value)
+        except subprocess.TimeoutExpired as exc:
+            last_error = str(exc)
+        if attempt + 1 < settings.attempts:
+            time.sleep(settings.mount_retry_seconds)
+    return TransferResult(TransferStatus.RETRY, error_text=last_error)

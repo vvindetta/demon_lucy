@@ -27,6 +27,24 @@ def path_is_inside(path_value: str, root_value: str) -> bool:
         return False
 
 
+def path_inside_no_symlinks(root_value: str, relative_path: str) -> str:
+    """Resolve a nonempty relative path, rejecting traversal and existing links."""
+    relative = Path(relative_path)
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise ValueError(f"expected a relative path without traversal: {relative_path}")
+    root = Path(root_value).absolute()
+    if root.is_symlink():
+        raise ValueError(f"symlink root is not allowed: {root}")
+    current = root
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            raise ValueError(f"symlink path is not allowed: {current}")
+    if not path_is_inside(str(current), str(root)):
+        raise ValueError(f"path escapes its root: {current}")
+    return str(current)
+
+
 def find_parent_with(path_value: str, marker_name: str) -> Optional[str]:
     """
     Walk up from a file or directory path and return the first parent directory
@@ -89,6 +107,23 @@ def git_dir_for_repo_root(repo_root: str) -> Optional[str]:
     if not os.path.isfile(head_path):
         return None
     return git_dir_path
+
+
+def git_common_dir_for_repo_root(repo_root: str) -> Optional[str]:
+    """Return the shared Git directory, including for linked worktrees."""
+    git_dir = git_dir_for_repo_root(repo_root)
+    if git_dir is None:
+        return None
+    try:
+        common_dir = Path(git_dir, "commondir").read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return git_dir
+    if not common_dir:
+        raise ValueError(f"empty Git commondir: {git_dir}")
+    common_path = abs_expand_path(os.path.join(git_dir, common_dir))
+    if not os.path.isdir(common_path):
+        raise ValueError(f"missing Git common directory: {common_path}")
+    return common_path
 
 
 def find_parent_git_repo(path_value: str) -> Optional[str]:

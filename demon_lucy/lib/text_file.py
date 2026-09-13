@@ -22,6 +22,10 @@ def normalize_newlines(text: str, newline: str) -> str:
 
 
 def write_text_atomic(path: str, text: str) -> None:
+    write_bytes_atomic(path, text.encode("utf-8"))
+
+
+def write_bytes_atomic(path: str, content: bytes) -> None:
     directory = os.path.dirname(path) or "."
     mode: int | None = None
     try:
@@ -37,9 +41,9 @@ def write_text_atomic(path: str, text: str) -> None:
     try:
         if mode is not None:
             os.chmod(temp_path, mode)
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+        with os.fdopen(fd, "wb") as handle:
             fd = -1
-            handle.write(text)
+            handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, path)

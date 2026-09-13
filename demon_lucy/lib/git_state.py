@@ -1,14 +1,63 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
-from demon_lucy.lib.path import git_dir_for_repo_root
+from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.operating_system import OperatingSystem
+from demon_lucy.lib.path import git_common_dir_for_repo_root, git_dir_for_repo_root
 
 SYNC_SUCCESS_MARKER_FILE_NAME = "demon_lucy-last-sync-success.timestamp"
 REPO_PROCESS_LOCK_FILE_NAME = "demon_lucy-sync.lock"
+
+
+class GitRepoBusyError(Exception):
+    """A repository operation can be retried after its current owner finishes."""
+
+
+@contextmanager
+def locked_git_repo(
+    repo_root: str,
+    *,
+    wait_timeout_seconds: float,
+    retry_sleep_seconds: float,
+    stale_seconds: float,
+    operating_system: OperatingSystem,
+    event_id: str = "",
+) -> Iterator[None]:
+    """Acquire Lucy's shared process lock; never run unlocked on an IO error."""
+    lock_path = repo_process_lock_path(repo_root)
+    if lock_path is None:
+        raise ValueError(f"not a Git repository: {repo_root}")
+    deadline = time.monotonic() + max(0, wait_timeout_seconds)
+    while not try_create_repo_process_lock(lock_path):
+        if remove_stale_repo_process_lock(
+            lock_path,
+            wait_timeout_seconds=wait_timeout_seconds,
+            stale_seconds=stale_seconds,
+            operating_system=operating_system,
+        ):
+            logging.getLogger(__name__).warning(
+                log_record(
+                    "git.repo_lock_removed",
+                    id=event_id,
+                    reason="stale",
+                    repo=repo_root,
+                    lock=lock_path,
+                )
+            )
+            continue
+        if time.monotonic() >= deadline:
+            raise GitRepoBusyError(f"repository is busy: {repo_root}")
+        time.sleep(max(0.01, retry_sleep_seconds))
+    try:
+        yield
+    finally:
+        if not release_repo_process_lock(lock_path):
+            raise OSError(f"failed to release repository lock: {lock_path}")
 
 
 def sync_success_marker_path(repo_root: str) -> str:
@@ -63,7 +112,8 @@ def read_sync_success_timestamp(repo_root: str) -> float | None:
 
 
 def repo_process_lock_path(repo_root: str) -> str | None:
-    git_dir = git_dir_for_repo_root(repo_root)
+    # Linked worktrees share refs and info/exclude, so they must share this lock.
+    git_dir = git_common_dir_for_repo_root(repo_root)
     if not git_dir:
         return None
     return os.path.join(git_dir, REPO_PROCESS_LOCK_FILE_NAME)

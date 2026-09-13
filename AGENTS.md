@@ -46,7 +46,7 @@ watchdog file events.
 - `demon_lucy/lib/file_time.py`: shared Git/mtime content timestamps, local
   timestamp formatting, and relative age text.
 - `demon_lucy/lib/text_file.py`: newline detection/normalization and atomic
-  UTF-8 text replacement with mode preservation.
+  UTF-8 text/byte replacement with mode preservation.
 - `demon_lucy/lib/dynamic_blocks/`: parsing, serialization, and pure-text
   refresh of `--- <arg> begin ---` generated blocks; parameter schemas come
   from the owning module's main `KnownArg`.
@@ -130,12 +130,23 @@ watchdog file events.
 - `modules/cmd.py`: optional local command execution from notes. Not in the
   default module list for security reasons.
 - `modules/git/`: Git sync module. `config.py` owns `--git-*` flags; `worker.py`
-  owns event batching, commit/pull/push, locks, retries, notifications, and patch
-  packet helpers; `operations.py`/`ops/` own lower-level Git/network/conflict
+  owns event batching, commit/pull/push, locks, retries, and notifications;
+  `operations.py`/`ops/` own lower-level Git/network/conflict
   operations.
 - `modules/kdeconnect_sync/`: KDE Connect patch-queue sync. `config.py` owns
-  flags; `queue.py` owns queue paths/excludes; `transport.py` owns SFTP mount and
-  transfer helpers.
+  flags and validation; `__init__.py` handles events and one coalescing worker per
+  repository; `worker.py` coordinates snapshots, durable queue refs, and retries;
+  `git_packets.py` owns local Git snapshots and binary patch generation; shared
+  process locking lives in `lib.git_state.locked_git_repo`.
+  `queue.py` owns packet storage/excludes; `transport.py` mounts and verifies SFTP
+  transfers. `receiver.py` applies incoming packets, using
+  prepared Git refs for interruption recovery and applied refs for deduplication.
+  `patch_apply.py` prepares patches in a temporary index and validates regular
+  files and paths before changing the receiving worktree.
+  `__init__.py` detects incoming JSON ready-marker paths in normal created,
+  modified, and moved events and applies synchronously without a receive-enable
+  flag. No receive polling or engine lifecycle hooks are needed. CLI/oneshot apply
+  is also available. There is no reverse sender or delivery acknowledgement.
 - `modules/plasma_widget/`: Markdown <-> Plasma note widget sync. `config.py`
   owns required paths; `engine.py` plans sync direction; codec/model/mapper files
   convert Markdown, Plasma HTML, and bold-only mirror content.
