@@ -30,25 +30,37 @@ See [available modules](#modules).
 ### Modules
 
 **Basic:**
-- `sys`: writes runtime debug information, event details, and manual help text.
-- `linker`: creates symlinks for active notes, and keeps file path markdown links in sync with note moves.
-- `archive`: automatically moves idle stale notes from the active note to a past/archive note, keeping one daily scratch note current and older text in history.
+
+- `sys`: writes runtime debug information, event details, and manual help text.<br>
+  ![Sys module: ping, help, loaded modules, and flag manual](media/modules/sys_demo.gif)
+- `linker`: creates symlinks for active notes, and keeps file path markdown links in sync with note moves.<br>
+  ![Linker module: renaming a file updates its link; editing the link moves the file](media/modules/linker_demo.gif)
+- `archive`: moves idle note text into dated history or separate archive files, keeping the working note clear.<br>
+  ![Archive: after 12 idle hours, on demand, or into a dated file](media/modules/archive_demo.gif)
+- `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.<br>
+  ![Renamer: add an extension, name a note by date, and rename it](media/modules/renamer_demo.gif)
+- `banner`: inserts ASCII banner text or date banners into notes.<br>
+  ![Banner module: text crimes and today's date](media/modules/banner_demo.gif)
+- `formatter`: formats note text, including todo list conversion and blank-space padding.<br>
+  ![Formatter: checkboxes, dates, and flag completion](media/modules/formatter_demo.gif)
+- `graph`: creates graph blocks for word and regex frequency.<br>
+  ![Graph: count coffee mentions across a week of notes](media/modules/graph_demo.gif)
+- `include`: renders complete files or matching source paragraphs inside notes.<br>
+  ![Include: insert a file and collect matching task paragraphs](media/modules/include_demo.gif)
+- `status`: updates standalone status filenames with dynamic tokens (time/date/git state, animations, prefixes).<br>
+  ![Status: configure a clock, scrolling message, and Git sync indicator](media/modules/status_demo.gif)
 - `alias`: creates aliases for module args.
-- `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.
-- `banner`: inserts ASCII banner text or date banners into notes.
-- `formatter`: formats note text, including todo list conversion and blank-space padding.
-- `graph`: creates graph blocks for word and regex frequency.
-- `include`: renders complete files or matching source paragraphs inside notes.
 - `workspace`: initializes a default notes workspace with Git and systemd files.
-- `status`: updates standalone status filenames with dynamic tokens (time/date/git state, animations, prefixes).
 
 **Integrations:**
 - `git`: syncs notes with a remote Git repository.
 - `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
 **Work in progress:**
-- `dropdir`: handles files moved into configured drop directories. Useful for inbox/drop folders where moving a file should trigger temporary Lucy flags.
-- `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.
+- `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.<br>
+  ![Cmd: read /etc/os-release and draw a folder tree inside the note](media/modules/cmd_demo.gif)
+- `dropdir`: runs actions when you drop notes into configured folders.<br>
+  ![Dropdir: drop a note to make a checklist, then archive it; the file returns to its original folder](media/modules/dropdir_demo.gif)
 - `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
 - `voice`: transcribes speech locally with Vosk, stopping after speech ends.
 - `ai`: edits the current note from an inline prompt using local Codex.
@@ -66,7 +78,7 @@ You can provide flags in three places:
 
 See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
-### System module
+### Get help with the System module
 
 ```--help``` for help message: 
 ```
@@ -76,7 +88,6 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 * --man <name>: print one argument with description (example: --man mods or --man --mods)
 * --neofetch: print Demon Lucy runtime information
 ```
-
 
 ```--mods``` to see loaded modules:
 ```
