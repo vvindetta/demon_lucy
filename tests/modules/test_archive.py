@@ -1656,6 +1656,73 @@ def test_does_not_skip_append_on_partial_archive_text_match(
     )
 
 
+@pytest.mark.parametrize("separator", ["\n", "\n\n\n"])
+@pytest.mark.parametrize("later_day", ["", "\n--- 13.09.2026\nlater entry\n"])
+def test_archives_only_extension_of_restored_source(
+    tmp_path: Path, monkeypatch, separator: str, later_day: str
+) -> None:
+    _freeze_now(monkeypatch, 2026, 9, 12)
+    original = (
+        "Как считаются дни\nРаботает ли завтра\n\n"
+        "До скольких работают\nКогда посл автобус\nГде мусор"
+    )
+    now_path = tmp_path / "now.md"
+    now_path.write_text(original, encoding="utf-8")
+    past_path = tmp_path / "past.md"
+    past_path.write_text("--- 12.09.2026\nearlier entry\n", encoding="utf-8")
+    module = Archive()
+    ctx = _ctx_for(now_path, archive_command=True)
+    system = _system(module)
+
+    module.modified(ctx, system)
+    archived = past_path.read_text(encoding="utf-8")
+    past_path.write_text(archived + later_day, encoding="utf-8")
+
+    restored = original + separator + "Gurmanska pljeskavica"
+    now_path.write_text("\n\n\n" + restored, encoding="utf-8")
+    result = module.modified(ctx, system)
+
+    expected = "--- 12.09.2026\nearlier entry\n\n" + restored + "\n" + later_day
+    assert past_path.read_text(encoding="utf-8") == expected
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert result_changes(result) == {
+        str(now_path.resolve()): 1,
+        str(past_path.resolve()): 1,
+    }
+
+    # Replaying the restored snapshot must also be harmless after the merge.
+    now_path.write_text(restored, encoding="utf-8")
+    result = module.modified(ctx, system)
+    assert result_changes(result) == {str(now_path.resolve()): 1}
+    assert now_path.read_text(encoding="utf-8") == ""
+    assert past_path.read_text(encoding="utf-8") == expected
+
+
+@pytest.mark.parametrize(
+    ("existing", "incoming"),
+    [
+        ("prefix same text", "same text\nnew text"),
+        ("same text", "same text extended\nnew text"),
+        ("same text\nother text", "same text\nnew text"),
+        ("    same text", "same text\nnew text"),
+    ],
+)
+def test_archive_overlap_keeps_distinct_text(existing: str, incoming: str) -> None:
+    header = "--- 12.09.2026"
+    old_content = f"{header}\n{existing}\n"
+
+    content, changed = archive_storage.text_archive_content_with_entry(
+        old_content=old_content,
+        header_line=header,
+        body=incoming,
+        prefix="--- ",
+        suffix="",
+    )
+
+    assert changed is True
+    assert content == old_content + "\n" + incoming + "\n"
+
+
 def test_normalizes_blank_lines_before_archiving(tmp_path: Path, monkeypatch) -> None:
     _freeze_now(monkeypatch, 2026, 5, 1)
 

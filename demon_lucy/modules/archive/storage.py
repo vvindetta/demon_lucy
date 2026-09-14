@@ -61,6 +61,20 @@ def _archive_body_exists_in_block(block_text: str, body: str) -> bool:
     return f"\n{needle}" in f"\n{haystack}"
 
 
+def _archive_body_overlap(block_text: str, body: str) -> int:
+    """Find a source prefix already at the day's end, matching whole lines."""
+    existing = block_text.rstrip("\n")
+    first_line = body.partition("\n")[0]
+    start = existing.find(first_line)
+    while start != -1:
+        if start == 0 or existing[start - 1] == "\n":
+            overlap = existing[start:]
+            if body.startswith(overlap + "\n"):
+                return len(overlap)
+        start = existing.find(first_line, start + 1)
+    return 0
+
+
 def _append_body_separator(existing_body: str) -> str:
     if not existing_body:
         return ""
@@ -113,11 +127,17 @@ def text_archive_content_with_entry(
     if _archive_body_exists_in_block(existing_body, body):
         return old_content, False
 
-    insert = _append_body_separator(existing_body) + body + "\n"
-    if end < len(lines) and not insert.endswith("\n\n"):
-        insert += "\n"
+    overlap = _archive_body_overlap(existing_body, body)
+    if overlap:
+        # An editor or sync can restore the archived snapshot with new text.
+        # Preserve its separator so a replay still matches the complete body.
+        new_body = existing_body.rstrip("\n") + body[overlap:] + "\n"
+    else:
+        new_body = existing_body + _append_body_separator(existing_body) + body + "\n"
+    if end < len(lines) and not new_body.endswith("\n\n"):
+        new_body += "\n"
 
-    new_lines = [*lines[:end], insert, *lines[end:]]
+    new_lines = [*lines[: start + 1], new_body, *lines[end:]]
     return "".join(new_lines), True
 
 
