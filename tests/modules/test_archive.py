@@ -1015,7 +1015,7 @@ def test_archive_local_file_creates_new_file_under_dot_archive(
 
     ignore = module.modified(ctx, system)
 
-    dest_path = tmp_path / ".archive" / "2026-05-01---note.md"
+    dest_path = tmp_path / ".archive" / "2026-05-01-note.md"
     assert result_changes(ignore) == {
         str(src_path.resolve()): 1,
         str(dest_path.resolve()): 1,
@@ -1032,7 +1032,7 @@ def test_archive_file_mode_uses_unique_name_without_overwrite(
 
     archive_dir = tmp_path / ".archive"
     archive_dir.mkdir()
-    existing_path = archive_dir / "2026-05-01---note.md"
+    existing_path = archive_dir / "2026-05-01-note.md"
     existing_path.write_text("older copy\n", encoding="utf-8")
 
     src_path = tmp_path / "note.md"
@@ -1049,7 +1049,7 @@ def test_archive_file_mode_uses_unique_name_without_overwrite(
 
     ignore = module.modified(ctx, system)
 
-    dest_path = archive_dir / "2026-05-01---note-2.md"
+    dest_path = archive_dir / "2026-05-01-note-2.md"
     assert result_changes(ignore) == {
         str(src_path.resolve()): 1,
         str(dest_path.resolve()): 1,
@@ -1116,7 +1116,7 @@ def test_archive_auto_local_file_archives_stale_configured_source(
 
     ignore = module.modified(ctx, system)
 
-    dest_path = tmp_path / ".archive" / "2026-05-01---now.md"
+    dest_path = tmp_path / ".archive" / "2026-05-01-now.md"
     assert result_changes(ignore) == {
         str(src_path.resolve()): 1,
         str(dest_path.resolve()): 1,
@@ -1295,7 +1295,7 @@ def test_archive_file_keeps_dynamic_blocks_in_source(
 
     ignore = module.modified(ctx, system)
 
-    dest_path = tmp_path / ".archive" / "2026-05-01---note.md"
+    dest_path = tmp_path / ".archive" / "2026-05-01-note.md"
     assert result_changes(ignore) == {
         str(source_path.resolve()): 1,
         str(dest_path.resolve()): 1,

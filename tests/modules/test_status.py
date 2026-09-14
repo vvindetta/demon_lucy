@@ -190,15 +190,24 @@ def test_status_time_with_seconds_order(tmp_path: Path, monkeypatch) -> None:
     assert not path.exists()
 
 
+@pytest.mark.parametrize(
+    ("banner_text", "first_name", "second_name", "cycle_length"),
+    [
+        ("Work sentence", ".Work sentence ", ".ork sentence W", 14),
+        ("Work sentence ", ".Work sentence ", ".ork sentence W", 14),
+        ("Work sentence  ", ".Work sentence  ", ".ork sentence  W", 15),
+        ("X", ".X ", ". X", 2),
+    ],
+)
 def test_status_banner_renames_and_rotates_with_speed(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, banner_text, first_name, second_name, cycle_length
 ) -> None:
     now_state = {"value": 10.0}
     monkeypatch.setattr(status_mod.time, "time", lambda: now_state["value"])
 
     path = tmp_path / "note.md"
     path.write_text(
-        '--status-banner "Work sentence"\n--status-banner-speed-milliseconds 2000\n',
+        f'--status-banner "{banner_text}"\n--status-banner-speed-milliseconds 2000\n',
         encoding="utf-8",
     )
 
@@ -208,12 +217,12 @@ def test_status_banner_renames_and_rotates_with_speed(
     first_changed = module.modified(
         _ctx_for(
             path,
-            status_banner_text="Work sentence",
+            status_banner_text=banner_text,
             status_banner_speed_milliseconds=2000,
         ),
         system,
     )
-    first_path = tmp_path / _inv(".Work sentence")
+    first_path = tmp_path / first_name
     assert result_changes(first_changed) == {
         str(path.resolve()): 1,
         str(first_path.resolve()): 1,
@@ -225,9 +234,17 @@ def test_status_banner_renames_and_rotates_with_speed(
 
     now_state["value"] = 12.1
     module._tick_once()
-    second_path = tmp_path / _inv(".ork sentenceW")
+    second_path = tmp_path / second_name
     assert second_path.exists()
     assert not first_path.exists()
+
+    now_state["value"] = 10.0 + cycle_length * 2 + 0.1
+    module._tick_once()
+    assert first_path.exists()
+    assert not second_path.exists()
+    assert first_path.read_text(encoding="utf-8") == (
+        f'--status-banner "{banner_text}"\n--status-banner-speed-milliseconds 2000\n'
+    )
 
 
 def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) -> None:
@@ -250,7 +267,7 @@ def test_status_banner_combines_with_status_tokens(tmp_path: Path, monkeypatch) 
 
     changed = module.modified(ctx, system)
 
-    new_path = tmp_path / _inv(".17-05 08:09 Focus now")
+    new_path = tmp_path / _inv(".17-05 08:09 Focus now ")
     assert result_changes(changed) == {
         str(path.resolve()): 1,
         str(new_path.resolve()): 1,
@@ -274,7 +291,7 @@ def test_status_banner_preserves_multi_spaces(tmp_path: Path) -> None:
         _ctx_for(path, status_banner_text=banner_text),
         system,
     )
-    new_path = tmp_path / f".{banner_text}"
+    new_path = tmp_path / f".{banner_text} "
     assert result_changes(changed) == {
         str(path.resolve()): 1,
         str(new_path.resolve()): 1,

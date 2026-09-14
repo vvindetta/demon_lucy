@@ -218,7 +218,7 @@ newly created blocks.
 |---|---:|---|
 | `--archive` | `bool` | Force archive using the first available route: configured pair, local `.archive/`, then global destination. |
 | `--archive-pair` | `str[]` | Force archive through the configured `--archive-auto-pair` rule. Optional value: `text` or `file`. |
-| `--archive-local` | `str[]` | Force archive the current file beside itself. Optional value: `text` or `file`. Text mode appends to `.archive/archive.md` when `.archive/` exists, otherwise to `archive.md`; file mode creates `.archive/YYYY-MM-DD---name.md`. |
+| `--archive-local` | `str[]` | Force archive the current file beside itself. Optional value: `text` or `file`. Text mode appends to `.archive/archive.md` when `.archive/` exists, otherwise to `archive.md`; file mode creates `.archive/YYYY-MM-DD-name.md`. |
 | `--archive-global` | `str[]` | Force archive the current file into the global destination. Optional value: `text` or `file`. |
 | `--archive-auto-pair` | `str[]` | Automatic pair rule: `<src> <dest> [idle_hours] [text\|file]`. In text mode `dest` is an archive file; in file mode `dest` is an archive directory. |
 | `--archive-auto-local` | `str[]` | Automatic local rule: `<src> [idle_hours] [text\|file]`. Archives one configured source beside itself. |
@@ -350,7 +350,7 @@ Example:
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--status` | `str[]` | Add filename status tokens: `date`, `time`, `time-with-seconds`, `git`, `git update`. |
-| `--status-banner` | `str` | Animated text inserted into the filename status. |
+| `--status-banner` | `str` | Animated filename text; adds a space between repeats. |
 | `--status-banner-speed-milliseconds` | `int` | Animation step duration for `--status-banner`. |
 | `--status-banner-max-characters` | `int` | Visible banner width. `0` means unlimited. |
 | `--status-prefix` | `str` | Prefix inserted before the first filename status token. |

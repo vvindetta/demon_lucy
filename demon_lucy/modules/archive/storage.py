@@ -262,7 +262,7 @@ def unique_file_archive_path(
     stem = safe_archive_stem(src_path)
     for index in range(1, 1000):
         suffix = "" if index == 1 else f"-{index}"
-        candidate = os.path.join(dest_dir, f"{date_label}---{stem}{suffix}.md")
+        candidate = os.path.join(dest_dir, f"{date_label}-{stem}{suffix}.md")
         if not os.path.lexists(candidate):
             return candidate
     return None

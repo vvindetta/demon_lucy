@@ -68,7 +68,7 @@ class Status(
             name="status-banner",
             value_type=str,
             default="",
-            description='Animated filename banner text. Example: --status-banner "Work sentence"',
+            description='Animated filename banner text with an automatic space between repeats. Example: --status-banner "Work sentence"',
         ),
         KnownArg(
             name="status-banner-speed-milliseconds",

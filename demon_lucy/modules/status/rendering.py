@@ -37,6 +37,8 @@ class StatusRenderingMixin:
     def _rotate_banner_text(text: str, offset: int) -> str:
         if not text:
             return ""
+        if not text.endswith(" "):
+            text += " "
         if len(text) == 1:
             return text
         safe_offset = offset % len(text)
