@@ -8,28 +8,15 @@ Lucy monitors your note folder. Every time you edit something, it runs modules o
 
 ![Lucy demo](media/lucy_demo.gif)
 
-Lucy can read Unix-style flags written inside the note file.
-It could be an execution command or some settings.
+#### Usage
 
-## Example of use
-If `README.md` is one of your notes, you can write command flags directly inside it:
+Use Unix-style flags in your note to run commands.
 
-Rename `README.md` to `DONOTreadme.md`:
-
-```--rename DONOTreadme.md```
-
-Execute the terminal command (output will be written directly to the file):
-
-```--cmd neofetch```
-
-
-Then press ```CTRL+S``` - Lucy will detect the change and run the modules.
-
-See [available modules](#modules).
+Write a command in your note and save it (`Ctrl+S`). Lucy runs the modules and writes the output directly into the note.
 
 ### Modules
 
-**Basic:**
+**Basic (loaded by default):**
 
 - `sys`: writes runtime debug information, event details, and manual help text.<br>
   ![Sys module: ping, help, loaded modules, and flag manual](media/modules/sys_demo.gif)
@@ -70,7 +57,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 ## Theory
 
 ### Flags system
-You can provide flags in three places:
+You can use the same flag syntax in all three places:
 
 1. Inside the note file (for per-note behavior)
 2. In config.txt (global defaults)
@@ -86,7 +73,6 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 * --ping: send notification and rewrite command line to ++pong!
 * --config: print config values that differ from defaults
 * --man <name>: print one argument with description (example: --man mods or --man --mods)
-* --neofetch: print Demon Lucy runtime information
 ```
 
 ```--mods``` to see loaded modules:
@@ -99,14 +85,20 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 * cmd (50)
 ```
 
-`--man flag_arg_here` for help with any flag argument.
+`--man <name>` shows help for a command or module.
 
-```--man man``` :
+`--man rename-auto` — help for one command:
 
+```text
+* --rename-auto: On create, add default extension to extensionless files and rename one-letter scratch filenames using --rename-auto-format. (type=bool, default=False)
 ```
-* --man: print one argument with description (example: --man mods or --man --mods). (type=str, default=None)
-```
 
+`--man renamer` — help for all flags in the module:
+
+```text
+* --rename: Rename file. Example: --rename new_name.md. (type=str, default=None)
+* --rename-auto: On create, add default extension to extensionless files and rename one-letter scratch filenames using --rename-auto-format. (type=bool, default=False)
+```
 
 ### Sync your notes with Android
 Run Lucy in [Termux](https://f-droid.org/packages/com.termux/). [Setup guide](#termux-setup).
