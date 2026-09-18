@@ -87,18 +87,6 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
 `--man <name>` shows help for a command or module.
 
-`--man rename-auto` — help for one command:
-
-```text
-* --rename-auto: On create, add default extension to extensionless files and rename one-letter scratch filenames using --rename-auto-format. (type=bool, default=False)
-```
-
-`--man renamer` — help for all flags in the module:
-
-```text
-* --rename: Rename file. Example: --rename new_name.md. (type=str, default=None)
-* --rename-auto: On create, add default extension to extensionless files and rename one-letter scratch filenames using --rename-auto-format. (type=bool, default=False)
-```
 
 ### Sync your notes with Android
 Run Lucy in [Termux](https://f-droid.org/packages/com.termux/). [Setup guide](#termux-setup).
