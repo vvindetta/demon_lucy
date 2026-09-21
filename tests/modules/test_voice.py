@@ -1,23 +1,22 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sys
-from types import SimpleNamespace
+from dataclasses import replace
+from unittest.mock import Mock
 
 import pytest
 from watchdog.events import FileModifiedEvent
 
 import demon_lucy.modules.voice as voice_mod
-import demon_lucy.modules.voice.providers as voice_providers
 from demon_lucy.lib.args.models import ArgSource, ParsedArgs
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.voice import Voice
-from demon_lucy.modules.voice.providers import TranscriptResult, VoiceError, listen_once
+from demon_lucy.modules.voice.errors import VoiceError
+from demon_lucy.modules.voice.providers import TranscriptResult
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 from tests.args_support import result_changes
-
 
 _TEMPLATE = [*DEMON_LUCY_STARTUP_TEMPLATE, *Voice.template]
 _NOTIFICATION_TOKENS = [
@@ -167,90 +166,182 @@ def test_voice_empty_transcript_keeps_flag(tmp_path: Path, monkeypatch):
     assert note.read_text(encoding="utf-8") == "--voice\n"
 
 
-def test_voice_provider_requires_model_path():
-    with pytest.raises(VoiceError, match="voice-offline-vosk-model-path"):
-        listen_once(_args())
-
-
-def test_voice_provider_streams_until_vosk_endpoint(monkeypatch):
-    commands: list[list[str]] = []
-
-    class FakeStdout:
-        def __init__(self):
-            self.reads = 0
-
-        def read(self, _size: int) -> bytes:
-            self.reads += 1
-            if self.reads <= 2:
-                return b"\0\0" * 2000
-            return b""
-
-    class FakeStderr:
-        def read(self) -> bytes:
-            return b""
-
-    class FakeProcess:
-        def __init__(self):
-            self.stdout = FakeStdout()
-            self.stderr = FakeStderr()
-            self.returncode = None
-            self.terminated = False
-
-        def poll(self):
-            return self.returncode
-
-        def terminate(self):
-            self.terminated = True
-            self.returncode = -15
-
-        def wait(self, timeout=None):
-            return self.returncode
-
-        def kill(self):
-            self.returncode = -9
-
-    process = FakeProcess()
-
-    class FakeRecognizer:
-        def __init__(self, _model, _sample_rate):
-            self.calls = 0
-
-        def AcceptWaveform(self, _data: bytes) -> bool:
-            self.calls += 1
-            return self.calls == 2
-
-        def Result(self) -> str:
-            return '{"text": "hello"}'
-
-        def FinalResult(self) -> str:
-            return '{"text": ""}'
-
-    def fake_popen(command, stdout, stderr):
-        commands.append(command)
-        assert stdout == voice_providers.subprocess.PIPE
-        assert stderr == voice_providers.subprocess.PIPE
-        return process
-
-    monkeypatch.setattr(voice_providers, "_get_vosk_model", lambda _path: object())
-    monkeypatch.setattr(voice_providers.subprocess, "Popen", fake_popen)
-    monkeypatch.setitem(
-        sys.modules,
-        "vosk",
-        SimpleNamespace(KaldiRecognizer=FakeRecognizer),
+@pytest.mark.parametrize("ending", ["\n", "\r\n", "\r", ""])
+def test_voice_preserves_line_endings_and_mode(tmp_path, monkeypatch, ending):
+    note = tmp_path / "note.md"
+    prefix = "before\u2028still the first line\r\n"
+    note.write_bytes((prefix + "--voice" + ending).encode())
+    note.chmod(0o640)
+    monkeypatch.setattr(
+        voice_mod,
+        "listen_once",
+        lambda _: TranscriptResult(" hello \n world ", "offline-vosk", "/model"),
     )
+    module = Voice()
 
-    result = listen_once(
-        _args(
-            [
-                "--voice-offline-vosk-model-path",
-                "/models/ru",
-                "--voice-timeout-seconds",
-                "5",
-            ]
+    result = module.created(_context(note, _args(["--voice"], line=2)), _system(module))
+
+    assert result_changes(result) == {str(note): 1}
+    assert note.read_bytes() == (prefix + "hello world" + ending).encode()
+    assert note.stat().st_mode & 0o777 == 0o640
+
+
+@pytest.mark.parametrize("source", [ArgSource.CONFIG, ArgSource.CLI])
+def test_voice_requires_a_note_command(tmp_path, monkeypatch, source):
+    note = tmp_path / "note.md"
+    note.write_text("--voice\n")
+    listen = Mock()
+    monkeypatch.setattr(voice_mod, "listen_once", listen)
+    args = _args().merged_with(
+        parse_args(
+            args=["--voice"],
+            template=_TEMPLATE,
+            source=source,
+            include_defaults=False,
+            line=1,
         )
     )
+    module = Voice()
 
-    assert result.text == "hello"
-    assert process.terminated
-    assert commands
-    assert "-d" not in commands[0]
+    assert module.modified(_context(note, args), _system(module)) is None
+    listen.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "text", ["my changed note\n", "# --voice\n", "a quoted --voice\n"]
+)
+def test_voice_does_not_record_for_stale_command_lines(tmp_path, monkeypatch, text):
+    note = tmp_path / "note.md"
+    note.write_text(text)
+    listen = Mock()
+    monkeypatch.setattr(voice_mod, "listen_once", listen)
+    module = Voice()
+
+    assert (
+        module.modified(_context(note, _args(["--voice"], line=1)), _system(module))
+        is None
+    )
+    listen.assert_not_called()
+    assert note.read_text() == text
+
+
+@pytest.mark.parametrize("edit", ["change", "delete"])
+def test_voice_preserves_edits_during_recording(tmp_path, monkeypatch, caplog, edit):
+    note = tmp_path / "note.md"
+    note.write_text("--voice\n")
+
+    def listen(_):
+        if edit == "change":
+            note.write_text("user edits\n")
+        else:
+            note.unlink()
+        return TranscriptResult("hello", "offline-vosk", "/model")
+
+    notify = Mock()
+    monkeypatch.setattr(voice_mod, "listen_once", listen)
+    monkeypatch.setattr(voice_mod, "safe_notify", notify)
+    module = Voice()
+    caplog.set_level("INFO")
+
+    assert (
+        module.modified(_context(note, _args(["--voice"], line=1)), _system(module))
+        is None
+    )
+
+    if edit == "change":
+        assert note.read_text() == "user edits\n"
+    else:
+        assert not note.exists()
+    assert "source_changed_during_recording" in caplog.text
+    assert "voice.inline_transcribed" not in caplog.text
+    assert "id=evt-test" in caplog.text
+    assert notify.call_args.args[0] == f"voice:{note}"
+    assert notify.call_count == 1
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_voice_reports_write_failure_without_losing_note(tmp_path, monkeypatch, caplog):
+    note = tmp_path / "note.md"
+    note.write_text("--voice\n")
+    monkeypatch.setattr(
+        voice_mod,
+        "listen_once",
+        lambda _: TranscriptResult("hello", "offline-vosk", "/model"),
+    )
+    monkeypatch.setattr(
+        "demon_lucy.lib.text_file.os.replace",
+        Mock(side_effect=OSError("disk failed")),
+    )
+    notify = Mock()
+    monkeypatch.setattr(voice_mod, "safe_notify", notify)
+    caplog.set_level("INFO")
+    module = Voice()
+
+    assert (
+        module.modified(_context(note, _args(["--voice"], line=1)), _system(module))
+        is None
+    )
+
+    assert note.read_text() == "--voice\n"
+    assert "reason=source_write_failed" in caplog.text
+    assert "voice.inline_transcribed" not in caplog.text
+    assert notify.call_count == 1
+    assert list(tmp_path.iterdir()) == [note]
+
+
+def test_voice_stops_after_a_provider_failure(tmp_path, monkeypatch, caplog):
+    note = tmp_path / "note.md"
+    note.write_text("--voice\n--voice\n")
+    args = _args(["--voice"], line=1)
+    args = args.merged_with(
+        ParsedArgs(known=(replace(args.require("voice"), lines=(1, 2)),))
+    )
+    listen = Mock(side_effect=VoiceError("no model", reason="missing_model_path"))
+    notify = Mock()
+    monkeypatch.setattr(voice_mod, "listen_once", listen)
+    monkeypatch.setattr(voice_mod, "safe_notify", notify)
+    module = Voice()
+
+    assert module.modified(_context(note, args), _system(module)) is None
+
+    assert listen.call_count == notify.call_count == 1
+    assert note.read_text() == "--voice\n--voice\n"
+    assert "reason=missing_model_path" in caplog.text
+
+
+@pytest.mark.parametrize("provider", ["openai", "groq"])
+@pytest.mark.parametrize("succeeds", [True, False])
+def test_online_transcription_through_module_manager(
+    tmp_path, monkeypatch, caplog, provider, succeeds
+):
+    from urllib.error import URLError
+    import demon_lucy.modules.voice.online as online
+
+    note = tmp_path / "note.md"
+    original = f"--voice-provider {provider}\n--voice\n"
+    note.write_text(original)
+    monkeypatch.setenv(f"{provider.upper()}_API_KEY", "test-private-key")
+    monkeypatch.setattr(online, "capture_wav", lambda _: b"fake wav")
+    send = Mock(return_value={"text": "привет мир"})
+    if not succeeds:
+        send.side_effect = URLError("test-private-key")
+    monkeypatch.setattr(online, "post_multipart_json", send)
+    manager = ModuleManager(
+        modules=[Voice()],
+        startup_args=parse_args(
+            args=_NOTIFICATION_TOKENS, template=DEMON_LUCY_STARTUP_TEMPLATE
+        ),
+    )
+
+    changes = manager.run(
+        str(note), FileModifiedEvent(str(note)), event_id="evt-online"
+    )
+
+    if succeeds:
+        assert changes == {str(note): 1}
+        assert note.read_text() == f"--voice-provider {provider}\nпривет мир\n"
+    else:
+        assert not changes
+        assert note.read_text() == original
+        assert "provider_unavailable" in caplog.text
+    assert "test-private-key" not in caplog.text

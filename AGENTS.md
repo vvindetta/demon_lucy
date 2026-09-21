@@ -129,6 +129,15 @@ watchdog file events.
   `moved` events inside generated/internal dirs; default is `.status`.
 - `modules/cmd.py`: optional local command execution from notes. Not in the
   default module list for security reasons.
+- `modules/voice/`: optional offline/online speech transcription. `__init__.py` owns
+  in-note commands and guarded atomic writes; `config.py` owns typed settings
+  and validation; `providers.py` selects offline Vosk or online speech providers;
+  `vosk.py` owns local model caching and recognition; `online.py` owns API auth
+  and OpenAI/Groq/Google/Yandex transcription; `audio.py` owns WAV capture,
+  silence detection, and provider recording limits;
+  `recorder.py` owns PCM streaming, recording deadlines, and subprocess cleanup.
+  `http.py` owns raw/multipart uploads with bounded JSON responses and no
+  credential redirects; credentials come from the environment.
 - `modules/git/`: Git sync module. `config.py` owns `--git-*` flags; `worker.py`
   owns event batching, commit/pull/push, locks, retries, and notifications;
   `operations.py`/`ops/` own lower-level Git/network/conflict

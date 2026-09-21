@@ -328,23 +328,6 @@ The action is parsed as normal Lucy flags and run against the moved-back source
 path. Target modules must be selected in `--sys-modules`. System flags
 (`--sys-*`) are rejected inside dropdir actions.
 
-## Voice
-
-| Arg | Type | Meaning |
-|---|---:|---|
-| `--voice` | `bool` | Replace this line with local Vosk transcription. |
-| `--voice-offline-vosk-model-path` | `str` | Local Vosk model directory. |
-| `--voice-timeout-seconds` | `int` | Safety limit for one listen. Normal stop is after silence. |
-| `--voice-recorder-path` | `str` | Recorder executable that writes raw mono PCM16 audio to stdout. Default: `arecord`. |
-| `--voice-sample-rate` | `int` | Recorder and Vosk sample rate. Default: `16000`. |
-
-Example:
-
-```text
---voice
---voice-offline-vosk-model-path ~/.local/share/vosk-model-ru
-```
-
 ## Status
 
 | Arg | Type | Meaning |

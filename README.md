@@ -16,7 +16,7 @@ Write a command in your note and save it (`Ctrl+S`). Lucy runs the modules and w
 
 ### Modules
 
-**Basic (loaded by default):**
+**Basic modules (loaded by default):**
 
 - `sys`: writes runtime debug information, event details, and manual help text.<br>
   ![Sys module: ping, help, loaded modules, and flag manual](media/modules/sys_demo.gif)
@@ -39,17 +39,17 @@ Write a command in your note and save it (`Ctrl+S`). Lucy runs the modules and w
 - `alias`: creates aliases for module args.
 - `workspace`: initializes a default notes workspace with Git and systemd files.
 
-**Integrations:**
+**Integration modules:**
 - `git`: syncs notes with a remote Git repository.
 - `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
-**Work in progress:**
+**Modules (work in progress):**
 - `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.<br>
   ![Cmd: read /etc/os-release and draw a folder tree inside the note](media/modules/cmd_demo.gif)
 - `dropdir`: runs actions when you drop notes into configured folders.<br>
   ![Dropdir: drop a note to make a checklist, then archive it; the file returns to its original folder](media/modules/dropdir_demo.gif)
 - `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
-- `voice`: transcribes speech locally with Vosk, stopping after speech ends.
+- `voice`: writes speech into notes using offline Vosk or online speech providers.
 - `ai`: edits the current note from an inline prompt using local Codex.
 
 See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
