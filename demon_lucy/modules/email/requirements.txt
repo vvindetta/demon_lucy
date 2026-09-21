@@ -1,0 +1,2 @@
+# Optional dependencies for Lucy's email module and Linux secret-store support.
+keyring>=25

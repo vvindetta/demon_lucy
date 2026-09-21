@@ -18,6 +18,7 @@ from demon_lucy.modules.ai import Ai
 from demon_lucy.modules.alias import Alias
 from demon_lucy.modules.banner import Banner
 from demon_lucy.modules.dropdir import DropDir
+from demon_lucy.modules.email import Email
 from demon_lucy.modules.formatter import Formatter
 from demon_lucy.modules.graph import Graph
 from demon_lucy.modules.include import Include
@@ -43,6 +44,7 @@ MODULE_CLASSES: list[type[AbstractModule]] = [
     Status,
     Linker,
     DropDir,
+    Email,
     Formatter,
     Ai,
     Graph,

@@ -137,6 +137,7 @@ def test_main_schedules_observer_and_modules(
         "status",
         "linker",
         "dropdir",
+        "email",
         "formatter",
         "ai",
         "graph",

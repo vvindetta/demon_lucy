@@ -141,6 +141,18 @@ watchdog file events.
   `recorder.py` owns PCM streaming, recording deadlines, and subprocess cleanup.
   `http.py` owns raw/multipart uploads with bounded JSON responses and no
   credential redirects; credentials come from the environment.
+- `modules/email/`: optional IMAP/SMTP client with message/draft files and
+  Dropdir actions. `config.py` owns typed account settings; `scaffold.py` creates
+  missing account folders/config/services; `codec.py` handles MIME and drafts;
+  `imap.py`/`smtp.py` own transports; `storage.py` owns private SQLite state and
+  managed files; `sync.py` reconciles mailboxes; `sending.py` journals delivery
+  and Sent copies. `credentials.py` uses Linux Secret Service/KWallet by default,
+  with an explicit environment provider for headless/Termux use. Uncertain or
+  partially delivered draft generations cannot be resent automatically.
+  `files.py` and `documents.py` keep account file safety and document markers
+  inside this module. Use the dedicated Dropdir/Email watcher and exclude the
+  account from any general notes watcher; email markers do not change core parsing.
+  Draft body lines have one protective `> ` level, removed before sending.
 - `modules/git/`: Git sync module. `config.py` owns `--git-*` flags; `worker.py`
   owns event batching, commit/pull/push, locks, retries, and notifications;
   `operations.py`/`ops/` own lower-level Git/network/conflict
