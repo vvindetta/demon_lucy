@@ -101,7 +101,7 @@ Btw [Markor](https://github.com/gsantner/markor) is a good text editor.
 Warnings:
 - **Turn on file auto-update in your text editor!**
 - The project has only been tested on GNU/Linux-based distributions.
-- macOS and Windows do not support daemon `opened` events. Other daemon events and synthetic oneshot `opened` events continue to work.
+- macOS and Windows do not support daemon `opened` events.
 
 1. Clone the repository:
 

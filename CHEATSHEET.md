@@ -69,8 +69,7 @@ python3 main_oneshot.py --workspace-init ~/Notes
 python3 main_oneshot.py --oneshot-event moved --oneshot-move-src-path old.md --oneshot-move-dest-path new.md
 ```
 
-Without `--oneshot-paths`, module arguments supplied on the CLI run their
-module directly with the current working directory as `Context.path`.
+Without `--oneshot-paths`, module arguments supplied on the CLI run their module directly with the current working directory as `Context.path`.
 
 ## Module Manager Args
 
@@ -105,14 +104,6 @@ Examples:
 
 ```text
 --alias "b=--banner {args}" "todo=--formatter-todo" "rn=--rename {args}"
-```
-
-Then a note can use:
-
-```text
---b "Daily notes"
---todo
---rn daily.md
 ```
 
 
@@ -192,12 +183,6 @@ Example:
 --graph-regex past.md "\\bsleep\\b|slept|nap" month
 ```
 
-Commands become dynamic `--- graph begin ---` / `--- graph-regex begin ---`
-blocks. Set `view` inside a block to `ascii` (default) or `md` to change its
-generated body. Allowed values are shown beside
-Enum fields by default; `--sys-dynamic-block-hide-allowed-values` hides them in
-newly created blocks.
-
 ## Include
 
 | Arg | Type | Meaning |
@@ -253,23 +238,8 @@ Examples:
 --formatter-todo
 --formatter-date
 --formatter-autocomplete
---formatter-blank up
---formatter-blank down 20
---formatter-blank both 12
 ```
 
-## AI (experimental)
-
-| Arg | Type | Meaning |
-|---|---:|---|
-| `--ai` | `str[]` | Experimental editing of the current file with local Codex. |
-| `--ai-timeout-seconds` | `int` | Maximum time for one Codex run. Default: `900`. |
-
-Codex receives only the current file snapshot and the prompt.
-
-```text
---ai summarize this note and add a short title
-```
 
 ## Git
 
