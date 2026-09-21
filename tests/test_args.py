@@ -98,6 +98,123 @@ def test_parse_args_repeated_list_flag_uses_last_value():
     assert parsed.unknown == ()
 
 
+@pytest.mark.parametrize("action", ["--enabled", "--", "--enabled=value", ""])
+def test_literal_value_groups_do_not_activate_contained_flags(action: str):
+    template = [
+        KnownArg(name="rule", value_type=str, default=[], literal_value_count=2),
+        KnownArg(name="enabled", value_type=bool, default=False),
+        KnownArg(name="name", value_type=str, default=""),
+    ]
+
+    parsed = parse_args(
+        args=["--rule", action, r"C:\My Notes", "--name", "outside"],
+        template=template,
+    )
+
+    assert parsed.require("rule").value == [action, r"C:\My Notes"]
+    assert parsed.require("enabled").value is False
+    assert parsed.require("name").value == "outside"
+    assert parsed.unknown == ()
+
+
+def test_repeated_literal_value_groups_accumulate_on_cli():
+    parsed = parse_args(
+        args=["--rule", "--first", "one", "--rule=--second", "two"],
+        template=[
+            KnownArg(name="rule", value_type=str, default=[], literal_value_count=2),
+        ],
+    )
+
+    assert parsed.require("rule").value == ["--first", "one", "--second", "two"]
+    assert parsed.unknown == ()
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+def test_literal_value_groups_accumulate_in_config_but_cli_overrides(
+    tmp_path: Path, monkeypatch, deferred: bool
+):
+    config_path = tmp_path / "config.txt"
+    config_path.write_text(
+        '--rule "--enabled" "one"\n--rule "--second" "two"\n',
+        encoding="utf-8",
+    )
+    rule_template = [
+        KnownArg(name="rule", value_type=str, default=[], literal_value_count=2),
+    ]
+    startup_template = [
+        KnownArg(name="sys-config-path", default=str(config_path)),
+        KnownArg(name="enabled", value_type=bool, default=False),
+    ]
+    template = startup_template if deferred else [*startup_template, *rule_template]
+    monkeypatch.setattr(sys, "argv", ["lucy"])
+
+    config_args = load_args(template, deferred_template=rule_template)
+    assert config_args.require("enabled").value is False
+    if deferred:
+        config_args = config_args.merged_with(
+            resolve_unknown_args(config_args.unknown, rule_template)
+        )
+    assert config_args.require("rule").value == ["--enabled", "one", "--second", "two"]
+    assert config_args.require("rule").lines == (1, 1, 2, 2)
+
+    monkeypatch.setattr(sys, "argv", ["lucy", "--rule", "--third", "three"])
+    overridden = load_args(template, deferred_template=rule_template)
+    if deferred:
+        overridden = overridden.merged_with(
+            resolve_unknown_args(overridden.unknown, rule_template)
+        )
+    assert overridden.require("rule").value == ["--third", "three"]
+    assert overridden.require("rule").source is ArgSource.CLI
+
+
+def test_literal_value_groups_accumulate_in_notes(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text(
+        '--rule "--enabled" "one"\n--rule "--enabled" "two"\n',
+        encoding="utf-8",
+    )
+
+    parsed = parse_note_args(
+        str(note),
+        [
+            KnownArg(name="rule", value_type=str, default=[], literal_value_count=2),
+            KnownArg(name="enabled", value_type=bool, default=False),
+        ],
+    )
+
+    assert parsed.require("rule").value == ["--enabled", "one", "--enabled", "two"]
+    assert parsed.require("rule").lines == (1, 1, 2, 2)
+    assert parsed.find("enabled") is None
+    assert parsed.unknown == ()
+
+
+def test_incomplete_literal_value_group_is_rejected():
+    args = ["--rule", "--enabled"]
+    parsed = parse_args(
+        args=args,
+        template=[
+            KnownArg(name="rule", value_type=str, default=[], literal_value_count=2),
+            KnownArg(name="enabled", value_type=bool, default=False),
+        ],
+    )
+
+    assert parsed.known == ()
+    assert [argument.token for argument in parsed.unknown] == args
+
+
+def test_literal_value_groups_preserve_tokens_after_option_terminator():
+    args = ["--", "--rule=--enabled", "directory"]
+    parsed = parse_args(
+        args=args,
+        template=[
+            KnownArg(name="rule", value_type=str, default=[], literal_value_count=2),
+        ],
+    )
+
+    assert parsed.require("rule").value == []
+    assert [argument.token for argument in parsed.unknown] == args
+
+
 def test_parse_args_supports_required_field_in_template_item():
     template = [
         KnownArg(name="required-path", required=True),

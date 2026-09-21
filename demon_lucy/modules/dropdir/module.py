@@ -26,8 +26,10 @@ DROPDIR_TEMPLATE: Template = [
         name="dropdir-action",
         value_type=str,
         default=[],
+        literal_value_count=2,
         description="Run temporary Lucy flags when a file is moved into a matching drop directory. "
-        "Format: selector=flags. Example: --dropdir-action 'cleanup=--archive-pair'",
+        'Repeat for each rule: --dropdir-action "--linker-root" "/notes/directory". '
+        "Each rule takes a flags string and a directory selector.",
     ),
     KnownArg(
         name="dropdir-action-delay-milliseconds",

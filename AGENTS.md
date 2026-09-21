@@ -120,8 +120,9 @@ watchdog file events.
   `root.py` owns symlink creation, the Windows hard-link fallback, and
   ignore-selector logic; `markdown.py` owns Markdown link parsing, rewrites,
   and edited-link target moves.
-- `modules/dropdir.py`: moved-file drop-directory workflow that can trigger
-  archive cleanup through the `Archive` module.
+- `modules/dropdir/`: configurable moved-file drop-directory actions.
+  `module.py` owns the flags/directory rule template and move-back workflow;
+  `actions.py` parses rules, matches directories, and runs temporary module flags.
 - `modules/status/`: standalone filename status tokens, banners, animations,
   ticker thread, and Git sync age/status rendering. Status bootstrap scans only
   root `.status` directories directly under configured `--sys-watch-paths`.

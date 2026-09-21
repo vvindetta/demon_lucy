@@ -35,6 +35,36 @@ from demon_lucy.modules.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
+MODULE_CLASSES: list[type[AbstractModule]] = [
+    Alias,
+    Workspace,
+    Banner,
+    Renamer,
+    Status,
+    Linker,
+    DropDir,
+    Formatter,
+    Ai,
+    Graph,
+    Include,
+    Archive,
+    Sys,
+    KdeconnectSync,
+    Git,
+    PlasmaWidget,
+    Voice,
+    ResearchMap,
+]
+
+# Protect literal module values while startup flags are parsed. Module values
+# remain unknown until ModuleManager resolves the selected modules' templates.
+DEMON_LUCY_DEFERRED_TEMPLATE: Template = [
+    argument
+    for module in MODULE_CLASSES
+    for argument in module.template
+    if argument.literal_value_count
+]
+
 
 class LogLevel(StrEnum):
     DEBUG = "debug"
@@ -267,31 +297,11 @@ def select_demon_lucy_modules(
     include_names: Iterable[str] | None = None,
     exclude_names: Iterable[str] | None = None,
 ) -> List[AbstractModule]:
-    module_classes = [
-        Alias,
-        Workspace,
-        Banner,
-        Renamer,
-        Status,
-        Linker,
-        DropDir,
-        Formatter,
-        Ai,
-        Graph,
-        Include,
-        Archive,
-        Sys,
-        KdeconnectSync,
-        Git,
-        PlasmaWidget,
-        Voice,
-        ResearchMap,
-    ]
     requested_include = normalize_name_list(include_names or [])
     requested_exclude = normalize_name_list(exclude_names or [])
     include_set = set(requested_include)
     exclude_set = set(requested_exclude)
-    available_names = {cls.name for cls in module_classes}
+    available_names = {cls.name for cls in MODULE_CLASSES}
 
     unknown_include = include_set - available_names
     if unknown_include:
@@ -317,7 +327,7 @@ def select_demon_lucy_modules(
         )
         exclude_set -= unknown_exclude
 
-    selected_classes = module_classes
+    selected_classes = MODULE_CLASSES
     if requested_include:
         selected_classes = [cls for cls in selected_classes if cls.name in include_set]
     if exclude_set:

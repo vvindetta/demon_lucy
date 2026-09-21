@@ -313,20 +313,21 @@ Common examples:
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--dropdir-action` | `str[]` | Run temporary Lucy flags when a file is moved into a matching drop directory. Format: `selector=flags`. |
+| `--dropdir-action` | `str[]` | Two values: `"flags" "directory"`. Run flags after a dropped file returns to its source. Repeat for more rules. |
 | `--dropdir-action-delay-milliseconds` | `int` | Delay before running a dropdir action after move-back. |
 
 Examples:
 
 ```text
---dropdir-action "cleanup=--archive-pair"
---dropdir-action "todo-drop=--formatter-todo"
+--dropdir-action "--linker-root" "/notes/directory"
+--dropdir-action "--archive-pair" "cleanup"
+--dropdir-action "--formatter-todo" "todo-drop"
 --dropdir-action-delay-milliseconds 1200
 ```
 
-The action is parsed as normal Lucy flags and run against the moved-back source
-path. Target modules must be selected in `--sys-modules`. System flags
-(`--sys-*`) are rejected inside dropdir actions.
+Directories can be absolute paths (including subdirectories) or directory names.
+Select `dropdir` and the target modules in `--sys-modules`. Flags are temporary;
+`--sys-*` flags are rejected inside actions.
 
 ## Status
 

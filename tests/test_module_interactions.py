@@ -219,7 +219,8 @@ def test_formatter_dropdir_archive_pipeline_formats_before_clean_archive(
             str(archive),
             "12",
             "--dropdir-action",
-            "drop=--archive-pair",
+            "--archive-pair",
+            "drop",
         ),
     )
 
@@ -368,7 +369,8 @@ def test_dropdir_moves_file_back_and_archives_with_absolute_pair(tmp_path: Path)
             str(archive),
             "12",
             "--dropdir-action",
-            "drop=--archive-pair",
+            "--archive-pair",
+            "drop",
         ),
     )
 

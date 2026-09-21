@@ -31,6 +31,7 @@ from demon_lucy.lib.logfmt import (
 from demon_lucy.lib.path import abs_expand_path
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.runtime import (
+    DEMON_LUCY_DEFERRED_TEMPLATE,
     DEMON_LUCY_STARTUP_TEMPLATE,
     configure_logging,
     log_startup_message,
@@ -310,12 +311,16 @@ def main() -> int:
     try:
         initial_args = parse_args(
             template=ONESHOT_STARTUP_TEMPLATE,
+            deferred_template=DEMON_LUCY_DEFERRED_TEMPLATE,
             args=sys.argv[1:],
         )
         config_path_arg = initial_args.find("sys-config-path")
         if config_path_arg is not None:
             run_config_migrations(config_path_arg.value)
-        startup_args = load_args(template=ONESHOT_STARTUP_TEMPLATE)
+        startup_args = load_args(
+            template=ONESHOT_STARTUP_TEMPLATE,
+            deferred_template=DEMON_LUCY_DEFERRED_TEMPLATE,
+        )
         return run_oneshot(startup_args=startup_args)
     except (ValueError, KeyError) as exc:
         logging.basicConfig(level=logging.ERROR, force=True)

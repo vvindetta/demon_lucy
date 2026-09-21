@@ -90,7 +90,7 @@ def _run_main_with_flag(
     monkeypatch.setattr(
         main_daemon,
         "load_args",
-        lambda template: _parsed_args(
+        lambda template, deferred_template: _parsed_args(
             values={
                 "sys-log-level": LogLevel.INFO,
                 "sys-log-format": "%(message)s",
@@ -194,7 +194,7 @@ def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
     monkeypatch.setattr(
         main_daemon,
         "load_args",
-        lambda template: _parsed_args(
+        lambda template, deferred_template: _parsed_args(
             values={
                 "sys-log-level": LogLevel.INFO,
                 "sys-log-format": "%(message)s",
@@ -218,7 +218,7 @@ def test_main_raises_when_startup_args_are_invalid(monkeypatch):
     monkeypatch.setattr(
         main_daemon,
         "load_args",
-        lambda template: ParsedArgs(),
+        lambda template, deferred_template: ParsedArgs(),
     )
 
     with pytest.raises(ValueError):

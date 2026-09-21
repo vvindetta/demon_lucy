@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -231,6 +232,84 @@ def test_main_returns_2_when_startup_args_are_invalid(monkeypatch):
     monkeypatch.setattr(
         oneshot_mod,
         "load_args",
-        lambda template: ParsedArgs(),
+        lambda template, deferred_template: ParsedArgs(),
     )
     assert oneshot_mod.main() == 2
+
+
+@pytest.mark.parametrize("rule_source", ["config", "cli"])
+def test_oneshot_dropdir_runs_repeated_rules_from_startup(
+    tmp_path: Path, monkeypatch, rule_source: str
+) -> None:
+    (tmp_path / ".git").mkdir()
+    drop_dir = tmp_path / "drop directory"
+    drop_dir.mkdir()
+    source = tmp_path / "inbox" / "todo.md"
+    source.parent.mkdir()
+    dropped = drop_dir / source.name
+    dropped.write_text("- task\n", encoding="utf-8")
+    config_path = tmp_path / "lucy.cfg"
+    config_text = (
+        "--sys-modules dropdir linker formatter\n--sys-notification-provider disable\n"
+    )
+    args = [
+        "main_oneshot.py",
+        "--sys-config-path",
+        str(config_path),
+        "--oneshot-event",
+        "moved",
+        "--oneshot-move-src-path",
+        str(source),
+        "--oneshot-move-dest-path",
+        str(dropped),
+    ]
+    for action, directory in [
+        ("--linker-root", str(drop_dir)),
+        ("--formatter-todo", str(drop_dir)),
+        ("--formatter-todo", "other-directory"),
+    ]:
+        if rule_source == "config":
+            config_text += f'--dropdir-action "{action}" "{directory}"\n'
+        else:
+            args.extend(["--dropdir-action", action, directory])
+    config_path.write_text(config_text, encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", args)
+
+    assert oneshot_mod.main() == 0
+
+    assert not dropped.exists()
+    assert source.read_text(encoding="utf-8") == "- [ ] task\n"
+    root_link = tmp_path / source.name
+    assert root_link.is_symlink()
+    assert root_link.resolve() == source
+
+
+@pytest.mark.parametrize("rule_source", ["config", "cli", "note"])
+def test_oneshot_dropdir_action_stays_inactive_when_module_is_disabled(
+    tmp_path: Path, monkeypatch, rule_source: str
+) -> None:
+    note = tmp_path / "todo.md"
+    config_path = tmp_path / "lucy.cfg"
+    config_text = "--sys-modules formatter\n--sys-notification-provider disable\n"
+    note_text = "- task\n"
+    rule = f'--dropdir-action "--formatter-todo" "{tmp_path}"\n'
+    args = [
+        "main_oneshot.py",
+        "--sys-config-path",
+        str(config_path),
+        "--oneshot-paths",
+        str(note),
+    ]
+    if rule_source == "config":
+        config_text += rule
+    elif rule_source == "note":
+        note_text = rule + note_text
+    else:
+        args.extend(["--dropdir-action", "--formatter-todo", str(tmp_path)])
+    config_path.write_text(config_text, encoding="utf-8")
+    note.write_text(note_text, encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", args)
+
+    assert oneshot_mod.main() == 0
+
+    assert note.read_text(encoding="utf-8") == note_text

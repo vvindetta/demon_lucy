@@ -19,7 +19,9 @@ from demon_lucy.lib.logfmt import log_record
 logger = logging.getLogger(__name__)
 
 
-def _parse_config_args(path: str, template: Template) -> ParsedArgs:
+def _parse_config_args(
+    path: str, template: Template, *, deferred_template: Template | None = None
+) -> ParsedArgs:
     parsed = parse_args(
         template=template,
         args=[],
@@ -49,7 +51,9 @@ def _parse_config_args(path: str, template: Template) -> ParsedArgs:
                     source=ArgSource.CONFIG,
                     include_defaults=False,
                     line=lineno,
+                    deferred_template=deferred_template,
                 ),
+                accumulate=True,
             )
     return parsed
 
@@ -57,6 +61,8 @@ def _parse_config_args(path: str, template: Template) -> ParsedArgs:
 def parse_note_args(
     path: str,
     template: Template,
+    *,
+    deferred_template: Template | None = None,
 ) -> ParsedArgs:
     try:
         with open(path, "r", encoding="utf-8") as file:
@@ -98,6 +104,7 @@ def parse_note_args(
             source=ArgSource.FILE,
             include_defaults=False,
             line=lineno,
+            deferred_template=deferred_template,
         )
 
         merged_unknown.extend(line_parsed.unknown)
@@ -123,10 +130,13 @@ def parse_note_args(
     )
 
 
-def load_args(template: Template) -> ParsedArgs:
+def load_args(
+    template: Template, *, deferred_template: Template | None = None
+) -> ParsedArgs:
     startup_args = parse_args(
         template=template,
         args=sys.argv[1:],
+        deferred_template=deferred_template,
     )
     config_path_arg = startup_args.find("sys-config-path")
     if config_path_arg is None:
@@ -136,6 +146,7 @@ def load_args(template: Template) -> ParsedArgs:
         config_args = _parse_config_args(
             path=config_path_arg.value,
             template=template,
+            deferred_template=deferred_template,
         )
     except FileNotFoundError:
         logger.warning(

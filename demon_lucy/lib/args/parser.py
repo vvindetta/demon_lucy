@@ -21,6 +21,46 @@ ARG_NAME_PATTERN = r"[a-z][a-z0-9-]*"
 _EnumType = TypeVar("_EnumType", bound=Enum)
 
 
+class _LiteralValue(str):
+    """An argument value that argparse must not interpret as an option."""
+
+    def __new__(cls, value: str):
+        return super().__new__(cls, "\0" + value)
+
+    @property
+    def value(self) -> str:
+        return self[1:]
+
+
+def _literal_value_tokens(args: list[str], template: Template) -> list[str]:
+    counts = {
+        f"--{item.name}": item.literal_value_count
+        for item in template
+        if item.literal_value_count
+    }
+    tokens: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "--":
+            tokens.extend(args[index:])
+            break
+        flag, separator, inline_value = token.partition("=")
+        count = counts.get(flag, 0)
+        index += 1
+        if not count or isinstance(token, _LiteralValue):
+            tokens.append(token)
+            continue
+        tokens.append(flag)
+        if separator:
+            tokens.append(_LiteralValue(inline_value))
+            count -= 1
+        values = args[index : index + count]
+        tokens.extend(_LiteralValue(value) for value in values)
+        index += len(values)
+    return tokens
+
+
 def split_arg_line(line: str) -> list[str]:
     """Split a Lucy arg line while preserving backslashes as literal text."""
     lexer = shlex.shlex(line, posix=True)
@@ -102,10 +142,11 @@ def _arg_name_to_dest(name: str) -> str:
 def _argparse_type(
     value_type: type[Any],
 ) -> Callable[[str], Any]:
-    if not issubclass(value_type, Enum):
-        return value_type
-
-    def parse_value(value: str) -> Enum:
+    def parse_value(value: str) -> Any:
+        if isinstance(value, _LiteralValue):
+            value = value.value
+        if not issubclass(value_type, Enum):
+            return value_type(value)
         try:
             return _parse_enum_value(value_type, value)
         except ValueError as exc:
@@ -121,6 +162,7 @@ def parse_args(
     source: ArgSource = ArgSource.CLI,
     include_defaults: bool = True,
     line: int | None = None,
+    deferred_template: Template | None = None,
 ) -> ParsedArgs:
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     for item in template:
@@ -133,11 +175,15 @@ def parse_args(
         else:
             options["type"] = _argparse_type(item.value_type)
             if isinstance(item.default, list):
-                options["nargs"] = "*"
+                options["nargs"] = item.literal_value_count or "*"
+                if item.literal_value_count:
+                    options["action"] = "extend"
         parser.add_argument(f"--{item.name}", **options)
 
     try:
-        namespace, unknown = parser.parse_known_args(args)
+        namespace, unknown = parser.parse_known_args(
+            _literal_value_tokens(args, [*(deferred_template or []), *template])
+        )
     except SystemExit:
         return ParsedArgs(
             unknown=tuple(
@@ -176,7 +222,12 @@ def parse_args(
     return ParsedArgs(
         known=tuple(known),
         unknown=tuple(
-            UnknownArg(token=token, source=source, line=line) for token in unknown
+            UnknownArg(
+                token=token.value if isinstance(token, _LiteralValue) else token,
+                source=source,
+                line=line,
+            )
+            for token in unknown
         ),
     )
 
@@ -184,6 +235,8 @@ def parse_args(
 def resolve_unknown_args(
     args: tuple[UnknownArg, ...],
     template: Template,
+    *,
+    deferred_template: Template | None = None,
 ) -> ParsedArgs:
     parsed = ParsedArgs()
     groups = groupby(args, key=lambda argument: (argument.source, argument.line))
@@ -195,6 +248,8 @@ def resolve_unknown_args(
                 source=source,
                 include_defaults=False,
                 line=line,
-            )
+                deferred_template=deferred_template,
+            ),
+            accumulate=True,
         )
     return parsed

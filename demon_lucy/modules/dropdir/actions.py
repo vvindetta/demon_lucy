@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 from dataclasses import dataclass
 
 from demon_lucy.lib.args.parser import (
@@ -10,6 +11,7 @@ from demon_lucy.lib.args.parser import (
     split_arg_line,
 )
 from demon_lucy.lib.logfmt import log_record
+from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path, path_is_inside
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
@@ -47,12 +49,8 @@ def action_delay_seconds(ctx: Context) -> float:
     return max(0, delay_ms) / 1000.0
 
 
-def parse_action(raw_action: str) -> DropDirAction | None:
-    raw = raw_action.strip()
-    if not raw or "=" not in raw:
-        return None
-
-    selector, action_text = raw.split("=", 1)
+def parse_action(action_text: str, selector: str) -> DropDirAction | None:
+    raw = shlex.join([action_text, selector])
     selector = selector.strip()
     action_text = action_text.strip()
     if not selector or not action_text:
@@ -63,7 +61,7 @@ def parse_action(raw_action: str) -> DropDirAction | None:
     except ValueError:
         return None
 
-    if not tokens:
+    if not tokens or not is_valid_flag_token(tokens[0]):
         return None
 
     return DropDirAction(selector=selector, tokens=tokens, raw=raw)
@@ -71,21 +69,40 @@ def parse_action(raw_action: str) -> DropDirAction | None:
 
 def action_rules(ctx: Context) -> list[DropDirAction]:
     rules: list[DropDirAction] = []
-    for raw_action in ctx.args.require("dropdir-action").value:
-        rule = parse_action(raw_action)
+    values: list[str] = ctx.args.require("dropdir-action").value
+    for index in range(0, len(values), 2):
+        pair = values[index : index + 2]
+        rule = parse_action(*pair) if len(pair) == 2 else None
         if rule is None:
-            logger.error(
-                log_record(
-                    "dropdir.action_invalid",
-                    id=ctx.event_id,
-                    path=ctx.path,
-                    reason="invalid_rule",
-                    rule=raw_action,
-                )
+            report_invalid_action(
+                ctx=ctx,
+                reason="invalid_rule",
+                rule=shlex.join(pair),
             )
             continue
         rules.append(rule)
     return rules
+
+
+def report_invalid_action(
+    *, ctx: Context, reason: str, rule: str, **details: object
+) -> None:
+    logger.error(
+        log_record(
+            "dropdir.action_invalid",
+            id=ctx.event_id,
+            path=ctx.path,
+            reason=reason,
+            rule=rule,
+            **details,
+        )
+    )
+    safe_notify(
+        f"dropdir-rule:{rule}",
+        f"Invalid dropdir action ({reason}): {rule}",
+        args=ctx.args,
+        use_rare_mode=True,
+    )
 
 
 def matches_selector(file_path: str, raw_selector: str) -> bool:
@@ -154,15 +171,11 @@ def action_context(
 ) -> Context | None:
     system_flags = system_flags_in_tokens(action.tokens)
     if system_flags:
-        logger.error(
-            log_record(
-                "dropdir.action_invalid",
-                id=base_ctx.event_id,
-                path=path,
-                reason="system_flags_forbidden",
-                flags=system_flags,
-                rule=action.raw,
-            )
+        report_invalid_action(
+            ctx=base_ctx,
+            reason="system_flags_forbidden",
+            flags=system_flags,
+            rule=action.raw,
         )
         return None
 
@@ -172,15 +185,11 @@ def action_context(
         include_defaults=False,
     )
     if action_args.unknown:
-        logger.error(
-            log_record(
-                "dropdir.action_invalid",
-                id=base_ctx.event_id,
-                path=path,
-                reason="unknown_action_args",
-                unknown_args=[item.token for item in action_args.unknown],
-                rule=action.raw,
-            )
+        report_invalid_action(
+            ctx=base_ctx,
+            reason="unknown_action_args",
+            unknown_args=[item.token for item in action_args.unknown],
+            rule=action.raw,
         )
         return None
 

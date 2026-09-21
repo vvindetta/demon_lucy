@@ -34,7 +34,10 @@ from demon_lucy.modules.abstract_module import (
     RunMode,
     System,
 )
-from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from demon_lucy.runtime import (
+    DEMON_LUCY_DEFERRED_TEMPLATE,
+    DEMON_LUCY_STARTUP_TEMPLATE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +77,12 @@ class ModuleManager:
         config_module_args = resolve_unknown_args(
             args=startup_args.unknown_from(ArgSource.CONFIG),
             template=self.template,
+            deferred_template=DEMON_LUCY_DEFERRED_TEMPLATE,
         )
         explicit_args = resolve_unknown_args(
             args=startup_args.unknown_from(ArgSource.CLI),
             template=self.template,
+            deferred_template=DEMON_LUCY_DEFERRED_TEMPLATE,
         )
         merged_args = template_defaults.merged_with(
             ParsedArgs(
@@ -258,6 +263,7 @@ class ModuleManager:
             file_args = parse_note_args(
                 path=config_path,
                 template=self.template,
+                deferred_template=DEMON_LUCY_DEFERRED_TEMPLATE,
             )
             return self.args.merged_with(file_args)
 

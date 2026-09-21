@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Self
 
@@ -25,6 +25,8 @@ class KnownArg:
     default: Any = None
     description: str = ""
     required: bool = False
+    # Repeatable str[] groups whose values may themselves look like flags.
+    literal_value_count: int = 0
     params: tuple[ArgParam, ...] = ()
     value: Any = None
     source: ArgSource | None = None
@@ -64,9 +66,22 @@ class ParsedArgs:
     def unknown_from(self, source: ArgSource) -> tuple[UnknownArg, ...]:
         return tuple(argument for argument in self.unknown if argument.source is source)
 
-    def merged_with(self, overwrite: Self) -> Self:
+    def merged_with(self, overwrite: Self, *, accumulate: bool = False) -> Self:
         known = {argument.name: argument for argument in self.known}
-        known.update({argument.name: argument for argument in overwrite.known})
+        for argument in overwrite.known:
+            existing = known.get(argument.name)
+            if (
+                accumulate
+                and argument.literal_value_count
+                and existing is not None
+                and existing.source is argument.source
+            ):
+                argument = replace(
+                    argument,
+                    value=[*existing.value, *argument.value],
+                    lines=(*existing.lines, *argument.lines),
+                )
+            known[argument.name] = argument
         return type(self)(
             known=tuple(known.values()),
             unknown=(*self.unknown, *overwrite.unknown),

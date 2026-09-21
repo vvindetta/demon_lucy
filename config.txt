@@ -84,6 +84,14 @@
 # --archive-date-suffix ""
 
 
+# --- dropdir ---
+
+# Enable dropdir and the target modules in --sys-modules.
+# --dropdir-action "--linker-root" "/home/user/Notes/drop"
+# --dropdir-action "--formatter-todo" "/home/user/Notes/todo-drop"
+# --dropdir-action-delay-milliseconds 1200
+
+
 # --- plasma_widget ---
 
 # Enable plasma_widget in --sys-modules when using these paths.

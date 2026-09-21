@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import pytest
 from watchdog.events import FileMovedEvent
 
 import demon_lucy.modules.dropdir.module as dropdir_module
+import demon_lucy.modules.dropdir.actions as dropdir_actions
 from demon_lucy.lib.args.models import ArgSource, ParsedArgs, Template
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.lib.notifications import NotificationProvider
@@ -14,6 +16,7 @@ from demon_lucy.modules.archive import clock as archive_clock
 from demon_lucy.modules.archive import Archive
 from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.formatter import Formatter
+from demon_lucy.modules.linker import Linker
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 from tests.args_support import result_changes
 
@@ -33,18 +36,19 @@ def _global_template() -> Template:
         *DropDir.template,
         *Archive.template,
         *Formatter.template,
+        *Linker.template,
     ]
 
 
 def _args(
-    action: str,
+    action: tuple[str, str],
     *,
     delay_ms: int = 0,
 ) -> ParsedArgs:
     return parse_args(
         args=[
             "--dropdir-action",
-            action,
+            *action,
             "--dropdir-action-delay-milliseconds",
             str(delay_ms),
             "--archive-auto-pair",
@@ -60,7 +64,7 @@ def _args(
 
 def _ctx(
     path: Path,
-    action: str,
+    action: tuple[str, str],
     event: FileMovedEvent,
     *,
     delay_ms: int = 0,
@@ -76,7 +80,7 @@ def _ctx(
 
 def _system(
     dropdir: DropDir,
-    *modules: Archive | Formatter,
+    *modules: Archive | Formatter | Linker,
 ) -> System:
     return System(
         global_template=_global_template(),
@@ -103,7 +107,7 @@ def test_dropdir_forces_archive_when_now_moved_into_cleanup(
     system = _system(dropdir, archive)
 
     changed = dropdir.moved(
-        _ctx(now_path, "cleanup=--archive-pair", event),
+        _ctx(now_path, ("--archive-pair", "cleanup"), event),
         system,
     )
 
@@ -137,7 +141,7 @@ def test_dropdir_ignores_non_archive_filename(tmp_path: Path, monkeypatch) -> No
     system = _system(dropdir, archive)
 
     changed = dropdir.moved(
-        _ctx(file_path, "cleanup=--archive-pair", event),
+        _ctx(file_path, ("--archive-pair", "cleanup"), event),
         system,
     )
 
@@ -174,7 +178,7 @@ def test_dropdir_applies_custom_delay_before_archive_clean(
     _ = dropdir.moved(
         _ctx(
             now_path,
-            "cleanup=--archive-pair",
+            ("--archive-pair", "cleanup"),
             event,
             delay_ms=1500,
         ),
@@ -197,7 +201,7 @@ def test_dropdir_runs_arbitrary_configured_action(tmp_path: Path) -> None:
     formatter = Formatter()
     event = FileMovedEvent(str(src_path), str(dropped_path))
     system = _system(dropdir, formatter)
-    ctx = _ctx(dropped_path, "drop=--formatter-todo", event)
+    ctx = _ctx(dropped_path, ("--formatter-todo", "drop"), event)
 
     changed = dropdir.moved(ctx, system)
 
@@ -224,7 +228,7 @@ def test_dropdir_rejects_system_flags_in_action(tmp_path: Path) -> None:
     system = _system(dropdir, formatter)
     ctx = _ctx(
         dropped_path,
-        "drop=--sys-log-level debug --formatter-todo",
+        ("--sys-log-level debug --formatter-todo", "drop"),
         event,
     )
 
@@ -236,3 +240,87 @@ def test_dropdir_rejects_system_flags_in_action(tmp_path: Path) -> None:
     }
     assert not dropped_path.exists()
     assert src_path.read_text(encoding="utf-8") == "body\n"
+
+
+@pytest.mark.parametrize("subdirectory", ["", "nested"])
+def test_dropdir_runs_linker_for_configured_absolute_directory(
+    tmp_path: Path, subdirectory: str
+) -> None:
+    (tmp_path / ".git").mkdir()
+    drop_dir = tmp_path / "my drop directory"
+    destination_dir = drop_dir / subdirectory
+    destination_dir.mkdir(parents=True)
+    dropped = destination_dir / "note.md"
+    dropped.write_text("note body\n", encoding="utf-8")
+    source = tmp_path / "inbox" / "note.md"
+    source.parent.mkdir()
+    dropdir = DropDir()
+    ctx = _ctx(
+        dropped,
+        ("--linker-root", str(drop_dir)),
+        FileMovedEvent(str(source), str(dropped)),
+    )
+
+    result = dropdir.moved(ctx, _system(dropdir, Linker()))
+
+    assert result is not None
+    assert result.context.path == str(source)
+    assert result.context.args.require("linker-root").value is False
+    assert not dropped.exists()
+    assert source.read_text(encoding="utf-8") == "note body\n"
+    root_link = tmp_path / "note.md"
+    assert root_link.is_symlink()
+    assert root_link.resolve() == source
+    assert result.changed == {str(dropped): 1, str(source): 1, str(root_link): 1}
+
+
+def test_dropdir_does_not_match_directory_with_same_prefix(tmp_path: Path) -> None:
+    drop_dir = tmp_path / "drop"
+    actual_dir = tmp_path / "drop-other"
+    actual_dir.mkdir()
+    dropped = actual_dir / "note.md"
+    dropped.write_text("- task\n", encoding="utf-8")
+    source = tmp_path / "inbox" / "note.md"
+    source.parent.mkdir()
+    dropdir = DropDir()
+
+    result = dropdir.moved(
+        _ctx(
+            dropped,
+            ("--formatter-todo", str(drop_dir)),
+            FileMovedEvent(str(source), str(dropped)),
+        ),
+        _system(dropdir, Formatter()),
+    )
+
+    assert result is None
+    assert dropped.read_text(encoding="utf-8") == "- task\n"
+    assert not source.exists()
+
+
+@pytest.mark.parametrize("action", ["", "--formatter-todo '", "--unknown-action"])
+def test_dropdir_reports_invalid_actions(
+    tmp_path: Path, monkeypatch, caplog, action: str
+) -> None:
+    dropped = tmp_path / "drop" / "note.md"
+    dropped.parent.mkdir()
+    dropped.write_text("- task\n", encoding="utf-8")
+    source = tmp_path / "inbox" / "note.md"
+    source.parent.mkdir()
+    notifications = []
+    monkeypatch.setattr(
+        dropdir_actions,
+        "safe_notify",
+        lambda *args, **kwargs: notifications.append(args),
+    )
+    dropdir = DropDir()
+
+    dropdir.moved(
+        _ctx(dropped, (action, "drop"), FileMovedEvent(str(source), str(dropped))),
+        _system(dropdir, Formatter()),
+    )
+
+    assert "dropdir.action_invalid" in caplog.text
+    assert len(notifications) == 1
+    remaining = source if source.exists() else dropped
+    assert remaining.read_text(encoding="utf-8") == "- task\n"

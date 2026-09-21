@@ -14,6 +14,7 @@ from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.lib.path import abs_expand_path
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.runtime import (
+    DEMON_LUCY_DEFERRED_TEMPLATE,
     DEMON_LUCY_STARTUP_TEMPLATE,
     configure_logging,
     log_startup_message,
@@ -27,12 +28,16 @@ logger = logging.getLogger(__name__)
 def main() -> int:
     initial_args = parse_args(
         template=DEMON_LUCY_STARTUP_TEMPLATE,
+        deferred_template=DEMON_LUCY_DEFERRED_TEMPLATE,
         args=sys.argv[1:],
     )
     config_path_arg = initial_args.find("sys-config-path")
     if config_path_arg is not None:
         run_config_migrations(config_path_arg.value)
-    startup_args = load_args(template=DEMON_LUCY_STARTUP_TEMPLATE)
+    startup_args = load_args(
+        template=DEMON_LUCY_STARTUP_TEMPLATE,
+        deferred_template=DEMON_LUCY_DEFERRED_TEMPLATE,
+    )
     watch_paths = startup_args.find("sys-watch-paths")
     if watch_paths is None or not watch_paths.value:
         raise ValueError("--sys-watch-paths is required")
