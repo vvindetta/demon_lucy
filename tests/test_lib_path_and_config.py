@@ -12,6 +12,7 @@ from demon_lucy.lib.path import (
     git_dir_for_repo_root,
     path_has_component,
     path_is_inside,
+    path_matches_selector,
 )
 
 
@@ -59,6 +60,45 @@ def test_path_is_inside_rejects_sibling_with_same_prefix(tmp_path: Path) -> None
     sibling.write_text("x\n", encoding="utf-8")
 
     assert path_is_inside(str(sibling), str(root)) is False
+
+
+@pytest.mark.parametrize(
+    ("path", "selector", "expected"),
+    [
+        ("notes/.lucy/config.txt", ".lucy", True),
+        ("notes/.lucy", ".lucy", True),
+        ("notes/.lucy-backup/config.txt", ".lucy", False),
+        ("notes/some.lucy/config.txt", ".lucy", False),
+        ("notes/private/drafts/note.md", "private/drafts", True),
+        ("notes/private/drafts-old/note.md", "private/drafts", False),
+        ("notes/other/drafts/note.md", "private/drafts", False),
+        ("notes/private/note.md", "private/", True),
+        ("notes/private/note.md", "note.md", True),
+        ("notes/note.md", "", False),
+    ],
+)
+def test_path_matches_relative_selector(
+    tmp_path: Path, path: str, selector: str, expected: bool
+) -> None:
+    assert path_matches_selector(str(tmp_path / path), selector) is expected
+
+
+def test_path_matches_absolute_selector_and_symlink_target(tmp_path: Path) -> None:
+    ignored_dir = tmp_path / ".lucy"
+    ignored_dir.mkdir()
+    source = ignored_dir / "config.txt"
+    source.write_text("config\n", encoding="utf-8")
+    alias = tmp_path / "alias"
+    alias.symlink_to(ignored_dir, target_is_directory=True)
+
+    assert path_matches_selector(str(source), str(ignored_dir))
+    assert path_matches_selector(str(source), str(source))
+    assert not path_matches_selector(str(source) + ".bak", str(source))
+    assert not path_matches_selector(
+        str(tmp_path / ".lucy-old/config.txt"), str(ignored_dir)
+    )
+    assert path_matches_selector(str(alias / "config.txt"), ".lucy")
+    assert path_matches_selector(str(alias / "config.txt"), str(ignored_dir))
 
 
 def test_find_parent_with_git_marker(tmp_path: Path) -> None:

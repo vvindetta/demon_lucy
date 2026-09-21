@@ -223,6 +223,7 @@ newly created blocks.
 | `--archive-auto-pair` | `str[]` | Automatic pair rule: `<src> <dest> [idle_hours] [text\|file]`. In text mode `dest` is an archive file; in file mode `dest` is an archive directory. |
 | `--archive-auto-local` | `str[]` | Automatic local rule: `<src> [idle_hours] [text\|file]`. Archives one configured source beside itself. |
 | `--archive-auto-global` | `str[]` | Automatic global rule: `<src> [idle_hours] [text\|file]`. Archives one configured source into the global destination. |
+| `--archive-ignore-paths` | `str[]` | Skip matching events, sources, and destinations. Relative names/paths match whole path components at any depth; absolute paths match a file or subtree. Default: `.lucy`. An explicit list replaces the default; no values clears it. |
 | `--archive-default-mode` | `str` | Default archive output mode for rules without explicit mode: `text` or `file`. Default: `text`. |
 | `--archive-global-dest-path` | `str` | Global archive destination. In text mode this is a file path; in file mode this is a directory path. If empty, text mode uses `archive.md` at the Git repo root and file mode uses `.archive/` at the Git repo root. |
 | `--archive-idle-hours` | `float` | Archive source when its age is at least this many hours. |

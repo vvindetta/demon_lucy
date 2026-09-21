@@ -175,6 +175,8 @@ class Archive(AbstractModule):
                 target=dest_dir,
             )
             return None
+        if paths.is_ignored_path(ctx, dest_path, role="dest"):
+            return None
         if paths.rejects_config_path(ctx, dest_path):
             notify.security_block(
                 ctx,
@@ -289,6 +291,8 @@ class Archive(AbstractModule):
         ctx: Context,
         operating_system: OperatingSystem,
     ) -> dict[str, int] | None:
+        if paths.is_ignored_path(ctx, ctx.path, role="event"):
+            return None
         return self._merge_changes(
             [
                 self._archive_request(ctx, request, operating_system)

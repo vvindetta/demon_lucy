@@ -1,12 +1,39 @@
 from __future__ import annotations
 
+import logging
 import os
 
-from demon_lucy.lib.path import canonical_path, find_parent_git_repo, path_is_inside
+from demon_lucy.lib.logfmt import log_record
+from demon_lucy.lib.path import (
+    canonical_path,
+    find_parent_git_repo,
+    path_is_inside,
+    path_matches_selector,
+)
 from demon_lucy.modules.abstract_module import Context
 
 from demon_lucy.modules.archive import notify
 from demon_lucy.modules.archive.types import ArchiveRequest
+
+logger = logging.getLogger(__name__)
+
+
+def is_ignored_path(ctx: Context, path_value: str, *, role: str) -> bool:
+    for selector in ctx.args.require("archive-ignore-paths").value:
+        if path_matches_selector(path_value, selector):
+            logger.info(
+                log_record(
+                    "archive.skip",
+                    id=ctx.event_id,
+                    reason="ignored_path",
+                    path=ctx.path,
+                    role=role,
+                    target=path_value,
+                    selector=selector,
+                )
+            )
+            return True
+    return False
 
 
 def selector_has_parent_reference(selector: str) -> bool:
@@ -178,6 +205,8 @@ def resolve_safe_selector(
         if os.path.isabs(expanded_selector)
         else os.path.abspath(os.path.join(base_dir, expanded_selector))
     )
+    if is_ignored_path(ctx, candidate_path, role=role):
+        return None
     if os.path.islink(candidate_path):
         notify.security_block(
             ctx,

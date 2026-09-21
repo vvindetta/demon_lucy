@@ -8,7 +8,12 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from watchdog.events import FileModifiedEvent
+from watchdog.events import (
+    FileCreatedEvent,
+    FileModifiedEvent,
+    FileMovedEvent,
+    FileOpenedEvent,
+)
 
 from demon_lucy.lib import file_time
 from demon_lucy.lib.args.models import ArgSource, KnownArg, ParsedArgs, Template
@@ -85,6 +90,7 @@ def _ctx_for(
     archive_command: bool = False,
     date_prefix: str = "--- ",
     date_suffix: str = "",
+    ignore_paths: list[str] | None = None,
 ) -> Context:
     resolved_pair = (
         list(pair_values) if pair_values is not None else ["now.md", "past.md"]
@@ -101,6 +107,8 @@ def _ctx_for(
         "sys-watch-paths": list(watch_paths or []),
     }
     file_args: set[str] = set()
+    if ignore_paths is not None:
+        values["archive-ignore-paths"] = ignore_paths
     if archive_command:
         values["archive"] = True
         file_args.add("archive")
@@ -151,6 +159,187 @@ def _system(
         modules=[module],
         operating_system=operating_system,
     )
+
+
+@pytest.mark.parametrize("event_type", ["created", "modified", "moved", "opened"])
+@pytest.mark.parametrize("invalid_rule", [False, True])
+def test_ignored_event_skips_archive_and_rule_validation(
+    tmp_path: Path, monkeypatch, caplog, event_type: str, invalid_rule: bool
+) -> None:
+    source = tmp_path / "now.md"
+    source.write_text("keep this\n", encoding="utf-8")
+    _make_stale(source, 13.0)
+    trigger = tmp_path / "nested" / ".lucy" / "config.txt"
+    trigger.parent.mkdir(parents=True)
+    trigger.write_text("--archive-pair now.md past.md 2\n", encoding="utf-8")
+    destination = tmp_path / "past.md"
+    ctx = _ctx_for(
+        trigger,
+        pair_values=[str(source), str(destination)],
+        watch_paths=[str(tmp_path)],
+        manual_route="pair" if invalid_rule else None,
+        manual_mode="now.md" if invalid_rule else None,
+    )
+    events = {
+        "created": FileCreatedEvent(str(trigger)),
+        "modified": FileModifiedEvent(str(trigger)),
+        "moved": FileMovedEvent(str(tmp_path / "config.txt"), str(trigger)),
+        "opened": FileOpenedEvent(str(trigger)),
+    }
+    ctx = replace(ctx, event=events[event_type])
+    notifications = []
+    monkeypatch.setattr(
+        archive_notify, "safe_notify", lambda *a, **kw: notifications.append(a)
+    )
+    module = Archive()
+
+    with caplog.at_level("INFO"):
+        result = getattr(module, event_type)(ctx, _system(module))
+
+    assert result is None
+    assert source.read_text(encoding="utf-8") == "keep this\n"
+    assert trigger.read_text(encoding="utf-8") == "--archive-pair now.md past.md 2\n"
+    assert not destination.exists()
+    assert notifications == []
+    assert "archive.skip | id=test | reason=ignored_path" in caplog.text
+    assert "role=event" in caplog.text
+
+
+@pytest.mark.parametrize("route", ["pair", "forced_pair", "local", "global"])
+@pytest.mark.parametrize("mode", ["text", "file"])
+def test_ignored_source_cannot_be_archived_from_another_event(
+    tmp_path: Path, monkeypatch, route: str, mode: str
+) -> None:
+    source = tmp_path / ".lucy" / "now.md"
+    source.parent.mkdir()
+    source.write_text("keep this\n", encoding="utf-8")
+    _make_stale(source, 13.0)
+    trigger = tmp_path / "other.md"
+    trigger.write_text("event\n", encoding="utf-8")
+    destination = tmp_path / ("past.md" if mode == "text" else "history")
+    ctx = _ctx_for(
+        trigger,
+        pair_values=([str(source), str(destination), mode] if "pair" in route else []),
+        force_archive=route == "forced_pair",
+        auto_local_values=[str(source), mode] if route == "local" else [],
+        auto_global_values=[str(source), mode] if route == "global" else [],
+        global_dest_path=str(destination),
+    )
+    notifications = []
+    monkeypatch.setattr(
+        archive_notify, "safe_notify", lambda *a, **kw: notifications.append(a)
+    )
+    module = Archive()
+
+    assert module.modified(ctx, _system(module)) is None
+
+    assert source.read_text(encoding="utf-8") == "keep this\n"
+    assert not destination.exists()
+    assert not (source.parent / "archive.md").exists()
+    assert not (source.parent / ".archive").exists()
+    assert notifications == []
+
+
+@pytest.mark.parametrize("route", ["pair", "global"])
+@pytest.mark.parametrize("mode", ["text", "file"])
+def test_ignored_destination_preserves_source_and_does_not_create_directories(
+    tmp_path: Path, monkeypatch, route: str, mode: str
+) -> None:
+    source = tmp_path / "now.md"
+    source.write_text("keep this\n", encoding="utf-8")
+    destination = tmp_path / ".lucy" / "history"
+    ctx = _ctx_for(
+        source,
+        pair_values=[str(source), str(destination)] if route == "pair" else [],
+        global_dest_path=str(destination),
+        manual_route=route,
+        manual_mode=mode,
+    )
+    notifications = []
+    monkeypatch.setattr(
+        archive_notify, "safe_notify", lambda *a, **kw: notifications.append(a)
+    )
+    module = Archive()
+
+    assert module.modified(ctx, _system(module)) is None
+
+    assert source.read_text(encoding="utf-8") == "keep this\n"
+    assert not (tmp_path / ".lucy").exists()
+    assert notifications == []
+
+
+@pytest.mark.parametrize(
+    ("directory", "ignore_paths", "ignored"),
+    [
+        (".lucy", None, True),
+        (".lucy", [], False),
+        (".lucy", ["templates"], False),
+        ("templates", [".lucy", "templates"], True),
+        (".lucy-backup", None, False),
+    ],
+)
+def test_archive_ignore_list_can_be_replaced_or_cleared(
+    tmp_path: Path, directory: str, ignore_paths: list[str] | None, ignored: bool
+) -> None:
+    source = tmp_path / directory / "now.md"
+    source.parent.mkdir()
+    source.write_text("archive this\n", encoding="utf-8")
+    destination = source.parent / "past.md"
+    ctx = _ctx_for(source, archive_command=True, ignore_paths=ignore_paths)
+    module = Archive()
+
+    result = module.modified(ctx, _system(module))
+
+    assert (result is None) is ignored
+    assert destination.exists() is not ignored
+    assert source.read_text(encoding="utf-8") == ("archive this\n" if ignored else "")
+
+
+@pytest.mark.parametrize("mode", ["text", "file"])
+def test_custom_ignore_path_skips_local_archive_destination(
+    tmp_path: Path, mode: str
+) -> None:
+    source = tmp_path / "now.md"
+    source.write_text("keep this\n", encoding="utf-8")
+    archive_dir = tmp_path / ".archive"
+    archive_dir.mkdir()
+    ctx = _ctx_for(
+        source,
+        pair_values=[],
+        manual_route="local",
+        manual_mode=mode,
+        ignore_paths=[str(archive_dir)],
+    )
+    module = Archive()
+
+    assert module.modified(ctx, _system(module)) is None
+
+    assert source.read_text(encoding="utf-8") == "keep this\n"
+    assert list(archive_dir.iterdir()) == []
+
+
+def test_ignored_generated_archive_filename_preserves_source(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _freeze_now(monkeypatch, 2026, 5, 2)
+    source = tmp_path / "now.md"
+    source.write_text("keep this\n", encoding="utf-8")
+    archive_dir = tmp_path / ".archive"
+    archive_dir.mkdir()
+    destination = archive_dir / "2026-05-02-now.md"
+    ctx = _ctx_for(
+        source,
+        pair_values=[],
+        manual_route="local",
+        manual_mode="file",
+        ignore_paths=[str(destination)],
+    )
+    module = Archive()
+
+    assert module.modified(ctx, _system(module)) is None
+
+    assert source.read_text(encoding="utf-8") == "keep this\n"
+    assert list(archive_dir.iterdir()) == []
 
 
 def test_supports_custom_archive_now_file(tmp_path: Path, monkeypatch) -> None:

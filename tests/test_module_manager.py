@@ -21,6 +21,8 @@ from demon_lucy.modules.abstract_module import (
     ModuleResult,
     System,
 )
+from demon_lucy.modules.archive import Archive
+from demon_lucy.modules.archive import notify as archive_notify
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
 from tests.args_support import make_args
 
@@ -462,3 +464,32 @@ def test_run_leaves_malformed_dynamic_block_file_unchanged(tmp_path: Path):
 
     assert ignore is None
     assert note.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize(
+    ("directory", "config_args"),
+    [(".lucy", []), ("templates", ["--archive-ignore-paths", "templates"])],
+)
+def test_archive_ignored_note_still_runs_other_modules(
+    tmp_path: Path, monkeypatch, directory: str, config_args: list[str]
+) -> None:
+    note = tmp_path / directory / "example.md"
+    note.parent.mkdir()
+    original = "--archive-pair now.md past.md 2\n"
+    note.write_text(original, encoding="utf-8")
+    notifications = []
+    monkeypatch.setattr(
+        archive_notify, "safe_notify", lambda *a, **kw: notifications.append(a)
+    )
+    other_module = _ModC()
+    manager = ModuleManager(
+        modules=[Archive(), other_module],
+        startup_args=_startup_args(config_args=config_args),
+    )
+
+    changed = manager.run(str(note), FileModifiedEvent(str(note)))
+
+    assert changed == {str(note): 2}
+    assert other_module.calls == 1
+    assert note.read_text(encoding="utf-8") == original
+    assert notifications == []

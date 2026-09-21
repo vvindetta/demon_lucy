@@ -52,6 +52,15 @@ ARCHIVE_TEMPLATE: Template = [
         "Uses --archive-global-dest-path, or the Git repo root fallback.",
     ),
     KnownArg(
+        name="archive-ignore-paths",
+        value_type=str,
+        default=[".lucy"],
+        description="Skip archive events, sources, and destinations matching these paths. "
+        "Relative names/paths match whole path components at any depth; absolute "
+        "paths match that file or directory and its contents. Default: .lucy. "
+        "An explicit list replaces the default; an empty list disables exclusions.",
+    ),
+    KnownArg(
         name="archive-default-mode",
         value_type=ArchiveOutputMode,
         default=ArchiveOutputMode.TEXT,

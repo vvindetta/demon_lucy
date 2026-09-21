@@ -27,6 +27,28 @@ def path_is_inside(path_value: str, root_value: str) -> bool:
         return False
 
 
+def path_matches_selector(path_value: str, selector_value: str) -> bool:
+    """Match an absolute subtree or relative path components at any depth."""
+    selector = selector_value.strip()
+    if not selector:
+        return False
+    selector_path = Path(selector).expanduser()
+    if selector_path.is_absolute():
+        return path_is_inside(path_value, str(selector_path))
+
+    selector_parts = selector_path.parts
+    if not selector_parts:
+        return False
+    for candidate in (abs_expand_path(path_value), canonical_path(path_value)):
+        parts = Path(candidate).parts
+        if any(
+            parts[index : index + len(selector_parts)] == selector_parts
+            for index in range(len(parts) - len(selector_parts) + 1)
+        ):
+            return True
+    return False
+
+
 def path_inside_no_symlinks(root_value: str, relative_path: str) -> str:
     """Resolve a nonempty relative path, rejecting traversal and existing links."""
     relative = Path(relative_path)
