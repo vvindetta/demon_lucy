@@ -313,6 +313,7 @@ Common examples:
 
 | Arg | Type | Meaning |
 |---|---:|---|
+| `--dropdir-init` | `str[]` | In a folder's `init.md`: `"flags"` to run on files dropped directly into that folder. Repeat for more actions. |
 | `--dropdir-action` | `str[]` | Two values: `"flags" "directory"`. Run flags after a dropped file returns to its source. Repeat for more rules. |
 | `--dropdir-action-delay-milliseconds` | `int` | Delay before running a dropdir action after move-back. |
 
@@ -325,9 +326,16 @@ Examples:
 --dropdir-action-delay-milliseconds 1200
 ```
 
+`dropdir-action/init.md` (the folder can have any name):
+
+```text
+--dropdir-init "--linker-root"
+```
+
 Directories can be absolute paths (including subdirectories) or directory names.
 Select `dropdir` and the target modules in `--sys-modules`. Flags are temporary;
 `--sys-*` flags are rejected inside actions.
+Files return to their source before actions run; `init.md` stays in the drop folder.
 
 ## Status
 

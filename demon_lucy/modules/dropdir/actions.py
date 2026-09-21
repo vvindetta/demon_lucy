@@ -4,12 +4,14 @@ import logging
 import os
 import shlex
 from dataclasses import dataclass
+from pathlib import Path
 
 from demon_lucy.lib.args.parser import (
     is_valid_flag_token,
     parse_args,
     split_arg_line,
 )
+from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path, path_is_inside
@@ -78,6 +80,37 @@ def action_rules(ctx: Context) -> list[DropDirAction]:
                 ctx=ctx,
                 reason="invalid_rule",
                 rule=shlex.join(pair),
+            )
+            continue
+        rules.append(rule)
+    return rules
+
+
+def init_action_rules(ctx: Context, system: System) -> list[DropDirAction]:
+    path = Path(ctx.path)
+    if path.name == "init.md" or ctx.event is None or ctx.event.is_directory:
+        return []
+    directory = canonical_path(str(path.parent))
+    if canonical_path(os.path.dirname(ctx.event.src_path)) == directory:
+        return []
+    init_path = path.parent / "init.md"
+    if not init_path.is_file():
+        return []
+
+    init_args = parse_note_args(str(init_path), template=system.global_template)
+    init_arg = init_args.find("dropdir-init")
+    if init_arg is None:
+        return []
+
+    rules: list[DropDirAction] = []
+    for action_text in init_arg.value:
+        rule = parse_action(action_text, directory)
+        if rule is None:
+            report_invalid_action(
+                ctx=ctx,
+                reason="invalid_init_rule",
+                rule=shlex.join([action_text, directory]),
+                init=str(init_path),
             )
             continue
         rules.append(rule)

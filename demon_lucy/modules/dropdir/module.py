@@ -15,6 +15,7 @@ from demon_lucy.modules.dropdir.actions import (
     action_context,
     action_delay_seconds,
     action_rules,
+    init_action_rules,
     matches_selector,
     merge_changes,
     move_back_to_source,
@@ -22,6 +23,15 @@ from demon_lucy.modules.dropdir.actions import (
 )
 
 DROPDIR_TEMPLATE: Template = [
+    KnownArg(
+        name="dropdir-init",
+        value_type=str,
+        default=[],
+        literal_value_count=1,
+        description="In a folder's init.md, run temporary Lucy flags for files dropped "
+        'directly into that folder. Example: --dropdir-init "--linker-root". '
+        "Repeat for more actions; files return to their source before actions run.",
+    ),
     KnownArg(
         name="dropdir-action",
         value_type=str,
@@ -47,7 +57,7 @@ class DropDir(AbstractModule):
     template = DROPDIR_TEMPLATE
 
     def moved(self, ctx: Context, system: System) -> ModuleResult | None:
-        actions = action_rules(ctx)
+        actions = [*action_rules(ctx), *init_action_rules(ctx, system)]
         if not actions:
             return None
 

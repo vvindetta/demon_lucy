@@ -41,14 +41,13 @@ def _global_template() -> Template:
 
 
 def _args(
-    action: tuple[str, str],
+    action: tuple[str, str] | None = None,
     *,
     delay_ms: int = 0,
 ) -> ParsedArgs:
     return parse_args(
         args=[
-            "--dropdir-action",
-            *action,
+            *(["--dropdir-action", *action] if action is not None else []),
             "--dropdir-action-delay-milliseconds",
             str(delay_ms),
             "--archive-auto-pair",
@@ -64,7 +63,7 @@ def _args(
 
 def _ctx(
     path: Path,
-    action: tuple[str, str],
+    action: tuple[str, str] | None,
     event: FileMovedEvent,
     *,
     delay_ms: int = 0,
@@ -324,3 +323,131 @@ def test_dropdir_reports_invalid_actions(
     assert len(notifications) == 1
     remaining = source if source.exists() else dropped
     assert remaining.read_text(encoding="utf-8") == "- task\n"
+
+
+def test_dropdir_init_runs_actions_and_keeps_marker(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    drop_dir = tmp_path / "any folder name"
+    drop_dir.mkdir()
+    init_path = drop_dir / "init.md"
+    init_text = (
+        '# Drop actions\n--dropdir-init "--linker-root"\n'
+        '--dropdir-init "--formatter-todo --formatter-blank down 2"\n'
+    )
+    init_path.write_text(init_text, encoding="utf-8")
+    dropped = drop_dir / "todo.md"
+    dropped.write_text("- task\n", encoding="utf-8")
+    source = tmp_path / "inbox" / dropped.name
+    source.parent.mkdir()
+    dropdir = DropDir()
+
+    result = dropdir.moved(
+        _ctx(dropped, None, FileMovedEvent(str(source), str(dropped))),
+        _system(dropdir, Linker(), Formatter()),
+    )
+
+    assert result is not None
+    assert result.context.path == str(source)
+    assert not dropped.exists()
+    assert source.read_text(encoding="utf-8") == "- [ ] task\n\n\n"
+    root_link = tmp_path / source.name
+    assert root_link.is_symlink()
+    assert root_link.resolve() == source
+    assert init_path.read_text(encoding="utf-8") == init_text
+    assert result.context.args.require("linker-root").value is False
+    assert result.context.args.require("formatter-todo").value is False
+    assert str(init_path) not in result.changed
+
+
+@pytest.mark.parametrize("scenario", ["marker", "nested", "rename", "ordinary_note"])
+def test_dropdir_init_only_handles_drops_into_its_own_folder(
+    tmp_path: Path, scenario: str
+) -> None:
+    drop_dir = tmp_path / "drop"
+    drop_dir.mkdir()
+    rule = '--dropdir-init "--formatter-todo"\n'
+    init_path = drop_dir / "init.md"
+    if scenario != "ordinary_note":
+        init_path.write_text(rule, encoding="utf-8")
+    destination_dir = drop_dir / "nested" if scenario == "nested" else drop_dir
+    destination_dir.mkdir(exist_ok=True)
+    dropped = destination_dir / ("init.md" if scenario == "marker" else "todo.md")
+    body = rule + "- task\n" if scenario in {"marker", "ordinary_note"} else "- task\n"
+    dropped.write_text(body, encoding="utf-8")
+    source_dir = drop_dir if scenario == "rename" else tmp_path / "inbox"
+    source_dir.mkdir(exist_ok=True)
+    source = source_dir / "old.md"
+    dropdir = DropDir()
+
+    result = dropdir.moved(
+        _ctx(dropped, None, FileMovedEvent(str(source), str(dropped))),
+        _system(dropdir, Formatter()),
+    )
+
+    assert result is None
+    assert dropped.read_text(encoding="utf-8") == body
+    assert not source.exists()
+
+
+def test_dropdir_init_reloads_rules_for_each_drop(tmp_path: Path) -> None:
+    drop_dir = tmp_path / "drop"
+    drop_dir.mkdir()
+    init_path = drop_dir / "init.md"
+    source_dir = tmp_path / "inbox"
+    source_dir.mkdir()
+    dropdir = DropDir()
+    system = _system(dropdir, Formatter())
+
+    for index, (rule, expected) in enumerate(
+        [
+            ('--dropdir-init "--formatter-todo"\n', "- [ ] task\n"),
+            ('--dropdir-init "--formatter-blank down 1"\n', "- task\n\n"),
+        ]
+    ):
+        init_path.write_text(rule, encoding="utf-8")
+        dropped = drop_dir / f"note{index}.md"
+        dropped.write_text("- task\n", encoding="utf-8")
+        source = source_dir / dropped.name
+
+        dropdir.moved(
+            _ctx(dropped, None, FileMovedEvent(str(source), str(dropped))), system
+        )
+
+        assert not dropped.exists()
+        assert source.read_text(encoding="utf-8") == expected
+        assert init_path.read_text(encoding="utf-8") == rule
+
+
+@pytest.mark.parametrize(
+    "action", ["", "--unknown-action", "--sys-disable-opened-events"]
+)
+def test_dropdir_init_reports_invalid_actions(
+    tmp_path: Path, monkeypatch, caplog, action: str
+) -> None:
+    drop_dir = tmp_path / "drop"
+    drop_dir.mkdir()
+    init_path = drop_dir / "init.md"
+    init_text = f'--dropdir-init "{action}"\n'
+    init_path.write_text(init_text, encoding="utf-8")
+    dropped = drop_dir / "note.md"
+    dropped.write_text("- task\n", encoding="utf-8")
+    source = tmp_path / "inbox" / dropped.name
+    source.parent.mkdir()
+    notifications = []
+    monkeypatch.setattr(
+        dropdir_actions,
+        "safe_notify",
+        lambda *args, **kwargs: notifications.append(args),
+    )
+    dropdir = DropDir()
+
+    dropdir.moved(
+        _ctx(dropped, None, FileMovedEvent(str(source), str(dropped))),
+        _system(dropdir, Formatter()),
+    )
+
+    assert "dropdir.action_invalid" in caplog.text
+    assert len(notifications) == 1
+    remaining = source if source.exists() else dropped
+    assert remaining.read_text(encoding="utf-8") == "- task\n"
+    assert init_path.read_text(encoding="utf-8") == init_text
