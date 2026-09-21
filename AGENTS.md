@@ -124,6 +124,7 @@ watchdog file events.
   `module.py` owns the flags/directory rule template and move-back workflow;
   `actions.py` parses configured rules and folder-local `init.md` actions,
   matches directories, and runs temporary module flags.
+  Its default priority is -1 so dropped files return before other module work.
 - `modules/status/`: standalone filename status tokens, banners, animations,
   ticker thread, and Git sync age/status rendering. Status bootstrap scans only
   root `.status` directories directly under configured `--sys-watch-paths`.

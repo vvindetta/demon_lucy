@@ -188,6 +188,7 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         name="sys-modules",
         value_type=str,
         default=[
+            "dropdir",
             "alias",
             "workspace",
             "banner",

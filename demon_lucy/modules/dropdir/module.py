@@ -53,7 +53,8 @@ DROPDIR_TEMPLATE: Template = [
 
 class DropDir(AbstractModule):
     name: str = "dropdir"
-    priority: int = 24
+    # Return dropped files before other modules can block or change their path.
+    priority: int = -1
     template = DROPDIR_TEMPLATE
 
     def moved(self, ctx: Context, system: System) -> ModuleResult | None:

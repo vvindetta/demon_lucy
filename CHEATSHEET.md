@@ -333,9 +333,10 @@ Examples:
 ```
 
 Directories can be absolute paths (including subdirectories) or directory names.
-Select `dropdir` and the target modules in `--sys-modules`. Flags are temporary;
-`--sys-*` flags are rejected inside actions.
-Files return to their source before actions run; `init.md` stays in the drop folder.
+Dropdir is loaded by default. If you set `--sys-modules`, include `dropdir` and
+the target modules. Flags are temporary; `--sys-*` flags are rejected inside actions.
+Dropdir runs first by default: files return immediately, before action delays or
+other module work. `init.md` stays in the drop folder.
 
 ## Status
 

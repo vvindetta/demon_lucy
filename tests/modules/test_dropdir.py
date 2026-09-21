@@ -153,13 +153,12 @@ def test_dropdir_ignores_non_archive_filename(tmp_path: Path, monkeypatch) -> No
     assert not (src_path.parent / "past.md").exists()
 
 
-def test_dropdir_applies_custom_delay_before_archive_clean(
+def test_dropdir_moves_back_before_custom_delay_and_archive_clean(
     tmp_path: Path, monkeypatch
 ) -> None:
     _freeze_archive_day(monkeypatch, 2026, 5, 3)
 
     slept: list[float] = []
-    monkeypatch.setattr(dropdir_module.time, "sleep", lambda value: slept.append(value))
 
     cleanup_dir = tmp_path / "cleanup"
     cleanup_dir.mkdir(parents=True, exist_ok=True)
@@ -168,6 +167,14 @@ def test_dropdir_applies_custom_delay_before_archive_clean(
 
     src_path = tmp_path / "inbox" / "now.md"
     src_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def sleep_after_move_back(value: float) -> None:
+        assert not now_path.exists()
+        assert src_path.read_text(encoding="utf-8") == "clean this now\n"
+        assert not (src_path.parent / "past.md").exists()
+        slept.append(value)
+
+    monkeypatch.setattr(dropdir_module.time, "sleep", sleep_after_move_back)
 
     dropdir = DropDir()
     archive = Archive()

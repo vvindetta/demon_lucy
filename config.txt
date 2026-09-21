@@ -11,10 +11,10 @@
 # --- runtime/system ---
 
 # Common desktop modules. The cmd module is intentionally excluded.
-# --sys-modules "alias" "workspace" "banner" "renamer" "linker" "formatter" "archive" "status" "sys" "git"
+# --sys-modules "dropdir" "alias" "workspace" "banner" "renamer" "linker" "formatter" "archive" "status" "sys" "git"
 
 # Override module order. Lower number runs earlier.
-# --sys-modules-priority alias=0 workspace=1 sys=2 banner=10 renamer=20 linker=22 formatter=23 archive=25 status=30 git=50
+# --sys-modules-priority dropdir=-1 alias=0 workspace=1 sys=2 banner=10 renamer=20 linker=22 formatter=23 archive=25 status=30 git=50
 
 # Ignore generated/internal trees when modules should not run there.
 # --sys-ignore-paths "/home/user/Notes/.archive"
@@ -86,7 +86,7 @@
 
 # --- dropdir ---
 
-# Enable dropdir and the target modules in --sys-modules.
+# Dropdir is loaded by default. Include it and the target modules when setting --sys-modules.
 # Folder-local rule in <drop-folder>/init.md: --dropdir-init "--linker-root"
 # --dropdir-action "--linker-root" "/home/user/Notes/drop"
 # --dropdir-action "--formatter-todo" "/home/user/Notes/todo-drop"

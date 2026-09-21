@@ -24,6 +24,8 @@ Write a command in your note and save it (`Ctrl+S`). Lucy runs the modules and w
   ![Linker module: renaming a file updates its link; editing the link moves the file](media/modules/linker_demo.gif)
 - `archive`: moves idle note text into dated history or separate archive files, keeping the working note clear.<br>
   ![Archive: after 12 idle hours, on demand, or into a dated file](media/modules/archive_demo.gif)
+- `dropdir`: runs actions when you drop notes into configured folders.<br>
+  ![Dropdir: drop a note to make a checklist, then archive it; the file returns to its original folder](media/modules/dropdir_demo.gif)
 - `renamer`: date renames scratch files when you need a quick note but do not know how to name it yet.<br>
   ![Renamer: add an extension, name a note by date, and rename it](media/modules/renamer_demo.gif)
 - `banner`: inserts ASCII banner text or date banners into notes.<br>
@@ -46,8 +48,6 @@ Write a command in your note and save it (`Ctrl+S`). Lucy runs the modules and w
 **Modules (work in progress):**
 - `cmd`: runs local commands and writes command output into notes. Not imported by default for security reasons.<br>
   ![Cmd: read /etc/os-release and draw a folder tree inside the note](media/modules/cmd_demo.gif)
-- `dropdir`: runs actions when you drop notes into configured folders.<br>
-  ![Dropdir: drop a note to make a checklist, then archive it; the file returns to its original folder](media/modules/dropdir_demo.gif)
 - `kdeconnect_sync`: sends note edit patches to your phone via KDE Connect (`kdeconnect-cli`) for near-real-time mobile mirror sync.
 - `voice`: writes speech into notes using offline Vosk or online speech providers.
 - `ai`: edits the current note from an inline prompt using local Codex.

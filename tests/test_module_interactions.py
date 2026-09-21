@@ -386,6 +386,45 @@ def test_dropdir_moves_file_back_and_archives_with_absolute_pair(tmp_path: Path)
     assert "drop archive body\n" in archive.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("rule_source", ["config", "init"])
+def test_dropdir_returns_file_before_other_module_handlers(
+    tmp_path: Path, rule_source: str
+):
+    repo = _make_repo(tmp_path)
+    source = repo / "inbox" / "note.md"
+    source.parent.mkdir()
+    drop_dir = repo / "drop"
+    drop_dir.mkdir()
+    dropped = drop_dir / source.name
+    dropped.write_text("- task\n", encoding="utf-8")
+    calls = []
+
+    class CheckReturnedFile(AbstractModule):
+        name = "check_returned_file"
+        priority = 0
+
+        def moved(self, ctx, system):
+            assert ctx.path == str(source)
+            assert source.exists()
+            assert not dropped.exists()
+            calls.append(ctx.path)
+            return None
+
+    if rule_source == "init":
+        (drop_dir / "init.md").write_text(
+            '--dropdir-init "--formatter-todo"\n', encoding="utf-8"
+        )
+        extra = ()
+    else:
+        extra = ("--dropdir-action", "--formatter-todo", str(drop_dir))
+    manager = _manager(repo, [CheckReturnedFile(), Formatter(), DropDir()], extra=extra)
+
+    manager.run(str(dropped), FileMovedEvent(str(source), str(dropped)))
+
+    assert calls
+    assert source.read_text(encoding="utf-8") == "- [ ] task\n"
+
+
 def test_default_formatter_plasma_order_keeps_widget_in_sync(tmp_path: Path):
     repo = _make_repo(tmp_path)
     note = repo / "todo.md"

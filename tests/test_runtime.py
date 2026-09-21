@@ -72,6 +72,7 @@ def test_sys_modules_default_is_defined_in_startup_template():
     parsed = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
     modules = parsed.require("sys-modules").value
     assert modules
+    assert "dropdir" in modules
     assert "alias" in modules
     assert "workspace" in modules
     assert "graph" in modules
