@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import html
+import errno
 import logging
 import os
 import sqlite3
 import uuid
 from collections import OrderedDict
+from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
 
@@ -24,6 +26,8 @@ from demon_lucy.modules.email.codec import reply_draft
 from demon_lucy.modules.email.config import (
     ACTION_FOLDERS,
     ACTION_NAMES,
+    ACCOUNT_FILE,
+    MAILBOX_ACTION_FOLDERS,
     TEMPLATE,
     load_account,
 )
@@ -34,11 +38,12 @@ from demon_lucy.modules.email.files import (
     locked_file,
     read_bytes_no_follow,
     safe_path,
+    write_text_if_missing,
 )
 from demon_lucy.modules.email.models import AccountConfig
 from demon_lucy.modules.email.scaffold import initialize
 from demon_lucy.modules.email.sending import recover_sent, send_draft
-from demon_lucy.modules.email.storage import MailStore
+from demon_lucy.modules.email.storage import MailStore, fingerprint
 from demon_lucy.modules.email.sync import change_message, decoded_record, fetch_mail
 
 logger = logging.getLogger(__name__)
@@ -119,6 +124,136 @@ class Email(AbstractModule):
         self._handled_drops: OrderedDict[tuple[str, str, str, str], None] = (
             OrderedDict()
         )
+        self._refresh_returns: OrderedDict[tuple[str, str], tuple[int, int]] = (
+            OrderedDict()
+        )
+
+    def _remember_drop(self, ctx: Context, action: str) -> bool:
+        key = (
+            ctx.event_id,
+            str(ctx.event.src_path),
+            str(getattr(ctx.event, "dest_path", "")),
+            action,
+        )
+        if key in self._handled_drops:
+            return False
+        self._handled_drops[key] = None
+        if len(self._handled_drops) > 2048:
+            self._handled_drops.popitem(last=False)
+        return True
+
+    def _refresh_move(self, ctx: Context) -> tuple[bool, ModuleResult | None]:
+        if ctx.event is None or ctx.event.is_directory:
+            return False, None
+        source = os.path.abspath(os.fsdecode(ctx.event.src_path))
+        destination_value = os.fsdecode(getattr(ctx.event, "dest_path", ""))
+        if not destination_value:
+            return False, None
+        destination = os.path.abspath(destination_value)
+        expected_return = self._refresh_returns.pop((source, destination), None)
+        if expected_return is not None:
+            try:
+                info = os.stat(destination, follow_symlinks=False)
+                if (info.st_dev, info.st_ino) == expected_return:
+                    return True, None
+            except OSError:
+                pass
+        if Path(source).name != "refresh.md" or source == destination:
+            return False, None
+        root = os.path.dirname(source)
+        changed: dict[str, int] = {}
+        returned = False
+        try:
+            if not os.path.isfile(safe_path(root, ACCOUNT_FILE)):
+                return False, None
+            safe_path(root, "refresh.md")
+            if not self._remember_drop(ctx, "email-fetch"):
+                return True, None
+            if os.path.lexists(destination):
+                if os.path.lexists(source) or os.path.abspath(ctx.path) != destination:
+                    raise EmailError(
+                        "The refresh file could not return because its original path is occupied.",
+                        reason="invalid_refresh_move",
+                    )
+                token = read_bytes_no_follow(destination, 64 * 1024)
+                if token.partition(b"\n")[0].rstrip(b"\r") != LITERAL_MARKER.encode(
+                    "utf-8"
+                ):
+                    raise EmailError(
+                        "The moved file is not this account's refresh token.",
+                        reason="invalid_refresh_move",
+                    )
+                try:
+                    os.link(destination, source, follow_symlinks=False)
+                except OSError as error:
+                    if error.errno != errno.EXDEV:
+                        raise
+                    if not write_text_if_missing(source, token.decode("utf-8")):
+                        raise EmailError(
+                            "The refresh file's original path is occupied.",
+                            reason="invalid_refresh_move",
+                        ) from None
+                changed[source] = 1
+                if read_bytes_no_follow(destination, 64 * 1024) != token:
+                    raise EmailError(
+                        "The moved refresh file changed while returning; both files were preserved.",
+                        reason="invalid_refresh_move",
+                    )
+                os.unlink(destination)
+                changed[destination] = 1
+            elif os.path.abspath(ctx.path) == source:
+                # Dropdir already restored a token dropped into an action folder.
+                token = read_bytes_no_follow(source, 64 * 1024)
+                if token.partition(b"\n")[0].rstrip(b"\r") != LITERAL_MARKER.encode(
+                    "utf-8"
+                ):
+                    raise EmailError(
+                        "The moved file is not this account's refresh token.",
+                        reason="invalid_refresh_move",
+                    )
+            else:
+                return True, None
+            returned = True
+            info = os.stat(source, follow_symlinks=False)
+            self._refresh_returns[(destination, source)] = (info.st_dev, info.st_ino)
+            if len(self._refresh_returns) > 2048:
+                self._refresh_returns.popitem(last=False)
+            logger.info(
+                log_record(
+                    "email.refresh_returned",
+                    id=ctx.event_id,
+                    src=destination,
+                    dest=source,
+                )
+            )
+            result = self._execute(
+                replace(ctx, path=source),
+                "email-fetch",
+                dropped=False,
+                account_root=root,
+            )
+            if result is not None:
+                for path, count in result.changed.items():
+                    changed[path] = changed.get(path, 0) + count
+            return True, ModuleResult(
+                context=replace(ctx, path=source), changed=changed
+            )
+        except (EmailError, OSError, ValueError) as error:
+            failure = (
+                error
+                if isinstance(error, EmailError)
+                else EmailError(
+                    "The refresh file could not return safely. Check its paths and permissions.",
+                    reason="invalid_refresh_move",
+                )
+            )
+            self._report_error(ctx, root, failure)
+            if changed:
+                return True, ModuleResult(
+                    context=replace(ctx, path=source if returned else ctx.path),
+                    changed=changed,
+                )
+            return True, None
 
     def _report_error(self, ctx: Context, root: str, error: EmailError) -> None:
         log = logger.warning if error.retryable else logger.error
@@ -142,7 +277,7 @@ class Email(AbstractModule):
         root = ""
         try:
             root = _root(argument.value, ctx)
-            changed = initialize(root, ctx.args)
+            changed = initialize(root, ctx.args, event_id=ctx.event_id)
             if argument.source is ArgSource.FILE:
                 text = read_bytes_no_follow(ctx.path, 128 * 1024 * 1024).decode("utf-8")
                 lines = text.splitlines(keepends=True)
@@ -181,13 +316,24 @@ class Email(AbstractModule):
         return None
 
     def _execute(
-        self, ctx: Context, action: str, *, dropped: bool
+        self,
+        ctx: Context,
+        action: str,
+        *,
+        dropped: bool,
+        account_root: str | None = None,
+        locked_store: MailStore | None = None,
     ) -> ModuleResult | None:
         root = ""
-        store: MailStore | None = None
+        store: MailStore | None = locked_store
         final_path = ctx.path
         try:
-            root = _root(ctx.args.require("email-root").value, ctx)
+            root = _root(
+                account_root
+                if account_root is not None
+                else ctx.args.require("email-root").value,
+                ctx,
+            )
             if dropped:
                 folder = next(
                     folder for folder, flag in ACTION_FOLDERS.items() if flag == action
@@ -197,7 +343,7 @@ class Email(AbstractModule):
                 )
                 source = os.path.abspath(os.fsdecode(ctx.event.src_path))
                 if (
-                    os.path.dirname(destination) != safe_path(root, f"Actions/{folder}")
+                    os.path.dirname(destination) != safe_path(root, folder)
                     or os.path.abspath(ctx.path) != source
                     or os.path.lexists(destination)
                 ):
@@ -213,7 +359,10 @@ class Email(AbstractModule):
             config = load_account(root)
             _network_settings(config, action)
             lock = safe_path(root, ".email/.lock")
-            with locked_file(lock), MailStore(root) as store:
+            with ExitStack() as stack:
+                if store is None:
+                    stack.enter_context(locked_file(lock))
+                    store = stack.enter_context(MailStore(root))
                 error: EmailError | None = None
                 try:
                     if action == "email-credentials-save":
@@ -301,7 +450,144 @@ class Email(AbstractModule):
     def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         return None if is_literal_document(ctx.path) else self._initialize(ctx)
 
+    def _direct_mailbox_move(self, ctx: Context) -> tuple[bool, ModuleResult | None]:
+        if ctx.event is None or ctx.event.is_directory:
+            return False, None
+        destination_value = os.fsdecode(getattr(ctx.event, "dest_path", ""))
+        if not destination_value:
+            return False, None
+        destination = os.path.abspath(destination_value)
+        source = os.path.abspath(os.fsdecode(ctx.event.src_path))
+        folder = Path(destination).parent.name
+        if folder not in MAILBOX_ACTION_FOLDERS or os.path.dirname(
+            source
+        ) == os.path.dirname(destination):
+            return False, None
+        root = str(Path(destination).parent.parent)
+        action = ACTION_FOLDERS[folder]
+        store: MailStore | None = None
+        current_path = ctx.path
+        try:
+            if not os.path.isfile(safe_path(root, ACCOUNT_FILE)):
+                return False, None
+            if not self._remember_drop(ctx, action):
+                return True, None
+            safe_path(root, os.path.relpath(source, root))
+            safe_path(root, os.path.relpath(destination, root))
+            logger.info(
+                log_record(
+                    "email.account_wait", id=ctx.event_id, path=root, command=action
+                )
+            )
+            with (
+                locked_file(safe_path(root, ".email/.lock"), blocking=True),
+                MailStore(root) as store,
+            ):
+                if not os.path.lexists(destination):
+                    return True, None
+                destination_relative = store.relative(destination)
+                source_relative = store.relative(source)
+                records = store.records()
+                token = store.read_text(destination_relative, 128 * 1024 * 1024)
+                markers = token.splitlines()[:2]
+                if any(
+                    record.path == destination_relative
+                    and markers
+                    == [LITERAL_MARKER, f"<!-- lucy-email-id:{record.identity} -->"]
+                    for record in records
+                ):
+                    logger.info(
+                        log_record(
+                            "email.skip",
+                            id=ctx.event_id,
+                            path=destination,
+                            reason="managed_relocation",
+                        )
+                    )
+                    return True, None
+                matches = [
+                    record
+                    for record in records
+                    if record.path == source_relative
+                    and markers
+                    == [LITERAL_MARKER, f"<!-- lucy-email-id:{record.identity} -->"]
+                ]
+                if len(matches) != 1:
+                    raise EmailError(
+                        "The mailbox drop does not match its original managed file, or its original path is occupied.",
+                        reason="invalid_drop",
+                    )
+                regenerated = os.path.lexists(source)
+                if regenerated:
+                    # A timer fetch may recreate the temporarily missing source
+                    # while this user drop is waiting for the account lock.
+                    source_text = store.read_text(source_relative, 128 * 1024 * 1024)
+                    if (
+                        source_text != token
+                        or fingerprint(source_text) != matches[0].rendered_digest
+                    ):
+                        raise EmailError(
+                            "The dropped message's original path is occupied.",
+                            reason="invalid_drop",
+                        )
+                else:
+                    try:
+                        os.link(destination, source, follow_symlinks=False)
+                    except OSError as error:
+                        if error.errno != errno.EXDEV:
+                            raise
+                        if not write_text_if_missing(source, token):
+                            raise EmailError(
+                                "The dropped message's original path is occupied.",
+                                reason="invalid_drop",
+                            ) from None
+                    store.changed[source] = store.changed.get(source, 0) + 1
+                if store.read_text(destination_relative, 128 * 1024 * 1024) != token:
+                    raise EmailError(
+                        "The dropped file changed while returning; both files were preserved.",
+                        reason="invalid_drop",
+                    )
+                os.unlink(destination)
+                store.changed[destination] = store.changed.get(destination, 0) + 1
+                if regenerated:
+                    logger.info(
+                        log_record(
+                            "email.drop_reconciled",
+                            id=ctx.event_id,
+                            src=source,
+                            dest=destination,
+                            reason="source_regenerated",
+                        )
+                    )
+                current_path = source
+                return True, self._execute(
+                    replace(ctx, path=source),
+                    action,
+                    dropped=True,
+                    account_root=root,
+                    locked_store=store,
+                )
+        except (EmailError, OSError, ValueError, sqlite3.Error) as error:
+            failure = (
+                error
+                if isinstance(error, EmailError)
+                else EmailError(
+                    "The mailbox drop could not be processed safely. The file was preserved; check its paths and permissions.",
+                    reason="invalid_drop",
+                )
+            )
+            self._report_error(ctx, root, failure)
+            return True, ModuleResult(
+                context=replace(ctx, path=current_path), changed=store.changed
+            ) if store else None
+
     def moved(self, ctx: Context, system: System) -> ModuleResult | None:
+        refresh, result = self._refresh_move(ctx)
+        if refresh:
+            return result
+        direct, result = self._direct_mailbox_move(ctx)
+        if direct:
+            return result
         actions = [
             name
             for name in ACTION_NAMES
@@ -312,6 +598,7 @@ class Email(AbstractModule):
             return None
         if (
             len(actions) != 1
+            or actions[0] not in ACTION_FOLDERS.values()
             or ctx.args.require("email-root").source is not ArgSource.CLI
             or ctx.event is None
             or ctx.event.is_directory
@@ -325,17 +612,8 @@ class Email(AbstractModule):
                 ),
             )
             return None
-        key = (
-            ctx.event_id,
-            str(ctx.event.src_path),
-            str(getattr(ctx.event, "dest_path", "")),
-            actions[0],
-        )
-        if key in self._handled_drops:
+        if not self._remember_drop(ctx, actions[0]):
             return None
-        self._handled_drops[key] = None
-        if len(self._handled_drops) > 2048:
-            self._handled_drops.popitem(last=False)
         return self._execute(ctx, actions[0], dropped=True)
 
     def cli(self, ctx: Context, system: System) -> ModuleResult | None:

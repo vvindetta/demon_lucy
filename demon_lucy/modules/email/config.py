@@ -25,15 +25,14 @@ ACTION_NAMES = (
     "email-archive",
     "email-trash",
 )
-ACTION_FOLDERS = {
-    "Refresh": "email-fetch",
-    "Reply": "email-reply",
-    "Send": "email-send",
-    "Mark read": "email-mark-read",
-    "Mark unread": "email-mark-unread",
-    "Archive": "email-archive",
-    "Trash": "email-trash",
+DROP_ACTION_FOLDERS = {
+    "Actions/Reply": "email-reply",
+    "Actions/Send": "email-send",
+    "Actions/Mark read": "email-mark-read",
+    "Actions/Mark unread": "email-mark-unread",
 }
+MAILBOX_ACTION_FOLDERS = {"Archive": "email-archive", "Trash": "email-trash"}
+ACTION_FOLDERS = {**DROP_ACTION_FOLDERS, **MAILBOX_ACTION_FOLDERS}
 
 SETTINGS_TEMPLATE: Template = [
     KnownArg(
@@ -181,7 +180,7 @@ TEMPLATE: Template = [
         name="email-fetch",
         value_type=bool,
         default=False,
-        description="Fetch new mail and refresh local mailbox status.",
+        description="Fetch mail from the CLI or by moving the account's refresh.md file.",
     ),
     KnownArg(
         name="email-reply",

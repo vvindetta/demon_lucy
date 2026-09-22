@@ -75,7 +75,7 @@ class FileBusyError(OSError):
 
 
 @contextmanager
-def locked_file(path: str) -> Iterator[None]:
+def locked_file(path: str, *, blocking: bool = False) -> Iterator[None]:
     descriptor = _open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NONBLOCK", 0))
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
@@ -87,14 +87,18 @@ def locked_file(path: str) -> Iterator[None]:
                 os.write(descriptor, b"\0")
             os.lseek(descriptor, 0, os.SEEK_SET)
             try:
-                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(
+                    descriptor, msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1
+                )
             except OSError as exc:
                 raise FileBusyError("file is busy") from exc
         else:
             import fcntl
 
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(
+                    descriptor, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
+                )
             except BlockingIOError as exc:
                 raise FileBusyError("file is busy") from exc
         yield

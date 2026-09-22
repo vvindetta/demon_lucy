@@ -271,6 +271,28 @@ Common examples:
 --git-commit-message-style detailed
 ```
 
+## Email
+
+| Arg | Type | Meaning |
+|---|---:|---|
+| `--email-init` | `str` | Initialize an account directory and missing setup files. |
+| `--email-root` | `str` | Account directory for an email command. |
+| `--email-fetch` | `bool` | Fetch mail and refresh mailbox state. |
+| `--email-reply` | `bool` | `Actions/Reply/`: create a reply draft in `Drafts/`. |
+| `--email-send` | `bool` | `Actions/Send/`: send a draft; saving it alone does not send. |
+| `--email-mark-read`, `--email-mark-unread` | `bool` | `Actions/Mark read/`, `Actions/Mark unread/`: update server read state. |
+| `--email-archive`, `--email-trash` | `bool` | Drop a message directly into `Archive/` or `Trash/` to move it on the server. |
+
+Move `refresh.md` anywhere the email watcher observes to fetch mail; Lucy returns
+it to the account root. It needs no action folder.
+`Drafts/` stores drafts and `Sent/` stores sent history. Use the separate Reply and
+Send action folders for those operations.
+
+```sh
+python3 main_oneshot.py --sys-modules email --email-init ~/Mail
+python3 main_oneshot.py --sys-modules email --email-root ~/Mail --email-fetch
+```
+
 ## Plasma Widget
 
 | Arg | Type | Meaning |

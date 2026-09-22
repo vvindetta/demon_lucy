@@ -4,6 +4,7 @@ import os
 import stat
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -143,6 +144,31 @@ raise SystemExit(24)
     assert result.returncode == 23, result.stderr.decode()
     with locked_file(str(path)):
         pass
+
+
+def test_blocking_lock_waits_until_owner_releases(tmp_path: Path) -> None:
+    path = tmp_path / ".lock"
+    started = threading.Event()
+    acquired = threading.Event()
+    errors = []
+
+    def wait_for_lock():
+        started.set()
+        try:
+            with locked_file(str(path), blocking=True):
+                acquired.set()
+        except BaseException as error:
+            errors.append(error)
+
+    with locked_file(str(path)):
+        worker = threading.Thread(target=wait_for_lock, daemon=True)
+        worker.start()
+        assert started.wait(5)
+        assert not acquired.wait(0.05)
+    worker.join(5)
+    assert not worker.is_alive()
+    assert errors == []
+    assert acquired.is_set()
 
 
 def test_process_exit_releases_lock_without_context_cleanup(tmp_path: Path) -> None:

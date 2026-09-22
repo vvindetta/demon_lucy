@@ -13,7 +13,7 @@ from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.email.codec import parse_draft, render_draft
 from demon_lucy.modules.email.config import (
     ACCOUNT_FILE,
-    ACTION_FOLDERS,
+    DROP_ACTION_FOLDERS,
     SETTINGS_TEMPLATE,
     TEMPLATE,
     load_account,
@@ -290,10 +290,8 @@ def test_account_serializes_only_typed_settings_never_action_or_unknown_flags(
 def test_action_and_watcher_config_roundtrip_spaces_quotes_backslashes(tmp_path: Path):
     root = tmp_path / 'Email\'s "quoted" \\ account % $'
     initialize(str(root), _args())
-    for folder, action in ACTION_FOLDERS.items():
-        parsed = parse_note_args(
-            str(root / "Actions" / folder / "init.md"), DropDir.template
-        )
+    for folder, action in DROP_ACTION_FOLDERS.items():
+        parsed = parse_note_args(str(root / folder / "init.md"), DropDir.template)
         command = parsed.require("dropdir-init").value[0]
         tokens = split_arg_line(command)
         assert tokens == ["--email-root", str(root), "--" + action]
@@ -418,3 +416,20 @@ def test_welcome_requires_account_exclusion_from_general_watcher(tmp_path: Path)
     assert "--sys-ignore-paths " + str(root) in welcome
     assert "only `dropdir` and `email`" in welcome
     assert "do not disable Lucy's normal" in welcome
+
+
+def test_account_uses_mailboxes_for_moves_and_refresh_file_for_fetch(tmp_path):
+    root = tmp_path / "Email"
+    initialize(str(root), _args())
+    assert {path.name for path in (root / "Actions").iterdir()} == {
+        "Reply",
+        "Send",
+        "Mark read",
+        "Mark unread",
+    }
+    assert not (root / "Archive/init.md").exists()
+    assert not (root / "Trash/init.md").exists()
+    assert "Move this file" in (root / "refresh.md").read_text()
+    welcome = (root / "welcome.md").read_text()
+    assert "Actions/Refresh" not in welcome
+    assert "Move messages directly into `Archive/`" in welcome

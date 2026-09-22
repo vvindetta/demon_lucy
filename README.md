@@ -1,26 +1,26 @@
 ![Demon Lucy](media/lucy.gif)
 
-# D(a)emon Lucy — a modular notes manager
+# D(a)emon Lucy — a modular file modification program
 
-Your notes are just files. Use any editor you like. No editor plugins. Git is your cloud.
+Lucy works at the filesystem level. Use any editor you like. You don't need any plugins.
 
-Lucy monitors your note folder. Every time you edit something, it runs modules on that file.
+Lucy monitors your directory via `inotify` and runs the modules whenever a file event occurs.
 
 ![Lucy demo](media/lucy_demo.gif)
 
 #### Usage
 
-Use Unix-style flags in your note to run commands.
+Write a `--arg` command in your note and save it (`Ctrl+S`).
 
-Write a command in your note and save it (`Ctrl+S`). Lucy runs the modules and writes the output directly into the note.
+Lucy runs the modules and writes the output directly into the note.
 
 ### Modules
 
 **Basic modules (loaded by default):**
 
-- `sys`: writes runtime debug information, event details, and manual help text.<br>
+- `sys`: writes runtime debug information, and manual help text.<br>
   ![Sys module: ping, help, loaded modules, and flag manual](media/modules/sys_demo.gif)
-- `linker`: creates symlinks for active notes and keeps Markdown links in sync when notes move.<br>
+- `linker`: keeps Markdown links in sync. Pin active notes. <br>
   ![Linker module: renaming a file updates its link; editing the link moves the file](media/modules/linker_demo.gif)
 - `archive`: moves idle note text into dated history or separate archive files, keeping the working note clear.<br>
   ![Archive: after 12 idle hours, on demand, or into a dated file](media/modules/archive_demo.gif)
@@ -46,14 +46,14 @@ Write a command in your note and save it (`Ctrl+S`). Lucy runs the modules and w
 - `git`: syncs notes with a remote Git repository.
 - `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
 
-**Modules (work in progress):**
+**WIP modules:**
 
 - `cmd`: runs local commands and writes their output into notes. Not loaded by default for security reasons.<br>
   ![Cmd: read /etc/os-release and draw a folder tree inside the note](media/modules/cmd_demo.gif)
 - `kdeconnect_sync`: sends note changes to your phone via KDE Connect (`kdeconnect-cli`) to keep a mobile copy in sync in near real time.
 - `voice`: transcribes speech into notes using offline Vosk or online speech providers.
 - `ai`: edits the current note from an inline prompt using a local agent.
-- `email`: reads email as notes and sends drafts or manages messages through action folders.
+- `email`: reads email as notes, sends drafts, and manages messages by moving files.
 
 See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
@@ -71,29 +71,33 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all `--args`.
 
 ### Use `--help`
 
+```text
 * `--mods`: list loaded modules and their priorities.
 * `--ping`: send a notification and replace the command line with `++pong!`.
 * `--config`: show config values that differ from the defaults.
 * `--man <name>`: show an argument and its description (for example, `--man mods` or `--man --mods`).
-
-Use `--mods` to see loaded modules and their priorities:
-
-```text
-* sys (0)
-* banner (10)
-* todo (10)
-* renamer (20)
-* plasma_widget (30)
-* cmd (50)
 ```
 
-`--man <name or module>` shows help for an argument or module, like `man` in a terminal. :>
+Use `--mods` to see loaded modules and their priorities.
 
-### Lucy on Android
+```text
+* sys (2)
+* banner (10)
+* renamer (20)
+* status (21)
+* linker (22)
+* formatter (23)
+* graph (24)
+* archive (25)
+```
+
+### Read the manual
+
+`--man <name/module>` shows help for an argument or module.
+
+## Lucy on Android
 
 You can run Lucy in [Termux](https://f-droid.org/packages/com.termux/). See the [setup guide](#termux-setup).
-
-I recommend [Markor](https://github.com/gsantner/markor) as a text editor.
 
 ## Install
 
@@ -101,8 +105,7 @@ Warnings:
 
 - **Turn on automatic file reloading in your text editor!**
 - The project has only been tested on GNU/Linux-based distributions. Sorry :<
-- The project has only been tested on GNU/Linux-based distributions. Sorry :<
-- macOS and Windows do not support daemon `opened` events. (for example Git module use open events to sync your repo)
+- macOS and Windows do not support daemon `opened` events (for example, the Git module uses opened events to sync your repo).
 
 1. Clone the repository:
 
@@ -111,6 +114,7 @@ git clone --depth 1 https://codeberg.org/vvindetta/demon_lucy && cd demon_lucy
 ```
 
 2. Install Python dependencies:
+
 ```
 python3 -m pip install -r requirements.txt
 ```
@@ -121,11 +125,13 @@ Uncomment and edit the lines you need.
 ### Manual run
 
 Run Lucy in daemon mode:
+
 ```text
 python3 main_daemon.py --sys-config-path "/home/user/Notes/.lucy/config.txt"
 ```
 
 Run Lucy in oneshot mode (useful for scripts and scheduled runs):
+
 ```text
 python3 main_oneshot.py \
   --oneshot-event opened \
@@ -153,6 +159,7 @@ Default service paths:
 - config: `$HOME/Notes/.lucy/config.txt`
 
 Move the units:
+
 ```bash
 mkdir -p ~/.config/systemd/user; \
 mv setup-systemd/lucy-daemon.service ~/.config/systemd/user/; \
@@ -162,6 +169,7 @@ mv setup-systemd/lucy-oneshot.timer ~/.config/systemd/user/
 ```
 
 Reload and enable:
+
 ```bash
 systemctl --user daemon-reload; \
 systemctl --user enable --now lucy-daemon.timer; \
@@ -169,6 +177,7 @@ systemctl --user enable --now lucy-oneshot.timer
 ```
 
 Useful checks:
+
 ```text
 systemctl --user status lucy-daemon.service
 systemctl --user status lucy-daemon.timer
@@ -177,7 +186,7 @@ systemctl --user start lucy-oneshot.service
 journalctl --user -u lucy-daemon.service -f
 ```
 
-### Termux setup
+## Termux setup
 
 Install these apps from F-Droid:
 
@@ -189,6 +198,8 @@ Optional add-ons:
 - [Termux:Widget](https://f-droid.org/packages/com.termux.widget/): place a script in `~/.shortcuts/` to run it from the widget.
 - [Termux:Tasker](https://f-droid.org/packages/com.termux.tasker/): place a script in `~/.termux/tasker/` to run it from Tasker automations.
 - [Termux:API](https://f-droid.org/packages/com.termux.api/): enables `termux-job-scheduler`, `termux-wake-lock` and notifications.
+
+I recommend [Markor](https://github.com/gsantner/markor) as a text editor.
 
 Ready-to-use Termux scripts are in `setup-termux`:
 

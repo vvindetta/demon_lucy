@@ -13,6 +13,7 @@ from demon_lucy.modules.email.codec import new_draft
 from demon_lucy.modules.email.config import (
     ACCOUNT_FILE,
     ACTION_FOLDERS,
+    DROP_ACTION_FOLDERS,
     SETTINGS_TEMPLATE,
     account_from_args,
     load_account,
@@ -20,6 +21,7 @@ from demon_lucy.modules.email.config import (
 from demon_lucy.modules.email.documents import LITERAL_MARKER
 from demon_lucy.modules.email.files import locked_file, safe_path, write_text_if_missing
 from demon_lucy.modules.email.models import CredentialProvider
+from demon_lucy.modules.email.layout import REFRESH_TEXT, upgrade_layout
 from demon_lucy.modules.email.storage import MailStore
 
 WATCHER_FILE = ".email/.watcher.conf"
@@ -248,10 +250,13 @@ Drop it into `Actions/Send/` to send. Lucy restores a blank starter after succes
 Saving the draft alone never sends. Sent bodies are plain text with MIME attachments.
 
 Drop a received message into `Actions/Reply/` to create a threaded, quoted reply in
-`Drafts/`, then drop that draft into `Actions/Send/`. Other actions are `Mark read`,
-`Mark unread`, `Archive` and `Trash`; they update both local files and the server.
+`Drafts/`, then drop that draft into `Actions/Send/`. Use `Actions/Mark read/` and
+`Actions/Mark unread/` to change read state. Move messages directly into `Archive/`
+or `Trash/` to move them on the server and locally.
 Trash moves to the server's Trash mailbox; it does not permanently delete mail.
-Drop `refresh.md` into `Actions/Refresh/` for an immediate fetch.
+Move `refresh.md` to any folder watched by Lucy for an immediate fetch. It returns
+to the account root automatically. Hidden paths and moves reported only as a
+deletion outside the watched tree cannot trigger refresh.
 
 Files return from their action folder before the operation runs. A failed action
 keeps the input. Original messages and attachment bytes are stored privately in `.email/`.
@@ -292,7 +297,7 @@ def _needs_credential_setup(
     )
 
 
-def initialize(root: str, args: ParsedArgs) -> dict[str, int]:
+def initialize(root: str, args: ParsedArgs, *, event_id: str = "") -> dict[str, int]:
     root = os.path.abspath(os.path.expanduser(root))
     account_text, provider, variables = _account_text(args)
     # Render before touching disk so invalid path characters cannot leave partial setup.
@@ -323,7 +328,7 @@ def initialize(root: str, args: ParsedArgs) -> dict[str, int]:
                 ".email/attachments",
                 ".email/outgoing",
                 "setup-systemd",
-                *[f"Actions/{name}" for name in ACTION_FOLDERS],
+                *ACTION_FOLDERS,
             ):
                 store.ensure_directory(folder)
             files = {
@@ -336,8 +341,7 @@ def initialize(root: str, args: ParsedArgs) -> dict[str, int]:
                 ),
                 ".gitignore": ".email/\n",
                 ".email/.gitignore": "*\n",
-                "refresh.md": LITERAL_MARKER
-                + "\nDrop this file into Actions/Refresh/ to fetch mail.\n",
+                "refresh.md": REFRESH_TEXT,
                 **setup,
             }
             if provider is CredentialProvider.ENVIRONMENT:
@@ -348,15 +352,16 @@ def initialize(root: str, args: ParsedArgs) -> dict[str, int]:
                     )
                     + "\n"
                 )
-            for folder, action in ACTION_FOLDERS.items():
+            for folder, action in DROP_ACTION_FOLDERS.items():
                 command = shlex.join(["--email-root", root, "--" + action])
-                files[f"Actions/{folder}/init.md"] = (
+                files[f"{folder}/init.md"] = (
                     shlex.join(["--dropdir-init", command]) + "\n"
                 )
             for relative, text in files.items():
                 path = store.path(relative)
                 if write_text_if_missing(path, text):
                     store.changed[path] = 1
+            upgrade_layout(store, event_id=event_id)
             starter = store.path("new email.md")
             if not os.path.exists(starter):
                 store.create_draft(new_draft(uuid.uuid4().hex), "new email.md")

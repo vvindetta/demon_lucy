@@ -142,8 +142,13 @@ watchdog file events.
   `http.py` owns raw/multipart uploads with bounded JSON responses and no
   credential redirects; credentials come from the environment.
 - `modules/email/`: optional IMAP/SMTP client with message/draft files and
-  Dropdir actions. `config.py` owns typed account settings; `scaffold.py` creates
-  missing account folders/config/services; `codec.py` handles MIME and drafts;
+  Dropdir actions. `Archive/` and `Trash/` are direct drop targets. Moving
+  `refresh.md` anywhere observed fetches mail and returns it to the account root.
+  `Actions/` contains Reply, Send, Mark read and Mark unread; `Drafts/` and `Sent/`
+  store drafts and sent history. `config.py` owns typed account settings;
+  `scaffold.py` creates missing account folders/config/services; `layout.py`
+  removes obsolete generated actions while preserving user files; `codec.py`
+  handles MIME and drafts;
   `imap.py`/`smtp.py` own transports; `storage.py` owns private SQLite state and
   managed files; `sync.py` reconciles mailboxes; `sending.py` journals delivery
   and Sent copies. `credentials.py` uses Linux Secret Service/KWallet by default,
