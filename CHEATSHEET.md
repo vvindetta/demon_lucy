@@ -271,32 +271,6 @@ Common examples:
 --git-commit-message-style detailed
 ```
 
-## Email
-
-| Arg | Type | Meaning |
-|---|---:|---|
-| `--email-init` | `str` | Initialize an account directory and missing setup files. |
-| `--email-root` | `str` | Account directory used by Lucy and CLI commands. |
-| `--email-fetch-interval-seconds` | `int` | Fetch inside Lucy every 300 seconds; `0` disables polling. |
-| `--email-repair-interval-seconds` | `int` | Restore missing folders and control files every 2 seconds. |
-| `--email-fetch` | `bool` | Fetch mail and refresh mailbox state. |
-| `--email-reply` | `bool` | `Actions/Reply/`: create a reply draft in `Drafts/`. |
-| `--email-send` | `bool` | `Sent/`: drop a draft to send; saving it alone does not send. |
-| `--email-mark-read`, `--email-mark-unread` | `bool` | `Actions/Mark read/`, `Actions/Mark unread/`: update server read state. |
-| `--email-archive`, `--email-trash` | `bool` | Drop a message directly into `Archive/` or `Trash/` to move it on the server. |
-
-Move `refresh.md` anywhere the email watcher observes to fetch mail; Lucy returns
-it to the account root. It needs no action folder.
-Drafts use YAML front matter and a plain text body. `Sent/` also stores sent history.
-Enable `email` in the existing daemon, set `--email-root`, and add that account to
-`--sys-ignore-paths`; email handles its files inside Lucy. Recovery copies are in
-`.email/recovery/`.
-
-```sh
-python3 main_oneshot.py --sys-modules email --email-init ~/Mail
-python3 main_oneshot.py --sys-modules email --email-root ~/Mail --email-fetch
-```
-
 ## Plasma Widget
 
 | Arg | Type | Meaning |
