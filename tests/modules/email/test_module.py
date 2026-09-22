@@ -18,12 +18,10 @@ from watchdog.events import (
 import main_oneshot
 import demon_lucy.modules.email.module as email_module
 from demon_lucy.lib.args.parser import parse_args
-from demon_lucy.lib.args.sources import _parse_config_args
 from demon_lucy.modules.email.files import locked_file
 from demon_lucy.modules.email.documents import LITERAL_MARKER
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.file_handler import FileHandler
-from demon_lucy.modules.dropdir import DropDir
 from demon_lucy.modules.email import Email
 from demon_lucy.modules.email.codec import decode_message, parse_draft, render_draft
 from demon_lucy.modules.email.config import ACTION_FOLDERS, TEMPLATE, load_account
@@ -34,10 +32,32 @@ from demon_lucy.modules.email.models import (
     MessageInfo,
     MoveResult,
 )
-from demon_lucy.modules.email.scaffold import WATCHER_FILE, initialize
+from demon_lucy.modules.email.scaffold import initialize
+from demon_lucy.modules.abstract_module import Context, System
+from demon_lucy.lib.logfmt import next_event_id
 from demon_lucy.modules.email.storage import MailStore, MessageRecord, fingerprint
 from demon_lucy.modules.email.sync import fetch_mail
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE, select_demon_lucy_modules
+
+
+class EmailDispatch:
+    """Exercise email handlers with config-only args, as the internal worker does."""
+
+    def __init__(self, args):
+        self.args = args
+        self.module = Email()
+        self.system = System(global_template=TEMPLATE, modules=[self.module])
+
+    def run(self, path, event, event_id=None):
+        ctx = Context(
+            path=path,
+            args=self.args,
+            run_mode="daemon",
+            event_id=event_id or next_event_id(),
+            event=event,
+        )
+        result = getattr(self.module, event.event_type)(ctx, self.system)
+        return result.changed if result else {}
 
 
 @pytest.fixture
@@ -64,8 +84,11 @@ def account(tmp_path, monkeypatch):
             TEMPLATE,
         ),
     )
-    startup = _parse_config_args(str(root / WATCHER_FILE), DEMON_LUCY_STARTUP_TEMPLATE)
-    manager = ModuleManager([DropDir(), Email()], startup)
+    startup = parse_args(
+        ["--email-root", str(root), "--sys-watch-paths", str(root.parent)],
+        [*DEMON_LUCY_STARTUP_TEMPLATE, *TEMPLATE],
+    )
+    manager = EmailDispatch(startup)
     return root, manager
 
 
@@ -153,13 +176,13 @@ def test_send_drop_returns_starter_sends_once_and_resets(account, monkeypatch):
 
     def send(settings, sender, recipients, payload, *, before_data):
         assert path.exists()
-        assert not (root / "Actions/Send" / path.name).exists()
+        assert not (root / "Sent" / path.name).exists()
         before_data()
         sent.append(payload)
         return DeliveryResult(recipients, ())
 
     monkeypatch.setattr("demon_lucy.modules.email.smtp.send", send)
-    changed = _drop(root, manager, path, "Send")
+    changed = _drop(root, manager, path, "Sent")
     assert len(sent) == 1
     assert changed[str(path)] >= 1
     assert parse_draft(path.read_text()).identity != original
@@ -182,11 +205,11 @@ def test_saving_opening_importing_draft_never_sends(account, monkeypatch, factor
     manager.run(str(path), factory(str(path)))
 
 
-def test_quoted_body_cannot_delay_or_add_dropdir_actions(account, monkeypatch):
+def test_body_cannot_delay_or_add_actions(account, monkeypatch):
     root, manager = account
     path, _ = _ready(root)
     draft = parse_draft(path.read_text())
-    body = '--dropdir-action-delay-milliseconds 60000\n--dropdir-action "--email-send" "Send"\n--email-init unwanted\n'
+    body = '--dropdir-action-delay-milliseconds 60000\n--dropdir-action "--email-send" "Sent"\n--email-init unwanted\n'
     path.write_text(render_draft(replace(draft, body=body)))
     sent = []
 
@@ -200,7 +223,7 @@ def test_quoted_body_cannot_delay_or_add_dropdir_actions(account, monkeypatch):
         lambda _: pytest.fail("draft body became a delay command"),
     )
     monkeypatch.setattr("demon_lucy.modules.email.smtp.send", send)
-    _drop(root, manager, path, "Send")
+    _drop(root, manager, path, "Sent")
     assert len(sent) == 1
     assert decode_message(sent[0]).body == body
     assert not (root / "unwanted").exists()
@@ -281,7 +304,7 @@ def test_refresh_drop_and_cli_use_same_fetch(account, monkeypatch):
 def test_failed_move_back_does_not_send(account, monkeypatch):
     root, manager = account
     original, _ = _ready(root)
-    destination = root / "Actions/Send" / original.name
+    destination = root / "Sent" / original.name
     destination.write_text(original.read_text())
     monkeypatch.setattr(
         email_module,
@@ -301,8 +324,8 @@ def test_cross_account_drop_does_not_send(account, monkeypatch):
         "send_draft",
         lambda *args, **kwargs: pytest.fail("unexpected send"),
     )
-    _drop(root, manager, outside, "Send")
-    assert outside.exists()
+    _drop(root, manager, outside, "Sent")
+    assert (root / "Sent" / outside.name).exists()
 
 
 def test_failed_send_preserves_draft_and_reports_error(account, monkeypatch):
@@ -316,25 +339,31 @@ def test_failed_send_preserves_draft_and_reports_error(account, monkeypatch):
         )
 
     monkeypatch.setattr(email_module, "send_draft", failure)
-    _drop(root, manager, path, "Send")
+    _drop(root, manager, path, "Sent")
     assert path.read_text() == before
     assert "Try again after reconnecting." in (root / "status.md").read_text()
 
 
-def test_busy_account_drop_returns_file_without_popup_or_network(account, monkeypatch):
+def test_busy_account_drop_waits_then_sends_once(account, monkeypatch):
     root, manager = account
     path, _ = _ready(root)
+    sent = []
     monkeypatch.setattr(
         email_module, "safe_notify", lambda *args, **kwargs: pytest.fail("busy popup")
     )
     monkeypatch.setattr(
         email_module,
         "send_draft",
-        lambda *args, **kwargs: pytest.fail("unexpected send"),
+        lambda config, store, path, **kw: sent.append(path) or path,
     )
     with locked_file(str(root / ".email/.lock")):
-        _drop(root, manager, path, "Send")
-    assert path.exists()
+        thread = threading.Thread(target=_drop, args=(root, manager, path, "Sent"))
+        thread.start()
+        thread.join(0.05)
+        assert thread.is_alive() and not sent
+    thread.join(5)
+    assert not thread.is_alive()
+    assert sent == [str(path)] and path.exists()
 
 
 @pytest.mark.parametrize(
@@ -343,7 +372,7 @@ def test_busy_account_drop_returns_file_without_popup_or_network(account, monkey
         "Drafts/refresh.md",
         "Archive/refresh.md",
         "Trash/refresh.md",
-        "Actions/Send/refresh.md",
+        "Sent/refresh.md",
         "Actions/Reply/refresh.md",
         "Actions/Mark read/refresh.md",
         "elsewhere/moved.md",
@@ -538,7 +567,7 @@ def test_direct_mailbox_drop_returns_source_then_moves_remote(
         assert Path(store.path(record.path)).exists()
         assert changed[store.path(record.path)] >= 1
     # A fresh watcher has no in-memory ignore counts or dedup history.
-    observer = ModuleManager([DropDir(), Email()], manager.args)
+    observer = EmailDispatch(manager.args)
     handler = FileHandler(observer, open_cooldown_seconds=0)
     handler.on_moved(FileMovedEvent(str(source), str(destination)))
     assert moves == [(5, folder)]
@@ -603,13 +632,13 @@ def test_mailbox_same_folder_rename_and_missing_drop_are_noops(account, monkeypa
 
 @pytest.mark.parametrize("internal", [False, True])
 @pytest.mark.parametrize("folder", ["Archive", "Trash"])
-def test_separate_watcher_waits_for_account_lock_before_classifying_move(
+def test_observer_waits_for_account_lock_before_classifying_move(
     account, monkeypatch, internal, folder
 ):
     root, manager = account
     source = _message(root)
     destination = root / folder / source.name
-    observer = ModuleManager([DropDir(), Email()], manager.args)
+    observer = EmailDispatch(manager.args)
     handler = FileHandler(observer, open_cooldown_seconds=0)
     waiting = threading.Event()
     finished = threading.Event()
@@ -663,9 +692,7 @@ def test_separate_watcher_waits_for_account_lock_before_classifying_move(
 
 
 @pytest.mark.parametrize("folder", ["Archive", "Trash"])
-def test_cli_timer_display_move_cannot_be_undone_by_separate_watcher(
-    account, monkeypatch, folder
-):
+def test_cli_display_move_cannot_be_undone_by_observer(account, monkeypatch, folder):
     root, watcher = account
     source = _message(root)
     destination = root / folder / source.name

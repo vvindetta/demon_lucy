@@ -27,12 +27,15 @@ from demon_lucy.modules.email.config import (
     ACTION_FOLDERS,
     ACTION_NAMES,
     ACCOUNT_FILE,
-    MAILBOX_ACTION_FOLDERS,
     TEMPLATE,
     load_account,
 )
 from demon_lucy.modules.email.errors import EmailError
-from demon_lucy.modules.email.documents import LITERAL_MARKER, is_literal_document
+from demon_lucy.modules.email.documents import (
+    LITERAL_MARKER,
+    document_identity,
+    is_literal_document,
+)
 from demon_lucy.modules.email.files import (
     FileBusyError,
     locked_file,
@@ -127,6 +130,9 @@ class Email(AbstractModule):
         self._refresh_returns: OrderedDict[tuple[str, str], tuple[int, int]] = (
             OrderedDict()
         )
+        from demon_lucy.modules.email.worker import start_daemon_worker
+
+        self.worker = start_daemon_worker(self)
 
     def _remember_drop(self, ctx: Context, action: str) -> bool:
         key = (
@@ -329,9 +335,11 @@ class Email(AbstractModule):
         final_path = ctx.path
         try:
             root = _root(
-                account_root
-                if account_root is not None
-                else ctx.args.require("email-root").value,
+                (
+                    account_root
+                    if account_root is not None
+                    else ctx.args.require("email-root").value
+                ),
                 ctx,
             )
             if dropped:
@@ -358,6 +366,11 @@ class Email(AbstractModule):
                     )
             config = load_account(root)
             _network_settings(config, action)
+            if not os.path.isfile(safe_path(root, ".email/.state.sqlite3")):
+                raise EmailError(
+                    "The email database is missing. Restore .email/ before running email actions.",
+                    reason="state_missing",
+                )
             lock = safe_path(root, ".email/.lock")
             with ExitStack() as stack:
                 if store is None:
@@ -458,18 +471,30 @@ class Email(AbstractModule):
             return False, None
         destination = os.path.abspath(destination_value)
         source = os.path.abspath(os.fsdecode(ctx.event.src_path))
-        folder = Path(destination).parent.name
-        if folder not in MAILBOX_ACTION_FOLDERS or os.path.dirname(
-            source
-        ) == os.path.dirname(destination):
+        parent = Path(destination).parent
+        folder = (
+            ("Actions/" + parent.name)
+            if parent.parent.name == "Actions"
+            else parent.name
+        )
+        if folder not in ACTION_FOLDERS or os.path.dirname(source) == os.path.dirname(
+            destination
+        ):
             return False, None
-        root = str(Path(destination).parent.parent)
+        root = str(
+            parent.parent.parent if folder.startswith("Actions/") else parent.parent
+        )
         action = ACTION_FOLDERS[folder]
         store: MailStore | None = None
         current_path = ctx.path
         try:
             if not os.path.isfile(safe_path(root, ACCOUNT_FILE)):
                 return False, None
+            if not os.path.isfile(safe_path(root, ".email/.state.sqlite3")):
+                raise EmailError(
+                    "The email database is missing. Restore .email/ before running email actions.",
+                    reason="state_missing",
+                )
             if not self._remember_drop(ctx, action):
                 return True, None
             safe_path(root, os.path.relpath(source, root))
@@ -489,11 +514,9 @@ class Email(AbstractModule):
                 source_relative = store.relative(source)
                 records = store.records()
                 token = store.read_text(destination_relative, 128 * 1024 * 1024)
-                markers = token.splitlines()[:2]
+                identity = document_identity(token)
                 if any(
-                    record.path == destination_relative
-                    and markers
-                    == [LITERAL_MARKER, f"<!-- lucy-email-id:{record.identity} -->"]
+                    record.path == destination_relative and identity == record.identity
                     for record in records
                 ):
                     logger.info(
@@ -508,11 +531,19 @@ class Email(AbstractModule):
                 matches = [
                     record
                     for record in records
-                    if record.path == source_relative
-                    and markers
-                    == [LITERAL_MARKER, f"<!-- lucy-email-id:{record.identity} -->"]
+                    if record.path == source_relative and identity == record.identity
                 ]
-                if len(matches) != 1:
+                draft = store.get("draft", identity) if identity else None
+                if (
+                    action == "email-send"
+                    and draft
+                    and draft["path"] == destination_relative
+                ):
+                    return True, None
+                valid = len(matches) == 1 or (
+                    draft is not None and draft["path"] == source_relative
+                )
+                if not valid:
                     raise EmailError(
                         "The mailbox drop does not match its original managed file, or its original path is occupied.",
                         reason="invalid_drop",
@@ -524,6 +555,8 @@ class Email(AbstractModule):
                     source_text = store.read_text(source_relative, 128 * 1024 * 1024)
                     if (
                         source_text != token
+                        or action == "email-send"
+                        or not matches
                         or fingerprint(source_text) != matches[0].rendered_digest
                     ):
                         raise EmailError(
@@ -577,9 +610,13 @@ class Email(AbstractModule):
                 )
             )
             self._report_error(ctx, root, failure)
-            return True, ModuleResult(
-                context=replace(ctx, path=current_path), changed=store.changed
-            ) if store else None
+            return True, (
+                ModuleResult(
+                    context=replace(ctx, path=current_path), changed=store.changed
+                )
+                if store
+                else None
+            )
 
     def moved(self, ctx: Context, system: System) -> ModuleResult | None:
         refresh, result = self._refresh_move(ctx)

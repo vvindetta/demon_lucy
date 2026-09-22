@@ -15,7 +15,11 @@ from uuid import UUID
 
 from demon_lucy.lib.args.parser import split_arg_line
 from demon_lucy.modules.email.files import read_bytes_no_follow
-from demon_lucy.modules.email.documents import LITERAL_MARKER
+from demon_lucy.modules.email.documents import (
+    LITERAL_MARKER,
+    read_frontmatter,
+    render_frontmatter,
+)
 from demon_lucy.modules.email.errors import EmailError
 from demon_lucy.modules.email.models import (
     Attachment,
@@ -23,7 +27,6 @@ from demon_lucy.modules.email.models import (
     Draft,
     OutgoingMessage,
 )
-
 
 _IDENTITY = re.compile(r"<!-- lucy-email-id:([a-fA-F0-9-]+) -->")
 _HEADER_NAMES = (
@@ -53,7 +56,7 @@ def _validate_header(value: str) -> None:
 def _validate_identity(identity: str) -> None:
     try:
         UUID(identity)
-    except (ValueError, AttributeError) as error:
+    except (ValueError, AttributeError, TypeError) as error:
         raise EmailError(
             "The email identity is missing or invalid.", reason="invalid_identity"
         ) from error
@@ -218,35 +221,81 @@ def new_draft(identity: str) -> Draft:
     )
 
 
-def _quoted_arg(value: str) -> str:
-    # Lucy disables backslash escapes; adjacent quoted segments preserve both
-    # kinds of quotes, spaces, and literal Windows path separators.
-    _validate_header(value)
-    return "'" + value.replace("'", "'\"'\"'") + "'"
-
-
 def render_draft(draft: Draft) -> str:
     _validate_identity(draft.identity)
-    values = (
-        draft.to,
-        draft.cc,
-        draft.bcc,
-        draft.subject,
-        " ".join(_quoted_arg(path) for path in draft.attachments),
-        draft.in_reply_to,
-        draft.references,
+    values = dict(
+        zip(
+            ("to", "cc", "bcc", "subject", "in-reply-to", "references"),
+            (
+                draft.to,
+                draft.cc,
+                draft.bcc,
+                draft.subject,
+                draft.in_reply_to,
+                draft.references,
+            ),
+        )
     )
-    for value in values:
+    for value in (*values.values(), *draft.attachments):
         _validate_header(value)
-    headers = "\n".join(
-        f"{name}: {value}" for name, value in zip(_HEADER_NAMES, values)
+    return render_frontmatter(
+        {
+            "email": "draft",
+            "id": draft.identity,
+            **values,
+            "attachments": list(draft.attachments),
+        },
+        draft.body.replace("\r\n", "\n").replace("\r", "\n"),
     )
-    body = draft.body.replace("\r\n", "\n").replace("\r", "\n")
-    quoted_body = "\n".join(f"> {line}" for line in body.split("\n"))
-    return f"{LITERAL_MARKER}\n<!-- lucy-email-id:{draft.identity} -->\n{headers}\n\n{quoted_body}"
 
 
 def parse_draft(text: str) -> Draft:
+    # Existing registered drafts keep their generation and delivery journal during migration.
+    if text.startswith(LITERAL_MARKER):
+        return _parse_legacy_draft(text)
+    values, body = read_frontmatter(text)
+    if values.get("email") != "draft" or set(values) - {
+        "email",
+        "id",
+        "to",
+        "cc",
+        "bcc",
+        "subject",
+        "attachments",
+        "in-reply-to",
+        "references",
+    }:
+        raise EmailError("Unknown email draft header.", reason="invalid_draft")
+    identity = values.get("id")
+    _validate_identity(identity)
+    headers = {}
+    for name in ("to", "cc", "bcc", "subject", "in-reply-to", "references"):
+        value = values.get(name, "")
+        if value is None:
+            value = ""
+        if not isinstance(value, str):
+            raise EmailError(
+                "Email headers must contain text.", reason="invalid_header"
+            )
+        _validate_header(value)
+        headers[name.replace("-", "_")] = value
+    attachments = values.get("attachments", [])
+    if attachments is None:
+        attachments = []
+    if not isinstance(attachments, list) or any(
+        not isinstance(path, str) for path in attachments
+    ):
+        raise EmailError(
+            "Attachments must be a YAML list of paths.", reason="invalid_attachments"
+        )
+    for path in attachments:
+        _validate_header(path)
+    return Draft(
+        identity=identity, attachments=tuple(attachments), body=body, **headers
+    )
+
+
+def _parse_legacy_draft(text: str) -> Draft:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n", 2)
     if len(lines) != 3 or lines[0] != LITERAL_MARKER:
@@ -465,8 +514,6 @@ def render_message(
 ) -> str:
     _validate_identity(identity)
     lines = [
-        LITERAL_MARKER,
-        f"<!-- lucy-email-id:{identity} -->",
         f"# {_markdown(message.subject or '(no subject)')}",
         "",
     ]
@@ -500,7 +547,18 @@ def render_message(
     lines.extend(
         f"> {_markdown(line)}" if line else ">" for line in message.body.splitlines()
     )
-    return "\n".join(lines) + "\n"
+    return render_frontmatter(
+        {
+            "email": "message",
+            "id": identity,
+            "from": message.sender,
+            "to": message.to,
+            "subject": message.subject,
+            "date": message.date,
+            "read": read,
+        },
+        "\n".join(lines) + "\n",
+    )
 
 
 def message_filename(message: DecodedMessage, identity: str, *, read: bool) -> str:

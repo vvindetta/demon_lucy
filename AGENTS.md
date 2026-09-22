@@ -141,23 +141,23 @@ watchdog file events.
   `recorder.py` owns PCM streaming, recording deadlines, and subprocess cleanup.
   `http.py` owns raw/multipart uploads with bounded JSON responses and no
   credential redirects; credentials come from the environment.
-- `modules/email/`: optional IMAP/SMTP client with message/draft files and
-  Dropdir actions. `Archive/` and `Trash/` are direct drop targets. Moving
-  `refresh.md` anywhere observed fetches mail and returns it to the account root.
-  `Actions/` contains Reply, Send, Mark read and Mark unread; `Drafts/` and `Sent/`
-  store drafts and sent history. `config.py` owns typed account settings;
-  `scaffold.py` creates missing account folders/config/services; `layout.py`
-  removes obsolete generated actions while preserving user files; `codec.py`
-  handles MIME and drafts;
-  `imap.py`/`smtp.py` own transports; `storage.py` owns private SQLite state and
-  managed files; `sync.py` reconciles mailboxes; `sending.py` journals delivery
-  and Sent copies. `credentials.py` uses Linux Secret Service/KWallet by default,
-  with an explicit environment provider for headless/Termux use. Uncertain or
-  partially delivered draft generations cannot be resent automatically.
-  `files.py` and `documents.py` keep account file safety and document markers
-  inside this module. Use the dedicated Dropdir/Email watcher and exclude the
-  account from any general notes watcher; email markers do not change core parsing.
-  Draft body lines have one protective `> ` level, removed before sending.
+- `modules/email/`: optional IMAP/SMTP client with YAML message/draft files.
+  `Sent/`, `Archive/` and `Trash/` are direct drop targets; only moving a registered
+  draft into `Sent/` sends it. Moving `refresh.md` anywhere observed fetches mail
+  and returns the token. `Actions/` contains Reply, Mark read and Mark unread.
+  `module.py` owns handlers and starts `worker.py` from its constructor in the
+  standard daemon entry point. The worker observes email events, polls IMAP, and
+  runs structure repair inside the existing Lucy process; no engine hooks or
+  separate services are needed. Configure `--email-root` and exclude it from
+  ordinary note processing with `--sys-ignore-paths`. Email never parses mail as
+  Lucy flags. `repair.py` returns moved structural items; `scaffold.py` restores
+  missing folders/control files; `layout.py` migrates former generated setup and
+  Local-only content into `.email/recovery/`. `codec.py`/`documents.py` own MIME,
+  YAML headers and identity; `imap.py`/`smtp.py` own transports; `storage.py` owns
+  SQLite and private files; `sync.py` reconciles mailboxes; `sending.py` journals
+  delivery and Sent copies. `credentials.py` uses Secret Service/KWallet, with an
+  explicit environment provider. Uncertain or partially delivered generations
+  cannot resend automatically; repair must never replace a missing delivery DB.
 - `modules/git/`: Git sync module. `config.py` owns `--git-*` flags; `worker.py`
   owns event batching, commit/pull/push, locks, retries, and notifications;
   `operations.py`/`ops/` own lower-level Git/network/conflict

@@ -23,7 +23,6 @@ from demon_lucy.modules.email.errors import EmailError
 from demon_lucy.modules.email import storage
 from demon_lucy.modules.email.storage import MailStore, MessageRecord, fingerprint
 
-
 IDENTITY = "9ef8ec8c7f1a41cf974c65fd6f17d7f5"
 
 
@@ -184,7 +183,7 @@ def test_display_preserves_local_edits_before_read_status_refresh(
         original_path.write_text(local_text)
         record.read = True
         store.display(record, decode_message(store.raw(record, 100_000)))
-        preserved = list((tmp_path / "Local-only").iterdir())
+        preserved = list((tmp_path / ".email/recovery").iterdir())
         assert len(preserved) == 1
         assert preserved[0].read_text() == local_text
         current = Path(store.path(record.path))
@@ -227,7 +226,7 @@ def test_long_edited_message_survives_remote_move_and_rebinding(tmp_path: Path) 
         store.display(record, decoded)
         assert record.path.startswith("Archive/")
         assert "Local annotation" not in Path(store.path(record.path)).read_text()
-        preserved = list((tmp_path / "Local-only").iterdir())
+        preserved = list((tmp_path / ".email/recovery").iterdir())
         assert len(preserved) == 1
         assert preserved[0].read_text() == edited
         assert len(preserved[0].name.encode("utf-8")) <= 255
@@ -292,7 +291,7 @@ def test_preserve_removed_message_keeps_content_and_clears_remote_binding(
         content = original.read_bytes()
         store.preserve_local(record)
         assert not original.exists()
-        assert record.folder == "Local-only"
+        assert record.folder == ".email/recovery"
         assert record.mailbox == ""
         assert record.uid == 0
         assert Path(store.path(record.path)).read_bytes() == content
@@ -351,9 +350,7 @@ def test_managed_messages_require_exact_literal_identity_markers_and_registered_
         if change == "identity":
             path.write_text(original.replace(IDENTITY, "0" * 32))
         elif change == "literal":
-            path.write_text(
-                original.replace(LITERAL_MARKER, "Not a literal document", 1)
-            )
+            path.write_text(original.replace("email: message", "email: ordinary", 1))
         elif change == "identity_first":
             lines = original.splitlines(keepends=True)
             path.write_text(lines[1] + lines[0] + "".join(lines[2:]))
@@ -435,7 +432,7 @@ def test_display_recovers_interrupted_rename_without_losing_edits(
         reopened.display(record, message)
         assert Path(reopened.path(record.path)) == destination
         assert "**Status:** read" in destination.read_text()
-        local = list((tmp_path / "Local-only").glob("*"))
+        local = list((tmp_path / ".email/recovery").glob("*"))
         if edited_after_interruption:
             assert len(local) == 1
             assert local[0].read_bytes() == preserved_content

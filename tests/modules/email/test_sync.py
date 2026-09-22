@@ -213,7 +213,7 @@ def test_uidvalidity_reset_invalidates_old_binding_and_preserves_old_content(acc
     records = store.records()
     local = next(record for record in records if record.identity == original.identity)
     current = next(record for record in records if record.uid)
-    assert local.folder == "Local-only" and local.uid == 0 and local.mailbox == ""
+    assert local.folder == ".email/recovery" and local.uid == 0 and local.mailbox == ""
     assert "old content" in Path(store.path(local.path)).read_text()
     assert current.uidvalidity == 8 and current.uid == 1
     assert "new content" in Path(store.path(current.path)).read_text()
@@ -248,7 +248,7 @@ def test_remote_delete_preserves_local_edits(account):
     del server.folders["INBOX"][1]
     fetch(config, store)
     record = store.records()[0]
-    assert record.folder == "Local-only" and not record.uid
+    assert record.folder == ".email/recovery" and not record.uid
     assert "My private annotation" in Path(store.path(record.path)).read_text()
 
 
@@ -267,7 +267,7 @@ def test_flag_update_preserves_edited_copy_and_does_not_download_again(account):
     assert current.identity == record.identity and current.read
     assert "**Status:** read" in Path(store.path(current.path)).read_text()
     assert not any(call[0] == "fetch" for call in server.calls)
-    preserved = list(Path(config.root, "Local-only").glob("*.md"))
+    preserved = list(Path(config.root, ".email/recovery").glob("*.md"))
     assert len(preserved) == 1 and "My annotation" in preserved[0].read_text()
     assert "My annotation" not in Path(store.path(current.path)).read_text()
 
@@ -513,11 +513,11 @@ def test_copy_reconciliation_preserves_annotations_on_both_local_files(
     assert store.records()[0].identity == original.identity
     assert not copied_path.exists()
     preserved = [
-        path.read_text() for path in Path(config.root, "Local-only").glob("*.md")
+        path.read_text() for path in Path(config.root, ".email/recovery").glob("*.md")
     ]
     assert sorted(preserved) == sorted([original_text, copied_text])
     fetch(config, store)
-    assert len(list(Path(config.root, "Local-only").glob("*.md"))) == 2
+    assert len(list(Path(config.root, ".email/recovery").glob("*.md"))) == 2
 
 
 def test_copy_reconciliation_recovers_restart_between_rebinding_and_retirement(
@@ -563,7 +563,7 @@ def test_copy_reconciliation_does_not_trust_reused_destination_uid(
     original_after = next(
         record for record in store.records() if record.identity == original.identity
     )
-    assert original_after.uid == 0 and original_after.folder == "Local-only"
+    assert original_after.uid == 0 and original_after.folder == ".email/recovery"
 
 
 def test_move_guard_checks_uidvalidity_before_remote_mutation(account):

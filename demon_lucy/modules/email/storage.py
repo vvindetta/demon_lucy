@@ -15,7 +15,7 @@ from demon_lucy.lib.text_file import (
     write_bytes_atomic,
     write_text_atomic,
 )
-from demon_lucy.modules.email.documents import LITERAL_MARKER
+from demon_lucy.modules.email.documents import document_identity
 from demon_lucy.modules.email.errors import EmailError
 from demon_lucy.modules.email.files import (
     read_bytes_no_follow,
@@ -37,7 +37,7 @@ def _preserved_path(relative: str) -> str:
     stem = name[: -len(suffix)] if suffix else name
     maximum = 255 - 33 - len(suffix.encode("utf-8"))
     stem = stem.encode("utf-8")[:maximum].decode("utf-8", errors="ignore")
-    return f"Local-only/{uuid.uuid4().hex}-{stem}{suffix}"
+    return f".email/recovery/{uuid.uuid4().hex}-{stem}{suffix}"
 
 
 @dataclass
@@ -182,10 +182,7 @@ class MailStore:
             )
         record = found[0]
         text = self.read_text(relative, 128 * 1024 * 1024)
-        if text.splitlines()[:2] != [
-            LITERAL_MARKER,
-            f"<!-- lucy-email-id:{record.identity} -->",
-        ]:
+        if document_identity(text) != record.identity:
             raise EmailError(
                 "The message identity was changed.", reason="identity_changed"
             )
@@ -194,7 +191,7 @@ class MailStore:
     def preserve_local(self, record: MessageRecord) -> None:
         old_path = self.path(record.path)
         if os.path.exists(old_path):
-            self.ensure_directory("Local-only")
+            self.ensure_directory(".email/recovery")
             new_relative = _preserved_path(record.path)
             os.rename(old_path, self.path(new_relative))
             self.changed[old_path] = self.changed.get(old_path, 0) + 1
@@ -202,7 +199,7 @@ class MailStore:
         else:
             new_relative = record.path
         record.path = new_relative
-        record.folder = "Local-only"
+        record.folder = ".email/recovery"
         record.mailbox = ""
         record.uid = 0
         self.save_record(record)
@@ -223,7 +220,7 @@ class MailStore:
         if os.path.exists(path):
             # Keep the content even when its last-read digest was unchanged:
             # an editor may have added an annotation just before this rename.
-            self.ensure_directory("Local-only")
+            self.ensure_directory(".email/recovery")
             preserved = self.path(_preserved_path(record.path))
             os.rename(path, preserved)
             self.changed[preserved] = self.changed.get(preserved, 0) + 1
@@ -269,10 +266,7 @@ class MailStore:
             old_relative = relative
             old_path = self.path(relative)
             old_text = self.read_text(relative, 128 * 1024 * 1024)
-            if old_text.splitlines()[:2] != [
-                LITERAL_MARKER,
-                f"<!-- lucy-email-id:{record.identity} -->",
-            ]:
+            if document_identity(old_text) != record.identity:
                 raise EmailError(
                     "A message destination already exists.", reason="destination_exists"
                 )
@@ -280,7 +274,7 @@ class MailStore:
             record.rendered_digest,
             fingerprint(text),
         }:
-            self.ensure_directory("Local-only")
+            self.ensure_directory(".email/recovery")
             preserved = _preserved_path(old_relative)
             os.rename(old_path, self.path(preserved))
             self.changed[old_path] = self.changed.get(old_path, 0) + 1

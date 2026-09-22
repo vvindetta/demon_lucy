@@ -8,10 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from demon_lucy.lib.args.sources import parse_note_args
-from demon_lucy.modules.dropdir.module import DROPDIR_TEMPLATE
-from demon_lucy.modules.email.config import TEMPLATE
-from demon_lucy.modules.email.documents import LITERAL_MARKER
+from demon_lucy.modules.email.documents import LITERAL_MARKER, read_frontmatter
 from demon_lucy.modules.email.codec import (
     build_outgoing,
     decode_message,
@@ -23,7 +20,6 @@ from demon_lucy.modules.email.codec import (
     reply_draft,
 )
 from demon_lucy.modules.email.errors import EmailError
-
 
 IDENTITY = "9ef8ec8c-7f1a-41cf-974c-65fd6f17d7f5"
 
@@ -51,12 +47,10 @@ def _send(draft, tmp_path: Path, *, max_bytes: int = 100_000):
 def test_new_draft_is_blank_and_roundtrips() -> None:
     draft = new_draft(IDENTITY)
     text = render_draft(draft)
-    assert text.startswith(
-        f"{LITERAL_MARKER}\n<!-- lucy-email-id:{IDENTITY} -->\nTo: \n"
-    )
+    assert text.startswith(f"---\nemail: draft\nid: {IDENTITY}\n")
     assert parse_draft(text) == draft
     assert draft.to == draft.body == draft.subject == ""
-    assert text.endswith("\n\n> ")
+    assert text.endswith("---\n\n")
 
 
 @pytest.mark.parametrize(
@@ -70,15 +64,15 @@ def test_new_draft_is_blank_and_roundtrips() -> None:
         "  leading spaces\n\tindent",
     ],
 )
-def test_draft_body_uses_one_reversible_quote_level(body: str) -> None:
+def test_draft_body_roundtrips_without_quoting(body: str) -> None:
     draft = replace(new_draft(IDENTITY), body=body)
     text = render_draft(draft)
     quoted = text.partition("\n\n")[2]
-    assert all(line.startswith("> ") for line in quoted.split("\n"))
+    assert quoted == body
     assert parse_draft(text).body == body
 
 
-def test_draft_body_flags_are_inert_to_unchanged_note_parser(tmp_path: Path) -> None:
+def test_literal_draft_body_survives_sending(tmp_path: Path) -> None:
     body = (
         "--dropdir-action-delay-milliseconds 60000\n"
         '--dropdir-action "--email-send" Actions/Send\n'
@@ -88,7 +82,6 @@ def test_draft_body_flags_are_inert_to_unchanged_note_parser(tmp_path: Path) -> 
     path = tmp_path / "draft.md"
     draft = replace(new_draft(IDENTITY), to="friend@example.test", body=body)
     path.write_text(render_draft(draft))
-    assert parse_note_args(str(path), [*DROPDIR_TEMPLATE, *TEMPLATE]).known == ()
     outgoing = _send(parse_draft(path.read_text()), tmp_path)
     sent = BytesParser(policy=policy.default).parsebytes(outgoing.payload)
     assert sent.get_content().replace("\r\n", "\n") == body
@@ -97,25 +90,22 @@ def test_draft_body_flags_are_inert_to_unchanged_note_parser(tmp_path: Path) -> 
 @pytest.mark.parametrize(
     "body", ["plain body", "> quoted\n--email-send", " > indented", ">missing space"]
 )
-def test_draft_rejects_unquoted_nonempty_body_lines(body: str) -> None:
+def test_draft_accepts_plain_body_lines(body: str) -> None:
     headers = render_draft(new_draft(IDENTITY)).partition("\n\n")[0]
-    with pytest.raises(EmailError) as error:
-        parse_draft(headers + "\n\n" + body)
-    assert error.value.reason == "invalid_draft_body"
+    assert parse_draft(headers + "\n\n" + body).body == body
 
 
 def test_draft_accepts_empty_body_and_empty_quote_markers() -> None:
     headers = render_draft(new_draft(IDENTITY)).partition("\n\n")[0]
     assert parse_draft(headers + "\n\n").body == ""
-    assert parse_draft(headers + "\n\n>").body == ""
+    assert parse_draft(headers + "\n\n>").body == ">"
 
 
-def test_draft_normalizes_carriage_returns_before_quoting_flags(tmp_path: Path) -> None:
+def test_draft_normalizes_carriage_returns(tmp_path: Path) -> None:
     draft = replace(new_draft(IDENTITY), body="first\r--email-send\r\nlast")
     path = tmp_path / "draft.md"
     path.write_text(render_draft(draft))
     assert parse_draft(path.read_text()).body == "first\n--email-send\nlast"
-    assert parse_note_args(str(path), TEMPLATE).known == ()
 
 
 def test_draft_paths_quotes_and_literal_flags_roundtrip() -> None:
@@ -138,11 +128,11 @@ def test_draft_paths_quotes_and_literal_flags_roundtrip() -> None:
     [
         "To: a@example.test\n\nbody",
         f"{LITERAL_MARKER}\n<!-- lucy-email-id:../../x -->\nTo: a@example.test\n\nbody",
-        render_draft(new_draft(IDENTITY)).replace("Cc: ", "To: "),
-        render_draft(new_draft(IDENTITY)).replace("Subject: ", "From: "),
-        render_draft(new_draft(IDENTITY)).replace("Subject: ", "Subject: \x00"),
+        render_draft(new_draft(IDENTITY)).replace("cc: ", "to: "),
+        render_draft(new_draft(IDENTITY)).replace("subject: ", "from: "),
+        render_draft(new_draft(IDENTITY)).replace("subject: ", "subject: \x00"),
         render_draft(new_draft(IDENTITY)).replace(
-            "Attachments: ", "Attachments: 'unclosed"
+            "attachments: ", "attachments: 'unclosed"
         ),
     ],
 )
@@ -248,7 +238,8 @@ def test_received_rendering_is_literal_and_markdown_content_is_inert() -> None:
         read=False,
         attachment_links=[("../../[x].bin", "../.email/attachments/one (2).bin")],
     )
-    assert text.startswith(f"{LITERAL_MARKER}\n<!-- lucy-email-id:{IDENTITY} -->\n")
+    headers, text = read_frontmatter(text)
+    assert headers["email"] == "message" and headers["id"] == IDENTITY
     assert "<img" not in text
     assert "![x]" not in text
     assert "> \\-\\-cmd echo danger" in text
@@ -439,3 +430,43 @@ def test_outgoing_enforces_body_attachment_and_encoded_mime_size(
         with pytest.raises(EmailError, match="size limit") as error:
             _send(candidate, tmp_path, max_bytes=maximum)
         assert error.value.reason == "message_too_large"
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "to: a@example.test\nto: b@example.test",
+        "subject: [a, b]",
+        "subject: 123",
+        "subject: false",
+        "attachments: wrong.txt",
+        "attachments: [12]",
+        "subject: &value hi\nto: *value",
+        'subject: !!python/object/apply:os.system ["false"]',
+        'subject: "line\\nBcc: hidden@example.test"',
+        "subject: " + "[" * 10 + "a" + "]" * 10,
+    ],
+)
+def test_yaml_rejects_duplicates_aliases_objects_and_invalid_header_types(header):
+    with pytest.raises(EmailError):
+        parse_draft(f"---\nemail: draft\nid: {IDENTITY}\n{header}\n---\n\nbody")
+
+
+def test_yaml_folded_subject_and_attachment_list():
+    text = f"""---
+email: draft
+id: {IDENTITY}
+to: friend@example.test
+subject: >-
+  A longer
+  subject
+attachments:
+  - "a file.txt"
+---
+
+plain body
+"""
+    draft = parse_draft(text)
+    assert draft.subject == "A longer subject"
+    assert draft.attachments == ("a file.txt",)
+    assert draft.body == "plain body\n"

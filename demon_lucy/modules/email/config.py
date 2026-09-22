@@ -27,11 +27,14 @@ ACTION_NAMES = (
 )
 DROP_ACTION_FOLDERS = {
     "Actions/Reply": "email-reply",
-    "Actions/Send": "email-send",
     "Actions/Mark read": "email-mark-read",
     "Actions/Mark unread": "email-mark-unread",
 }
-MAILBOX_ACTION_FOLDERS = {"Archive": "email-archive", "Trash": "email-trash"}
+MAILBOX_ACTION_FOLDERS = {
+    "Sent": "email-send",
+    "Archive": "email-archive",
+    "Trash": "email-trash",
+}
 ACTION_FOLDERS = {**DROP_ACTION_FOLDERS, **MAILBOX_ACTION_FOLDERS}
 
 SETTINGS_TEMPLATE: Template = [
@@ -159,6 +162,18 @@ SETTINGS_TEMPLATE: Template = [
 
 TEMPLATE: Template = [
     KnownArg(
+        name="email-fetch-interval-seconds",
+        value_type=int,
+        default=300,
+        description="Fetch interval inside Lucy; 0 disables automatic fetches.",
+    ),
+    KnownArg(
+        name="email-repair-interval-seconds",
+        value_type=int,
+        default=2,
+        description="Check and restore missing email folders and control files at this interval.",
+    ),
+    KnownArg(
         name="email-credentials-save",
         value_type=bool,
         default=False,
@@ -192,7 +207,7 @@ TEMPLATE: Template = [
         name="email-send",
         value_type=bool,
         default=False,
-        description="Send a draft through its Send drop folder; never triggered by an ordinary save.",
+        description="Send a draft by moving it into Sent/; never triggered by an ordinary save.",
     ),
     KnownArg(
         name="email-mark-read",
