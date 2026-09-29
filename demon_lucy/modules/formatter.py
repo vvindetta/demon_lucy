@@ -105,7 +105,7 @@ class Formatter(AbstractModule):
             name="formatter-blank",
             value_type=str,
             default=[],
-            description="Add blank lines at file top and/or bottom. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
+            description="Keep blank padding at file top and/or bottom; the flag stays in the note. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
         ),
         KnownArg(
             name="formatter-date",
@@ -169,7 +169,6 @@ class Formatter(AbstractModule):
         flags_by_line: dict[int, set[str]] = {}
         for name, flag in (
             ("formatter-todo", "--formatter-todo"),
-            ("formatter-blank", "--formatter-blank"),
         ):
             for line_number in args.require(name).lines:
                 flags_by_line.setdefault(line_number, set()).add(flag)

@@ -228,7 +228,7 @@ an archive destination.
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--formatter-todo` | `bool` | Convert `- task` list items into `- [ ] task`. |
-| `--formatter-blank` | `str[]` | Add blank lines at top/bottom. Values: `up`, `down`, `both`, optional count. |
+| `--formatter-blank` | `str[]` | Keep blank padding at top/bottom; stays in the note. Values: `up`, `down`, `both`, optional count. |
 | `--formatter-date` | `bool` | Keep completing archive dates written as `--- day`. |
 | `--formatter-autocomplete` | `bool` | Autocomplete Demon Lucy arguments. |
 
@@ -236,6 +236,7 @@ Examples:
 
 ```text
 --formatter-todo
+--formatter-blank both 20
 --formatter-date
 --formatter-autocomplete
 ```

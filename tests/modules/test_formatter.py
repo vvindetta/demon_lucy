@@ -6,6 +6,7 @@ import pytest
 from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileMovedEvent
 
 from demon_lucy.lib.args.models import KnownArg
+from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.modules.abstract_module import System
 from demon_lucy.modules.formatter import Formatter
 from demon_lucy.lib.dynamic_blocks.parser import (
@@ -494,7 +495,60 @@ def test_blank_up_keeps_first_line_with_flags_in_place(tmp_path: Path):
     assert lines[31] == "alpha"
 
 
-def test_apply_removes_formatter_flags_and_preserves_other_flags(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("options", "leading", "trailing"),
+    [
+        ("up", 30, 0),
+        ("down", 0, 30),
+        ("both", 30, 30),
+        ("both 2", 2, 2),
+    ],
+)
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_blank_flag_remains_enabled_for_future_updates(
+    tmp_path: Path,
+    options: str,
+    leading: int,
+    trailing: int,
+    newline: str,
+):
+    note = tmp_path / "note.md"
+    flag_line = f"--formatter-blank {options}{newline}"
+    note.write_bytes(f"{flag_line}alpha{newline}".encode("utf-8"))
+    module = Formatter()
+
+    for edit_padding, expected_changed in (
+        (False, {str(note.resolve()): 1}),
+        (False, None),
+        (True, {str(note.resolve()): 1}),
+    ):
+        if edit_padding:
+            note.write_bytes(
+                note.read_bytes().replace(
+                    newline.encode("utf-8"), (newline * 2).encode("utf-8")
+                )
+            )
+        args = make_args(module.template).merged_with(
+            parse_note_args(str(note), module.template)
+        )
+        changed = module._apply(
+            path=str(note),
+            args=args,
+            global_template=module.template,
+        )
+
+        assert changed == expected_changed
+        expected_leading = leading if leading else int(edit_padding)
+        expected_trailing = trailing if trailing else int(edit_padding)
+        assert note.read_bytes() == (
+            flag_line
+            + newline * expected_leading
+            + f"alpha{newline}"
+            + newline * expected_trailing
+        ).encode("utf-8")
+
+
+def test_apply_removes_todo_flag_and_preserves_persistent_flags(tmp_path: Path):
     note = tmp_path / "note.md"
     note.write_text(
         "--archive-pair --formatter-blank up 2 --formatter-todo\n- task\n",
@@ -518,7 +572,9 @@ def test_apply_removes_formatter_flags_and_preserves_other_flags(tmp_path: Path)
     )
 
     assert changed == {str(note.resolve()): 1}
-    assert note.read_text(encoding="utf-8") == "--archive-pair\n\n\n- [ ] task\n"
+    assert note.read_text(encoding="utf-8") == (
+        "--archive-pair --formatter-blank up 2\n\n\n- [ ] task\n"
+    )
 
 
 def test_apply_removes_formatter_only_command_line(tmp_path: Path):
