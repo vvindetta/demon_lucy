@@ -26,13 +26,6 @@ class Banner(AbstractModule):
             description="Insert an ASCII banner (pyfiglet) at the line where the flag appears. "
             "Use '--banner date' to insert today's date. Example: --banner LOL, --banner hello world, or --banner date.",
         ),
-        KnownArg(
-            name="banner-separator",
-            value_type=str,
-            default="---",
-            description="Separator line inserted before the banner when the banner is placed at the top of the file. "
-            "Example: --banner-separator '---' (default).",
-        ),
     ]
 
     @staticmethod
@@ -68,10 +61,6 @@ class Banner(AbstractModule):
         if banner_text == "date":
             banner_text = date.today().isoformat()
 
-        sep: str = args.require("banner-separator").value
-        sep = sep.strip()
-        sep_line = sep + ("\n" if not sep.endswith("\n") else "")
-
         with open(path, "r+", encoding="utf-8") as f:
             lines = f.readlines()
             if not lines:
@@ -95,24 +84,12 @@ class Banner(AbstractModule):
             if not ascii_lines:
                 return None
 
-            if idx == 0:
-                lines[0] = delete_args_from_string(lines[0], ["--banner"])
+            cleaned = delete_args_from_string(lines[idx], ["--banner"])
 
-                if lines[0].strip():
-                    lines.insert(1, "\n")
-                    insert_pos = 2
-                else:
-                    lines[0] = "\n"
-                    insert_pos = 1
+            lines[idx : idx + 1] = ascii_lines
 
-                lines[insert_pos:insert_pos] = [sep_line] + ascii_lines
-            else:
-                cleaned = delete_args_from_string(lines[idx], ["--banner"])
-
-                lines[idx : idx + 1] = ascii_lines
-
-                if cleaned.strip():
-                    lines[idx + len(ascii_lines) : idx + len(ascii_lines)] = [cleaned]
+            if cleaned.strip():
+                lines[idx + len(ascii_lines) : idx + len(ascii_lines)] = [cleaned]
 
             f.seek(0)
             f.truncate()

@@ -150,7 +150,6 @@ python3 main_oneshot.py --workspace-init ~/Notes
 | Arg | Type | Meaning |
 |---|---:|---|
 | `--banner` | `str[]` | Insert ASCII banner text. Value `date` inserts today's date. |
-| `--banner-separator` | `str` | Separator line used before a banner inserted at file start. |
 
 ## Renamer
 

@@ -14,25 +14,38 @@ from tests.args_support import make_args
 
 
 @pytest.mark.parametrize(
-    ("figlet_text", "initial", "argument_lines", "required_fragments"),
+    ("initial", "banner_line", "expected"),
     [
         (
-            "ASCII\n",
             "--banner Hello\nbody\n",
-            {"banner": [1]},
-            ["---\nASCII\n", "body\n"],
+            1,
+            "ASCII\nbody\n",
+        ),
+        (
+            "--formatter-todo --banner Hello\nbody\n",
+            1,
+            "ASCII\n--formatter-todo\nbody\n",
+        ),
+        (
+            "title\n--banner Hello\nbody\n",
+            2,
+            "title\nASCII\nbody\n",
+        ),
+        (
+            "title\n--formatter-todo --banner Hello\nbody\n",
+            2,
+            "title\nASCII\n--formatter-todo\nbody\n",
         ),
     ],
 )
 def test_apply_inserts_or_replaces_banner_block(
     tmp_path: Path,
     monkeypatch,
-    figlet_text: str,
     initial: str,
-    argument_lines: dict[str, list[int]],
-    required_fragments: list[str],
+    banner_line: int,
+    expected: str,
 ):
-    monkeypatch.setattr(banner_mod.pyfiglet, "figlet_format", lambda _txt: figlet_text)
+    monkeypatch.setattr(banner_mod.pyfiglet, "figlet_format", lambda _txt: "ASCII\n")
 
     path = tmp_path / "note.md"
     path.write_text(initial, encoding="utf-8")
@@ -42,15 +55,14 @@ def test_apply_inserts_or_replaces_banner_block(
         path=str(path),
         args=make_args(
             Banner.template,
-            {"banner": ["Hello"], "banner-separator": "---"},
-            lines={"banner": tuple(argument_lines["banner"])},
+            {"banner": ["Hello"]},
+            lines={"banner": (banner_line,)},
         ),
     )
 
     content = path.read_text(encoding="utf-8")
     assert changed == {str(path): 1}
-    for fragment in required_fragments:
-        assert fragment in content
+    assert content == expected
 
 
 def test_apply_returns_none_when_banner_is_not_configured(tmp_path: Path):
@@ -75,7 +87,7 @@ def test_apply_returns_none_when_banner_line_is_missing(tmp_path: Path):
         path=str(path),
         args=make_args(
             Banner.template,
-            {"banner": ["Hello"], "banner-separator": "---"},
+            {"banner": ["Hello"]},
         ),
     )
 
@@ -122,3 +134,4 @@ def test_module_manager_parses_unquoted_multi_word_banner(
 
     assert changed == {str(path.resolve()): 1}
     assert seen_texts == ["Hello world"]
+    assert path.read_text(encoding="utf-8") == "ASCII\nbody\n"
