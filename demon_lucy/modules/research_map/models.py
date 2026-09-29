@@ -10,6 +10,11 @@ class ResearchMapStatus(StrEnum):
     DONE = "done"
 
 
+class NodeType(StrEnum):
+    NODE = "node"
+    CONSPECT = "conspect"
+
+
 class ResearchMapAction(StrEnum):
     INIT = "init"
     REGISTER = "register"
@@ -36,7 +41,6 @@ class InitMapCommand:
     title: str
     goal: str
     seed: str
-    registry_summary: str
 
 
 @dataclass(frozen=True)
@@ -49,11 +53,12 @@ class RegisterMapCommand:
 @dataclass(frozen=True)
 class NewNodeCommand:
     map_name: str
-    question: str
+    title: str
     label: str
     parent: str | None
     summary: str | None
     status: ResearchMapStatus
+    node_type: NodeType
 
 
 @dataclass(frozen=True)

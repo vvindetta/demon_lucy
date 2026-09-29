@@ -8,16 +8,13 @@ from demon_lucy.modules.research_map.documents import (
     ResearchMapError,
     contains_markdown_table,
     count_h1_headings,
-    ensure_timestamp,
-    extract_h1,
+    extract_title,
     is_external_target,
     markdown_image_targets,
     markdown_targets,
-    now_timestamp,
     read_document,
     single_line,
     slugify,
-    timestamp_field_is_exact,
 )
 from demon_lucy.modules.research_map.nodes import read_nodes
 from demon_lucy.modules.research_map.storage import (
@@ -41,25 +38,27 @@ def validate_artifact_content(
     if path.resolve().parent != (map_dir / "artifacts").resolve():
         raise ResearchMapError(f"artifact must remain in flat artifacts/: {path}")
     if not path.stem.lower().startswith(f"{artifact_id.lower()}-"):
-        raise ResearchMapError(f"filename must start with {artifact_id.lower()}-: {path}")
-    if not timestamp_field_is_exact(text, "created"):
-        raise ResearchMapError(f"{path} has invalid or missing created")
-    if not extract_h1(body):
-        raise ResearchMapError(f"missing H1 title in {path}")
-    if count_h1_headings(body) != 1:
         raise ResearchMapError(
-            f"artifact must contain exactly one H1 title: {path}"
+            f"filename must start with {artifact_id.lower()}-: {path}"
         )
+    if not extract_title(body):
+        raise ResearchMapError(f"missing title in {path}")
+    if count_h1_headings(body) > 1:
+        raise ResearchMapError(f"artifact must contain exactly one H1 title: {path}")
     if contains_markdown_table(text):
         raise ResearchMapError(f"Markdown table is not allowed: {path}")
 
     attachments_root = (map_dir / ".attach").resolve()
     for target in markdown_image_targets(text):
         if is_external_target(target):
-            raise ResearchMapError(f"image must be stored locally in .attach/: {target}")
+            raise ResearchMapError(
+                f"image must be stored locally in .attach/: {target}"
+            )
         clean = target.split("#", 1)[0]
         if (path.parent / clean).resolve().parent != attachments_root:
-            raise ResearchMapError(f"image must be stored directly in .attach/: {target}")
+            raise ResearchMapError(
+                f"image must be stored directly in .attach/: {target}"
+            )
     for target in markdown_targets(text):
         if is_external_target(target):
             continue
@@ -114,7 +113,6 @@ def create_artifact(
     title: str,
     body: str,
     question: str | None,
-    timestamp: str | None = None,
 ) -> Path:
     artifacts_dir = map_dir / "artifacts"
     if artifacts_dir.is_symlink():
@@ -132,7 +130,6 @@ def create_artifact(
     if safe_question and safe_question not in read_nodes(map_dir):
         raise ResearchMapError(f"question does not exist: {safe_question}")
 
-    value_timestamp = ensure_timestamp(timestamp) if timestamp else now_timestamp()
     number = next_artifact_number(map_dir)
     artifact_id = f"A{number}"
     parts = [artifact_id.lower()]
@@ -141,12 +138,7 @@ def create_artifact(
     parts.append(slugify(safe_title))
     path = artifacts_dir / ("-".join(parts) + ".md")
     document = (
-        "---\n"
-        f"id: {artifact_id}\n"
-        "type: artifact\n"
-        f"created: {value_timestamp}\n"
-        "---\n\n"
-        f"# {safe_title}\n"
+        "---\n" f"id: {artifact_id}\n" "type: artifact\n" "---\n\n" f"{safe_title}\n"
     )
     if clean_body:
         document += f"\n{clean_body}\n"
@@ -154,7 +146,7 @@ def create_artifact(
     validate_artifact_content(
         map_dir,
         path,
-        {"id": artifact_id, "type": "artifact", "created": value_timestamp},
+        {"id": artifact_id, "type": "artifact"},
         artifact_body,
         document,
     )

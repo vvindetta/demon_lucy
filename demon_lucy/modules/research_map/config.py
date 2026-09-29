@@ -8,6 +8,7 @@ from demon_lucy.modules.research_map.models import (
     InitMapCommand,
     NewArtifactCommand,
     NewNodeCommand,
+    NodeType,
     PutCommand,
     RebuildCommand,
     RegisterMapCommand,
@@ -30,25 +31,37 @@ def _arg(name: str, value_type: type, default: object, description: str) -> Know
 
 
 RESEARCH_MAP_TEMPLATE: Template = [
-    _arg("research-map-root", str, "", "Existing directory containing research maps."),
-    _arg("research-map-init", str, "", "Create and register a research map."),
+    _arg(
+        "research-map-root",
+        str,
+        "",
+        "Existing directory to search recursively for maps.",
+    ),
+    _arg(
+        "research-map-init",
+        str,
+        "",
+        "Create a map at a root-relative path, without a registry.",
+    ),
     _arg("research-map-init-title", str, "", "New map title."),
     _arg("research-map-init-goal", str, "", "New map goal."),
     _arg("research-map-init-seed", str, "", "New map seed."),
-    _arg(
-        "research-map-init-registry-summary",
-        str,
-        "",
-        "Agent-authored registry summary for a new map.",
-    ),
     _arg("research-map-register", str, "", "Register an existing research map."),
     _arg("research-map-register-label", str, "", "Registry label."),
     _arg("research-map-register-summary", str, "", "Agent-authored registry summary."),
-    _arg("research-map-new-node", str, "", "Create a research-map question node."),
-    _arg("research-map-node-question", str, "", "Full node question."),
+    _arg("research-map-new-node", str, "", "Create a map node."),
+    _arg("research-map-node-title", str, "", "Node title; optional for a conspect."),
+    _arg(
+        "research-map-node-type",
+        NodeType,
+        NodeType.NODE,
+        "Node type: node or conspect.",
+    ),
     _arg("research-map-node-label", str, "", "Short node label."),
     _arg("research-map-node-parent", str, "", "Optional parent question ID."),
-    _arg("research-map-node-summary", str, "", "Required root branch summary."),
+    _arg(
+        "research-map-node-summary", str, "", "Optional authored root branch summary."
+    ),
     _arg(
         "research-map-node-status",
         ResearchMapStatus,
@@ -82,14 +95,14 @@ _SUPPORTING_FLAGS = {
         "research-map-init-title",
         "research-map-init-goal",
         "research-map-init-seed",
-        "research-map-init-registry-summary",
     },
     ResearchMapAction.REGISTER: {
         "research-map-register-label",
         "research-map-register-summary",
     },
     ResearchMapAction.NEW_NODE: {
-        "research-map-node-question",
+        "research-map-node-title",
+        "research-map-node-type",
         "research-map-node-label",
         "research-map-node-parent",
         "research-map-node-summary",
@@ -141,7 +154,6 @@ def command_from_args(args: ParsedArgs) -> ResearchMapCommand:
             title=_required(args, "research-map-init-title"),
             goal=_required(args, "research-map-init-goal"),
             seed=_required(args, "research-map-init-seed"),
-            registry_summary=_required(args, "research-map-init-registry-summary"),
         ),
         ResearchMapAction.REGISTER: lambda: RegisterMapCommand(
             map_name=map_name,
@@ -170,18 +182,25 @@ def command_from_args(args: ParsedArgs) -> ResearchMapCommand:
 def _new_node_command(args: ParsedArgs, map_name: str) -> NewNodeCommand:
     parent = str(args.require("research-map-node-parent").value).strip() or None
     summary = str(args.require("research-map-node-summary").value).strip() or None
-    if parent is None and summary is None:
-        raise ResearchMapError("--research-map-node-summary is required for a root node")
     if parent is not None and summary is not None:
-        raise ResearchMapError("--research-map-node-summary is not valid for a child node")
+        raise ResearchMapError(
+            "--research-map-node-summary is not valid for a child node"
+        )
     status = args.require("research-map-node-status").value
     if not isinstance(status, ResearchMapStatus):
         raise ResearchMapError("invalid --research-map-node-status")
+    node_type = args.require("research-map-node-type").value
+    if not isinstance(node_type, NodeType):
+        raise ResearchMapError("invalid --research-map-node-type")
+    title = str(args.require("research-map-node-title").value).strip()
+    if node_type is NodeType.NODE and not title:
+        raise ResearchMapError("--research-map-node-title is required for a node")
     return NewNodeCommand(
         map_name=map_name,
-        question=_required(args, "research-map-node-question"),
+        title=title,
         label=_required(args, "research-map-node-label"),
         parent=parent,
         summary=summary,
         status=status,
+        node_type=node_type,
     )

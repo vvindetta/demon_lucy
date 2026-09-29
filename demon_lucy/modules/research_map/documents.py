@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Iterator
-from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -12,14 +11,10 @@ import yaml
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-
-FRONTMATTER_RE = re.compile(
-    r"\A---\r?\n(?P<header>.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL
-)
+FRONTMATTER_RE = re.compile(r"\A---\r?\n(?P<header>.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
 QUESTION_ID_RE = re.compile(r"\A(?P<parts>[1-9]\d*(?:\.[1-9]\d*)*)\Z")
 ARTIFACT_ID_RE = re.compile(r"\AA(?P<number>\d+)\Z")
 SINGLE_LINK_RE = re.compile(r"\A\[[^\]]+\]\(([^)]+)\)\Z")
-TIMESTAMP_RE = re.compile(r"\A\d{4}-\d{2}-\d{2} \d{2}:\d{2}\Z")
 MARKDOWN = MarkdownIt("commonmark").enable("table")
 
 
@@ -32,32 +27,6 @@ def single_line(value: str, field: str) -> str:
     if not result or "\n" in result or "\r" in result:
         raise ResearchMapError(f"{field} must be one non-empty line")
     return result
-
-
-def now_timestamp() -> str:
-    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
-
-
-def ensure_timestamp(value: str) -> str:
-    if not TIMESTAMP_RE.fullmatch(value):
-        raise ResearchMapError(
-            f"invalid timestamp {value!r}; expected YYYY-MM-DD HH:MM"
-        )
-    try:
-        datetime.strptime(value, "%Y-%m-%d %H:%M")
-    except ValueError as exc:
-        raise ResearchMapError(
-            f"invalid timestamp {value!r}; expected YYYY-MM-DD HH:MM"
-        ) from exc
-    return value
-
-
-def format_timestamp(value: Any) -> str:
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d %H:%M")
-    if isinstance(value, date):
-        return value.strftime("%Y-%m-%d 00:00")
-    return ensure_timestamp(str(value))
 
 
 def read_document(path: Path) -> tuple[dict[str, Any], str, str]:
@@ -80,13 +49,11 @@ def read_document(path: Path) -> tuple[dict[str, Any], str, str]:
     return data, text[match.end() :], text
 
 
-def extract_h1(body: str) -> str | None:
+def extract_title(body: str) -> str | None:
+    """Read a plain title or an existing Markdown title without rewriting it."""
     for line in body.splitlines():
-        if not line.strip():
-            continue
-        if line.startswith("# ") and line[2:].strip():
-            return line[2:].strip()
-        return None
+        if line.strip():
+            return line.removeprefix("# ").strip()
     return None
 
 
@@ -178,24 +145,6 @@ def single_link_target(value: Any) -> str | None:
 
 def is_external_target(target: str) -> bool:
     return bool(re.match(r"\A(?:https?:|mailto:|file:|#)", target))
-
-
-def timestamp_field_is_exact(text: str, field: str) -> bool:
-    frontmatter = FRONTMATTER_RE.match(text)
-    if not frontmatter:
-        return False
-    match = re.search(
-        rf"^{re.escape(field)}:\s*(.+?)\s*$",
-        frontmatter.group("header"),
-        re.MULTILINE,
-    )
-    if not match:
-        return False
-    try:
-        ensure_timestamp(match.group(1))
-    except ResearchMapError:
-        return False
-    return True
 
 
 def rebase_markdown_links(text: str, source: Path, destination: Path) -> str:

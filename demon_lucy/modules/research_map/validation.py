@@ -10,18 +10,16 @@ from demon_lucy.modules.research_map.documents import (
     ResearchMapError,
     contains_markdown_table,
     count_h1_headings,
-    extract_h1,
+    extract_title,
     is_external_target,
     markdown_image_targets,
     markdown_targets,
     read_document,
     section_prefix,
     single_link_target,
-    timestamp_field_is_exact,
 )
 from demon_lucy.modules.research_map.models import ValidationResult
 from demon_lucy.modules.research_map.questions import render_questions_body
-
 
 ALLOWED_STATUSES = {"open", "parked", "done"}
 
@@ -45,7 +43,6 @@ def validate_map(map_dir: Path) -> ValidationResult:
     index_path = map_dir / "index.md"
     questions_path = map_dir / "questions.md"
     nodes_dir = map_dir / "b-nodes"
-    legacy_nodes_dir = map_dir / "nodes"
     artifacts_dir = map_dir / "artifacts"
     attachments_dir = map_dir / ".attach"
     for path, expected_type in (
@@ -61,8 +58,6 @@ def validate_map(map_dir: Path) -> ValidationResult:
             errors.append(f"required path must be a regular file: {path}")
         elif expected_type == "directory" and not path.is_dir():
             errors.append(f"required path must be a directory: {path}")
-    if legacy_nodes_dir.exists() or legacy_nodes_dir.is_symlink():
-        errors.append(f"legacy nodes/ is not allowed; use b-nodes/: {legacy_nodes_dir}")
     if artifacts_dir.is_symlink():
         errors.append(f"artifacts/ must not be a symlink: {artifacts_dir}")
     elif artifacts_dir.exists() and not artifacts_dir.is_dir():
@@ -102,11 +97,8 @@ def validate_map(map_dir: Path) -> ValidationResult:
         data, body, text = index_document
         if data.get("type") != "research-map":
             errors.append("index.md must have type: research-map")
-        for field in ("created", "updated"):
-            if not timestamp_field_is_exact(text, field):
-                errors.append(f"index.md has invalid or missing {field}")
-        if count_h1_headings(body) != 1:
-            errors.append("index.md must contain exactly one H1 title")
+        if not extract_title(body):
+            errors.append("index.md must have a title")
         headings = re.findall(r"^## (.+?)\s*$", body, re.MULTILINE)
         if headings.count("Seed") != 1 or not headings or headings[-1] != "Seed":
             errors.append("index.md must end with exactly one ## Seed section")
@@ -144,29 +136,20 @@ def validate_map(map_dir: Path) -> ValidationResult:
                 f"{nodes_by_id[question_id]} and {path}"
             )
         nodes_by_id[question_id] = path
-        if data.get("type") != "question":
-            errors.append(f"{path} must have type: question")
-        if data.get("status") not in ALLOWED_STATUSES:
+        node_type = data.get("type")
+        if node_type not in {"node", "question", "conspect"}:
+            errors.append(f"unsupported node type in {path}: {node_type!r}")
+        if node_type != "conspect" and data.get("status") not in ALLOWED_STATUSES:
             errors.append(f"invalid status in {path}: {data.get('status')!r}")
         if not path.stem.startswith(f"{question_id}_"):
             errors.append(f"filename must start with {question_id}_: {path}")
-        if not extract_h1(body):
-            errors.append(f"missing H1 question in {path}")
-        if count_h1_headings(body) != 1:
-            errors.append(f"node must contain exactly one H1 question: {path}")
-        headings = re.findall(r"^## (.+?)\s*$", body, re.MULTILINE)
-        if "Child Questions" in headings and headings[-1] != "Child Questions":
-            errors.append(f"Child Questions must be the final section: {path}")
-        for field in ("created", "updated"):
-            if not timestamp_field_is_exact(text, field):
-                errors.append(f"{path} has invalid or missing {field}")
+        if node_type != "conspect" and not extract_title(body):
+            errors.append(f"missing node title in {path}")
 
     for question_id, path in nodes_by_id.items():
         parts = question_id.split(".")
         parent_value = node_data[path].get("parent")
         if len(parts) == 1:
-            if path.parent != nodes_dir:
-                errors.append(f"root node must be directly inside b-nodes/: {path}")
             if parent_value is not None:
                 errors.append(f"root node must not have parent: {path}")
             continue
@@ -178,9 +161,9 @@ def validate_map(map_dir: Path) -> ValidationResult:
             )
             continue
         expected_directory = expected_parent_path.with_suffix("")
-        if path.parent.resolve() != expected_directory.resolve():
+        if not path.parent.resolve().is_relative_to(expected_directory.resolve()):
             errors.append(
-                f"node {question_id} must be directly inside "
+                f"node {question_id} must be inside "
                 f"{expected_directory.relative_to(map_dir)}"
             )
         target = single_link_target(parent_value)
@@ -210,22 +193,15 @@ def validate_map(map_dir: Path) -> ValidationResult:
             for item in markdown_targets(parent_document[1])
             if not is_external_target(item)
         }
-        if path.resolve() not in backlinks:
+        if (
+            parent_document[0].get("type") != "conspect"
+            and path.resolve() not in backlinks
+        ):
             errors.append(f"parent {parent_path} does not link child {path.name}")
 
-    allowed_directories = {path.with_suffix("").resolve() for path in node_paths}
     for directory in node_directories:
-        if directory.resolve() not in allowed_directories:
-            errors.append(
-                f"node directory must use the stem of its owning node: {directory}"
-            )
-            continue
-        has_direct_child = any(
-            child.is_file() and not child.is_symlink() and child.suffix == ".md"
-            for child in directory.iterdir()
-        )
-        if not has_direct_child:
-            errors.append(f"node directory has no direct child nodes: {directory}")
+        if not any(path.is_relative_to(directory) for path in node_paths):
+            errors.append(f"node directory has no nodes: {directory}")
 
     artifact_paths = sorted(artifacts_dir.rglob("*.md"))
     artifact_numbers: dict[int, Path] = {}
@@ -251,14 +227,14 @@ def validate_map(map_dir: Path) -> ValidationResult:
             errors.append(f"{path} must have type: artifact")
         if not path.stem.lower().startswith(f"{artifact_id.lower()}-"):
             errors.append(f"filename must start with {artifact_id.lower()}-: {path}")
-        if not timestamp_field_is_exact(text, "created"):
-            errors.append(f"{path} has invalid or missing created")
-        if count_h1_headings(body) != 1:
-            errors.append(f"artifact must contain exactly one H1 title: {path}")
+        if not extract_title(body) or count_h1_headings(body) > 1:
+            errors.append(f"artifact must have a title: {path}")
         if path.stat().st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
             warnings.append(f"artifact is writable; preserve it unchanged: {path}")
     if artifact_numbers:
-        missing = sorted(set(range(1, max(artifact_numbers) + 1)) - artifact_numbers.keys())
+        missing = sorted(
+            set(range(1, max(artifact_numbers) + 1)) - artifact_numbers.keys()
+        )
         if missing:
             errors.append(
                 "missing artifact IDs: " + ", ".join(f"A{item}" for item in missing)
@@ -277,12 +253,15 @@ def validate_map(map_dir: Path) -> ValidationResult:
             elif _resolve_target(path, target).parent != attachments_dir.resolve():
                 errors.append(f"image must be stored directly in .attach/: {target}")
         for target in markdown_targets(checked_text):
-            if not is_external_target(target) and not _resolve_target(path, target).exists():
+            if (
+                not is_external_target(target)
+                and not _resolve_target(path, target).exists()
+            ):
                 errors.append(f"broken link in {path}: {target}")
 
     branch_entries: dict[str, tuple[str, Path]] = {}
     branch_pattern = re.compile(
-        r"^([1-9]\d*)\s+-\s+.+\s+\[(open|parked|done)\]\(([^)]+)\):\s*$",
+        r"^([1-9]\d*(?:\.[1-9]\d*)*)\s+-\s+.+\s+\[(open|parked|done|conspect)\]\(([^)]+)\):[ \t]*$",
         re.MULTILINE,
     )
     for match in branch_pattern.finditer(index_navigation_body):
@@ -290,13 +269,12 @@ def validate_map(map_dir: Path) -> ValidationResult:
         if question_id in branch_entries:
             errors.append(f"duplicate branch entry in index.md: {question_id}")
         branch_entries[question_id] = (status, _resolve_target(index_path, target))
-        following = index_navigation_body[match.end() :]
-        if re.match(r"^\n\*\s+\S.*(?:\n|$)", following) is None:
-            errors.append(
-                f"root branch entry is missing a non-empty summary: {question_id}"
-            )
     for question_id, path in nodes_by_id.items():
-        if "." in question_id:
+        parent_id = question_id.rpartition(".")[0]
+        parent_path = nodes_by_id.get(parent_id)
+        if parent_id and (
+            parent_path is None or node_data[parent_path].get("type") != "conspect"
+        ):
             continue
         entry = branch_entries.get(question_id)
         if not entry:
@@ -305,7 +283,11 @@ def validate_map(map_dir: Path) -> ValidationResult:
         shown_status, shown_path = entry
         if shown_path != path.resolve():
             errors.append(f"index.md points {question_id} to the wrong file")
-        actual_status = str(node_data[path].get("status", ""))
+        actual_status = (
+            "conspect"
+            if node_data[path].get("type") == "conspect"
+            else str(node_data[path].get("status", ""))
+        )
         if shown_status != actual_status:
             errors.append(
                 f"index.md status mismatch for {question_id}: "
@@ -319,9 +301,6 @@ def validate_map(map_dir: Path) -> ValidationResult:
         data, body, text = questions_document
         if data.get("type") != "questions":
             errors.append("questions.md must have type: questions")
-        for field in ("created", "updated"):
-            if not timestamp_field_is_exact(text, field):
-                errors.append(f"questions.md has invalid or missing {field}")
         try:
             if body.strip() != render_questions_body(map_dir).strip():
                 errors.append("questions.md is stale")

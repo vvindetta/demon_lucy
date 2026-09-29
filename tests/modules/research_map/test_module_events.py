@@ -41,17 +41,14 @@ def test_node_auto_pass_is_idempotent_and_refreshes_root_status(
         title="Lucy",
         goal="Goal",
         seed="Seed",
-        registry_summary="Agent summary",
-        timestamp="2026-08-08 12:00",
     )
     node = create_node(
         map_dir=root / "lucy_map",
-        question="Question?",
+        title="Question?",
         label="Question",
         parent=None,
         summary="Branch summary",
         status=ResearchMapStatus.OPEN,
-        timestamp="2026-08-08 12:01",
     )
     node.write_text(
         node.read_text(encoding="utf-8").replace("status: open", "status: done"),
@@ -83,7 +80,7 @@ def test_node_auto_pass_is_idempotent_and_refreshes_root_status(
     )
 
 
-def test_registry_refresh_preserves_summary_and_is_idempotent(tmp_path: Path) -> None:
+def test_index_change_does_not_write_optional_registry(tmp_path: Path) -> None:
     root = tmp_path / "maps"
     root.mkdir()
     (root / "index.md").write_text("# Maps\n\n## Active\n", encoding="utf-8")
@@ -93,12 +90,10 @@ def test_registry_refresh_preserves_summary_and_is_idempotent(tmp_path: Path) ->
         title="Old title",
         goal="Goal",
         seed="Seed",
-        registry_summary="Keep this summary",
-        timestamp="2026-08-08 12:00",
     )
     index = root / "lucy_map" / "index.md"
     index.write_text(
-        index.read_text(encoding="utf-8").replace("# Old title", "# New title"),
+        index.read_text(encoding="utf-8").replace("Old title", "New title"),
         encoding="utf-8",
     )
     module = ResearchMap()
@@ -114,10 +109,7 @@ def test_registry_refresh_preserves_summary_and_is_idempotent(tmp_path: Path) ->
         System(global_template=RESEARCH_MAP_TEMPLATE, modules=[module]),
     )
 
-    assert first is not None
-    assert first.changed == {str(registry.resolve()): 1}
+    assert first is None
     assert second is None
     assert registry.stat().st_mtime_ns == registry_mtime
-    assert "[New title](lucy_map/index.md) - Keep this summary" in registry.read_text(
-        encoding="utf-8"
-    )
+    assert registry.read_text(encoding="utf-8") == "# Maps\n\n## Active\n"

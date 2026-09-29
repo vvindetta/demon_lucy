@@ -8,38 +8,18 @@ from demon_lucy.modules.research_map.documents import (
     FRONTMATTER_RE,
     QUESTION_ID_RE,
     ResearchMapError,
-    ensure_timestamp,
-    now_timestamp,
+    node_label,
+    question_sort_key,
     read_document,
     single_line,
     slugify,
 )
-from demon_lucy.modules.research_map.models import ResearchMapStatus
+from demon_lucy.modules.research_map.models import NodeType, ResearchMapStatus
 from demon_lucy.modules.research_map.storage import (
     atomic_write_text_if_changed,
     publish_exclusive_text,
     remove_empty_directory,
 )
-
-
-def _replace_updated(text: str, timestamp: str, path: Path) -> str:
-    frontmatter = FRONTMATTER_RE.match(text)
-    if not frontmatter:
-        raise ResearchMapError(f"missing YAML frontmatter in {path}")
-    header, replacements = re.subn(
-        r"^updated:\s*.*$",
-        f"updated: {timestamp}",
-        frontmatter.group("header"),
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if replacements != 1:
-        raise ResearchMapError(f"missing updated field in {path}")
-    return (
-        text[: frontmatter.start("header")]
-        + header
-        + text[frontmatter.end("header") :]
-    )
 
 
 def read_nodes(map_dir: Path) -> dict[str, Path]:
@@ -77,10 +57,6 @@ def next_question_id(nodes: dict[str, Path], parent: str | None) -> str:
     return str(max(roots, default=0) + 1)
 
 
-def _node_slug(label: str) -> str:
-    return slugify(label).replace("-", "_")
-
-
 def _relative_link(source: Path, target: Path) -> str:
     return Path(os.path.relpath(target, source.parent)).as_posix()
 
@@ -90,28 +66,17 @@ def append_child(
     child_id: str,
     child_label: str,
     child_path: Path,
-    timestamp: str,
 ) -> str:
     _, body, text = read_document(parent_path)
-    headings = re.findall(r"^## (.+?)\s*$", body, re.MULTILINE)
-    if "Child Questions" in headings and headings[-1] != "Child Questions":
-        raise ResearchMapError(f"Child Questions must be final in {parent_path}")
-
     link = (
-        f"- [{child_id} - {child_label}]"
-        f"({_relative_link(parent_path, child_path)})"
+        f"- [{child_id} - {child_label}]" f"({_relative_link(parent_path, child_path)})"
     )
-    updated_body = body.rstrip()
-    if "Child Questions" in headings:
-        updated_body += f"\n{link}\n"
-    else:
-        updated_body += f"\n\n## Child Questions\n\n{link}\n"
+    updated_body = body.rstrip() + f"\n\n{link}\n"
 
-    updated = _replace_updated(text, timestamp, parent_path)
-    match = FRONTMATTER_RE.match(updated)
+    match = FRONTMATTER_RE.match(text)
     if match is None:
         raise ResearchMapError(f"missing YAML frontmatter in {parent_path}")
-    return updated[: match.end()] + updated_body
+    return text[: match.end()] + updated_body
 
 
 def append_root_entry(
@@ -120,8 +85,7 @@ def append_root_entry(
     label: str,
     summary: str,
     node_path: Path,
-    status: ResearchMapStatus,
-    timestamp: str,
+    status: str,
 ) -> str:
     _, body, text = read_document(index_path)
     headings = re.findall(r"^## (.+?)\s*$", body, re.MULTILINE)
@@ -133,9 +97,11 @@ def append_root_entry(
     if seed_match is None:
         raise ResearchMapError("index.md is missing ## Seed")
     entry = (
-        f"{question_id} - {label} [{status.value}]"
-        f"({_relative_link(index_path, node_path)}):\n* {summary}"
+        f"{question_id} - {label} [{status}]"
+        f"({_relative_link(index_path, node_path)}):"
     )
+    if summary:
+        entry += f"\n* {summary}"
     updated_body = (
         body[: seed_match.start()].rstrip()
         + "\n\n"
@@ -143,24 +109,25 @@ def append_root_entry(
         + "\n\n"
         + body[seed_match.start() :].lstrip()
     )
-    updated = _replace_updated(text, timestamp, index_path)
-    match = FRONTMATTER_RE.match(updated)
+    match = FRONTMATTER_RE.match(text)
     if match is None:
         raise ResearchMapError(f"missing YAML frontmatter in {index_path}")
-    return updated[: match.end()] + updated_body
+    return text[: match.end()] + updated_body
 
 
 def create_node(
     *,
     map_dir: Path,
-    question: str,
+    title: str,
     label: str,
     parent: str | None,
     summary: str | None,
     status: ResearchMapStatus,
-    timestamp: str | None = None,
+    node_type: NodeType = NodeType.NODE,
 ) -> Path:
-    safe_question = single_line(question, "question")
+    safe_title = (
+        single_line(title, "title") if title or node_type is NodeType.NODE else ""
+    )
     safe_label = single_line(label, "label")
     if any(character in safe_label for character in "[]"):
         raise ResearchMapError("label must not contain square brackets")
@@ -168,18 +135,15 @@ def create_node(
     if safe_parent and not QUESTION_ID_RE.fullmatch(safe_parent):
         raise ResearchMapError(f"invalid parent ID: {parent!r}")
     if safe_parent is None:
-        if summary is None:
-            raise ResearchMapError("root node summary is required")
-        safe_summary = single_line(summary, "root node summary")
+        safe_summary = single_line(summary, "root node summary") if summary else None
     else:
         if summary is not None and summary.strip():
             raise ResearchMapError("child node must not have summary")
         safe_summary = None
-    value_timestamp = ensure_timestamp(timestamp) if timestamp else now_timestamp()
 
     nodes = read_nodes(map_dir)
     question_id = next_question_id(nodes, safe_parent)
-    filename = f"{question_id}_{_node_slug(safe_label)}.md"
+    filename = f"{question_id}_{slugify(safe_label).replace('-', '_')}.md"
     if safe_parent:
         parent_path = nodes[safe_parent]
         path = parent_path.with_suffix("") / filename
@@ -188,26 +152,25 @@ def create_node(
     fields = [
         "---",
         f'id: "{question_id}"',
-        "type: question",
-        f"status: {status.value}",
-        f"created: {value_timestamp}",
-        f"updated: {value_timestamp}",
+        f"type: {node_type.value}",
     ]
+    if node_type is NodeType.NODE:
+        fields.append(f"status: {status.value}")
     if safe_parent:
-        fields.append(
-            f'parent: "[{safe_parent}]({_relative_link(path, parent_path)})"'
-        )
-    fields.extend(["---", "", f"# {safe_question}", ""])
+        fields.append(f'parent: "[{safe_parent}]({_relative_link(path, parent_path)})"')
+    fields.extend(["---", "", safe_title, ""])
     document = "\n".join(fields)
 
-    if safe_parent:
+    parent_is_conspect = (
+        safe_parent and read_document(nodes[safe_parent])[0].get("type") == "conspect"
+    )
+    if safe_parent and not parent_is_conspect:
         owner_path = nodes[safe_parent]
         owner_document = append_child(
             owner_path,
             question_id,
             safe_label,
             path,
-            value_timestamp,
         )
     else:
         owner_path = map_dir / "index.md"
@@ -217,11 +180,11 @@ def create_node(
             safe_label,
             safe_summary or "",
             path,
-            status,
-            value_timestamp,
+            "conspect" if node_type is NodeType.CONSPECT else status.value,
         )
 
     created_directory = False
+    published = False
     try:
         if not path.parent.exists():
             path.parent.mkdir()
@@ -229,32 +192,33 @@ def create_node(
         if path.parent.is_symlink() or not path.parent.is_dir():
             raise ResearchMapError(f"unsafe node directory: {path.parent}")
         publish_exclusive_text(path, document, mode=0o644)
+        published = True
         atomic_write_text_if_changed(owner_path, owner_document)
     except BaseException:
-        path.unlink(missing_ok=True)
+        if published:
+            path.unlink(missing_ok=True)
         if created_directory:
             remove_empty_directory(path.parent)
         raise
     return path
 
 
-def reconcile_root_entries(
-    map_dir: Path,
-    *,
-    timestamp: str | None = None,
-) -> dict[str, int]:
+def reconcile_root_entries(map_dir: Path) -> dict[str, int]:
     """Refresh derivable root status/targets without changing labels or summaries."""
     index_path = map_dir / "index.md"
     nodes = read_nodes(map_dir)
     root_state: dict[str, tuple[str, str]] = {}
     for question_id, path in nodes.items():
-        if "." in question_id:
-            continue
         data, _, _ = read_document(path)
+        if data.get("type") == "conspect":
+            root_state[question_id] = ("conspect", path.relative_to(map_dir).as_posix())
+            continue
         try:
             status = ResearchMapStatus(str(data.get("status", "")))
         except ValueError as exc:
-            raise ResearchMapError(f"invalid status in {path}: {data.get('status')!r}") from exc
+            raise ResearchMapError(
+                f"invalid status in {path}: {data.get('status')!r}"
+            ) from exc
         root_state[question_id] = (
             status.value,
             path.relative_to(map_dir).as_posix(),
@@ -262,9 +226,9 @@ def reconcile_root_entries(
 
     _, body, text = read_document(index_path)
     pattern = re.compile(
-        r"^(?P<prefix>[1-9]\d*\s+-\s+.+\s+\[)"
-        r"(?P<status>open|parked|done)"
-        r"(?P<middle>\]\()(?P<target>[^)]+)(?P<suffix>\):\s*)$",
+        r"^(?P<prefix>[1-9]\d*(?:\.[1-9]\d*)*[ \t]+-[ \t]+.+[ \t]+\[)"
+        r"(?P<status>open|parked|done|conspect)"
+        r"(?P<middle>\]\()(?P<target>[^)]+)(?P<suffix>\):[ \t]*)$",
         re.MULTILINE,
     )
 
@@ -282,14 +246,30 @@ def reconcile_root_entries(
             + match.group("suffix")
         )
 
-    updated_body = pattern.sub(replace_entry, body)
-    if updated_body == body:
-        return {}
-    value_timestamp = ensure_timestamp(timestamp) if timestamp else now_timestamp()
-    updated = _replace_updated(text, value_timestamp, index_path)
-    frontmatter = FRONTMATTER_RE.match(updated)
+    seed = re.search(r"^## Seed[ \t]*$", body, re.MULTILINE)
+    if seed is None:
+        raise ResearchMapError("index.md is missing ## Seed")
+    navigation = pattern.sub(replace_entry, body[: seed.start()])
+    frontmatter = FRONTMATTER_RE.match(text)
     if frontmatter is None:
         raise ResearchMapError(f"missing YAML frontmatter in {index_path}")
-    document = updated[: frontmatter.end()] + updated_body
+    indexed = {
+        match.group("prefix").split(" ", 1)[0] for match in pattern.finditer(navigation)
+    }
+    for node_id in sorted(nodes, key=question_sort_key):
+        if node_id in indexed:
+            continue
+        parent_id = node_id.rpartition(".")[0]
+        if parent_id:
+            parent_path = nodes.get(parent_id)
+            if (
+                parent_path is None
+                or read_document(parent_path)[0].get("type") != "conspect"
+            ):
+                continue
+        status, target = root_state[node_id]
+        entry = f"{node_id} - {node_label(nodes[node_id], node_id)} [{status}]({target}):\n\n"
+        navigation = navigation.rstrip() + "\n\n" + entry
+    document = text[: frontmatter.end()] + navigation + body[seed.start() :]
     changed = atomic_write_text_if_changed(index_path, document)
     return {str(index_path.resolve()): 1} if changed else {}

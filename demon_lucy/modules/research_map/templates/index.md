@@ -1,10 +1,8 @@
 ---
 type: research-map
-created: {{TIMESTAMP}}
-updated: {{TIMESTAMP}}
 ---
 
-# {{TITLE}}
+{{TITLE}}
 
 Goal: {{GOAL}}
 

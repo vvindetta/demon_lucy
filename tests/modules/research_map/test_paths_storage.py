@@ -22,23 +22,36 @@ from demon_lucy.modules.research_map.storage import (
 )
 
 
-def test_discovery_uses_immediate_non_symlink_map_directories(tmp_path: Path) -> None:
+def test_discovery_finds_maps_recursively_without_entering_maps_or_symlinks(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "maps"
     root.mkdir()
     good = root / "lucy_map"
     good.mkdir()
     (root / "ignored").mkdir()
+    nested = root / "ignored" / "topic_map"
+    nested.mkdir()
     (good / "nested_map").mkdir()
     os.symlink(good, root / "link_map", target_is_directory=True)
 
     assert discover_map_dirs(resolve_root(str(root))) == {
-        "lucy_map": good.resolve()
+        "lucy_map": good.resolve(),
+        "ignored/topic_map": nested.resolve(),
     }
 
 
 @pytest.mark.parametrize(
     "name",
-    ["", "_map", "../bad_map", "nested/bad_map", "bad", "UPPER_map", "a_b_map"],
+    [
+        "",
+        "_map",
+        "../bad_map",
+        "/tmp/bad_map",
+        "bad",
+        "nested/../bad_map",
+        ".hidden/a_map",
+    ],
 )
 def test_validate_map_name_rejects_unsafe_or_unsuffixed_names(name: str) -> None:
     with pytest.raises(ResearchMapError, match="map name"):

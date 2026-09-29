@@ -6,7 +6,6 @@ from demon_lucy.modules.research_map.documents import ResearchMapError
 from demon_lucy.modules.research_map.registry import (
     read_registry,
     register_map,
-    update_registry_entry,
 )
 
 
@@ -45,24 +44,21 @@ def test_register_map_adds_summary_and_preserves_other_sections(tmp_path: Path) 
     assert read_registry(root)[0].summary == "Human-authored summary"
 
 
-def test_registry_label_refresh_preserves_summary(tmp_path: Path) -> None:
-    root = make_registry_root(tmp_path)
-    make_map(root, "lucy_map")
-    register_map(
+def test_explicit_registration_creates_optional_registry_for_nested_map(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path
+    (root / "topics").mkdir()
+    make_map(root / "topics", "lucy_map")
+    changed = register_map(
         root,
-        map_name="lucy_map",
-        label="Old title",
+        map_name="topics/lucy_map",
+        label="Lucy",
         summary="Human-authored summary",
     )
 
-    changed = update_registry_entry(
-        root,
-        map_name="lucy_map",
-        label="New title",
-    )
-
     text = (root / "index.md").read_text(encoding="utf-8")
-    assert "[New title](lucy_map/index.md) - Human-authored summary" in text
+    assert "[Lucy](topics/lucy_map/index.md) - Human-authored summary" in text
     assert changed == {str((root / "index.md").resolve()): 1}
 
 

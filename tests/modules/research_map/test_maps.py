@@ -2,109 +2,64 @@ from pathlib import Path
 
 import pytest
 
-import demon_lucy.modules.research_map.maps as maps_mod
+from demon_lucy.modules.research_map.documents import ResearchMapError
 from demon_lucy.modules.research_map.maps import init_map
 
 
-def make_registry_root(tmp_path: Path) -> Path:
-    root = tmp_path / "maps"
-    root.mkdir()
-    (root / "index.md").write_text(
-        "# Maps\n\n## Active\n\n## Completed\n\nRetain this text.\n",
-        encoding="utf-8",
-    )
-    return root
-
-
-def test_init_map_registers_summary_and_creates_only_required_paths(
-    tmp_path: Path,
+@pytest.mark.parametrize("name", ["topic_map", "travel/serbia/topic_map"])
+def test_init_map_needs_no_registry_and_creates_only_local_files(
+    tmp_path: Path, name: str
 ) -> None:
-    root = make_registry_root(tmp_path)
-
     changed = init_map(
-        root=root,
-        map_name="lucy_map",
-        title="Lucy research",
-        goal="Move map mechanics into Lucy",
-        seed="Initial user wording",
-        registry_summary="Lucy owns deterministic map mechanics",
-        timestamp="2026-08-08 12:00",
+        root=tmp_path, map_name=name, title="Topic", goal="Goal", seed="Seed"
     )
-
-    map_dir = root / "lucy_map"
-    assert (map_dir / "b-nodes").is_dir()
-    assert (map_dir / "index.md").read_text(encoding="utf-8").endswith(
-        "## Seed\n\n> Initial user wording\n"
-    )
-    assert "Goal: Move map mechanics into Lucy" in (
-        map_dir / "index.md"
-    ).read_text(encoding="utf-8")
-    assert "## Main Branches" in (map_dir / "index.md").read_text(
-        encoding="utf-8"
-    )
-    assert "# Questions" in (map_dir / "questions.md").read_text(
-        encoding="utf-8"
-    )
-    assert (map_dir / "questions.md").is_file()
-    assert not (map_dir / ".attach").exists()
-    assert not (map_dir / "artifacts").exists()
-    registry = (root / "index.md").read_text(encoding="utf-8")
-    assert (
-        "- [Lucy research](lucy_map/index.md) - "
-        "Lucy owns deterministic map mechanics"
-    ) in registry
-    assert "## Completed\n\nRetain this text.\n" in registry
-    assert set(changed) == {
-        str((root / "index.md").resolve()),
-        str((map_dir / "index.md").resolve()),
-        str((map_dir / "questions.md").resolve()),
+    map_dir = tmp_path / name
+    assert set(path.name for path in map_dir.iterdir()) == {
+        "index.md",
+        "questions.md",
+        "b-nodes",
     }
+    index = (map_dir / "index.md").read_text()
+    assert "Goal: Goal" in index
+    assert index.endswith("## Seed\n\n> Seed\n")
+    assert "created:" not in index and "updated:" not in index
+    assert not (tmp_path / "index.md").exists()
+    assert set(changed) == {str(map_dir / "index.md"), str(map_dir / "questions.md")}
 
 
-def test_init_map_creates_registry_when_missing(tmp_path: Path) -> None:
-    root = tmp_path / "maps"
-    root.mkdir()
-
+def test_init_map_does_not_read_or_change_existing_shared_index(tmp_path: Path) -> None:
+    index = tmp_path / "index.md"
+    content = "An unrelated user note, not a map registry.\n"
+    index.write_text(content)
     init_map(
-        root=root,
-        map_name="lucy_map",
-        title="Lucy research",
-        goal="Create the first map",
-        seed="Initial wording",
-        registry_summary="First map in this root",
-        timestamp="2026-08-08 12:00",
+        root=tmp_path, map_name="topic_map", title="Topic", goal="Goal", seed="Seed"
     )
+    assert index.read_text() == content
 
-    assert (root / "index.md").read_text(encoding="utf-8") == (
-        "# Research Maps\n\n"
-        "## Active\n\n"
-        "- [Lucy research](lucy_map/index.md) - First map in this root\n"
+
+def test_init_map_rejects_existing_map_without_overwriting(tmp_path: Path) -> None:
+    init_map(
+        root=tmp_path, map_name="topic_map", title="Topic", goal="Goal", seed="Seed"
     )
-
-
-def test_init_map_rolls_back_exact_initial_map_when_registry_write_fails(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = make_registry_root(tmp_path)
-
-    def fail_write(_path: Path, _content: str) -> bool:
-        raise OSError("registry write failed")
-
-    monkeypatch.setattr(maps_mod, "atomic_write_text_if_changed", fail_write)
-
-    with pytest.raises(OSError, match="registry write failed"):
+    index = tmp_path / "topic_map" / "index.md"
+    original = index.read_bytes()
+    with pytest.raises(ResearchMapError, match="already exists"):
         init_map(
-            root=root,
-            map_name="lucy_map",
-            title="Lucy",
+            root=tmp_path, map_name="topic_map", title="Other", goal="Goal", seed="Seed"
+        )
+    assert index.read_bytes() == original
+
+
+def test_init_map_rejects_symlinked_ancestor(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "link").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ResearchMapError, match="symlink"):
+        init_map(
+            root=tmp_path,
+            map_name="link/nested/topic_map",
+            title="Topic",
             goal="Goal",
             seed="Seed",
-            registry_summary="Summary",
-            timestamp="2026-08-08 12:00",
         )
-
-    assert not (root / "lucy_map").exists()
-    assert "lucy_map/index.md" not in (root / "index.md").read_text(
-        encoding="utf-8"
-    )
+    assert list(outside.iterdir()) == []

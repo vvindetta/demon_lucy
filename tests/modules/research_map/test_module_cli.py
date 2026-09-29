@@ -24,8 +24,7 @@ def _startup_args(root: Path, cli_tokens: list[str]) -> ParsedArgs:
     return config.merged_with(
         ParsedArgs(
             unknown=tuple(
-                UnknownArg(token=token, source=ArgSource.CLI)
-                for token in cli_tokens
+                UnknownArg(token=token, source=ArgSource.CLI) for token in cli_tokens
             )
         )
     )
@@ -52,11 +51,14 @@ def test_cli_init_and_new_node_leave_valid_derived_state(
         _startup_args(
             root,
             [
-                "--research-map-init", "lucy_map",
-                "--research-map-init-title", "Lucy",
-                "--research-map-init-goal", "Goal",
-                "--research-map-init-seed", "Seed",
-                "--research-map-init-registry-summary", "Lucy map operations",
+                "--research-map-init",
+                "lucy_map",
+                "--research-map-init-title",
+                "Lucy",
+                "--research-map-init-goal",
+                "Goal",
+                "--research-map-init-seed",
+                "Seed",
             ],
         ),
         run_mode="cli",
@@ -68,10 +70,14 @@ def test_cli_init_and_new_node_leave_valid_derived_state(
         _startup_args(
             root,
             [
-                "--research-map-new-node", "lucy_map",
-                "--research-map-node-question", "Question?",
-                "--research-map-node-label", "Question",
-                "--research-map-node-summary", "Root question state",
+                "--research-map-new-node",
+                "lucy_map",
+                "--research-map-node-title",
+                "Question?",
+                "--research-map-node-label",
+                "Question",
+                "--research-map-node-summary",
+                "Root question state",
             ],
         ),
         run_mode="cli",
@@ -83,17 +89,14 @@ def test_cli_init_and_new_node_leave_valid_derived_state(
     assert "1 - Question" in (root / "lucy_map" / "questions.md").read_text(
         encoding="utf-8"
     )
-    assert "[Lucy](lucy_map/index.md) - Lucy map operations" in (
-        root / "index.md"
-    ).read_text(encoding="utf-8")
+    assert "# Maps\n\n## Active\n" == (root / "index.md").read_text(encoding="utf-8")
 
 
 def test_cli_validation_failure_is_expected_module_error(tmp_path: Path) -> None:
     root = tmp_path / "maps"
     root.mkdir()
     (root / "index.md").write_text(
-        "# Maps\n\n## Active\n\n"
-        "- [Broken](broken_map/index.md) - Broken map\n",
+        "# Maps\n\n## Active\n\n" "- [Broken](broken_map/index.md) - Broken map\n",
         encoding="utf-8",
     )
     (root / "broken_map").mkdir()
@@ -104,3 +107,43 @@ def test_cli_validation_failure_is_expected_module_error(tmp_path: Path) -> None
     )
     with pytest.raises(ValueError, match="research map validation failed"):
         manager.run_cli(event_id="validate-1")
+
+
+def test_cli_creates_nested_conspect_without_registry_or_invented_body(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    for tokens in (
+        [
+            "--research-map-init",
+            "travel/topic_map",
+            "--research-map-init-title",
+            "Topic",
+            "--research-map-init-goal",
+            "Goal",
+            "--research-map-init-seed",
+            "Seed",
+        ],
+        [
+            "--research-map-new-node",
+            "travel/topic_map",
+            "--research-map-node-type",
+            "conspect",
+            "--research-map-node-label",
+            "Notes",
+        ],
+        ["--research-map-validate", "travel/topic_map"],
+    ):
+        manager = ModuleManager(
+            [ResearchMap()], _startup_args(tmp_path, tokens), run_mode="cli"
+        )
+        assert manager.run_cli(event_id="conspect")[1] == 1
+    document = (tmp_path / "travel/topic_map/b-nodes/1_notes.md").read_text()
+    assert "type: conspect" in document
+    assert (
+        "status:" not in document
+        and "created:" not in document
+        and "updated:" not in document
+    )
+    assert document.split("---", 2)[2].strip() == ""
+    assert not (tmp_path / "index.md").exists()

@@ -4,16 +4,12 @@ from pathlib import Path
 
 from demon_lucy.modules.research_map.documents import (
     ResearchMapError,
-    ensure_timestamp,
-    extract_h1,
+    extract_title,
     extract_section_items,
-    format_timestamp,
     node_label,
-    now_timestamp,
     question_sort_key,
     read_document,
     rebase_markdown_links,
-    timestamp_field_is_exact,
 )
 from demon_lucy.modules.research_map.nodes import read_nodes
 from demon_lucy.modules.research_map.storage import atomic_write_text_if_changed
@@ -27,13 +23,15 @@ def render_questions_body(map_dir: Path) -> str:
     }
     for path in read_nodes(map_dir).values():
         data, body, _ = read_document(path)
+        if data.get("type") == "conspect":
+            continue
         question_id = str(data.get("id", ""))
         status = str(data.get("status", ""))
         if status not in groups:
             raise ResearchMapError(f"invalid status {status!r} in {path}")
-        question = extract_h1(body)
+        question = extract_title(body)
         if not question:
-            raise ResearchMapError(f"missing H1 question in {path}")
+            raise ResearchMapError(f"missing node title in {path}")
         destination = map_dir / "questions.md"
         items = [
             rebase_markdown_links(question, path, destination),
@@ -72,40 +70,18 @@ def render_questions_body(map_dir: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
-def rebuild_questions(
-    map_dir: Path,
-    *,
-    timestamp: str | None = None,
-) -> dict[str, int]:
+def rebuild_questions(map_dir: Path) -> dict[str, int]:
     questions_path = map_dir / "questions.md"
     if questions_path.is_symlink() or not questions_path.is_file():
         raise ResearchMapError(
             f"questions.md must be a regular non-symlink file: {questions_path}"
         )
-    data, existing_body, existing_text = read_document(questions_path)
+    data, existing_body, _ = read_document(questions_path)
     expected_body = render_questions_body(map_dir)
-    metadata_valid = (
-        data.get("type") == "questions"
-        and "created" in data
-        and "updated" in data
-        and timestamp_field_is_exact(existing_text, "created")
-        and timestamp_field_is_exact(existing_text, "updated")
-    )
+    metadata_valid = data.get("type") == "questions"
     if metadata_valid and existing_body.strip() == expected_body.strip():
         return {}
 
-    value_timestamp = ensure_timestamp(timestamp) if timestamp else now_timestamp()
-    try:
-        created = format_timestamp(data.get("created", value_timestamp))
-    except ResearchMapError:
-        created = value_timestamp
-    document = (
-        "---\n"
-        "type: questions\n"
-        f"created: {created}\n"
-        f"updated: {value_timestamp}\n"
-        "---\n\n"
-        f"{expected_body}"
-    )
+    document = "---\n" "type: questions\n" "---\n\n" f"{expected_body}"
     changed = atomic_write_text_if_changed(questions_path, document)
     return {str(questions_path.resolve()): 1} if changed else {}

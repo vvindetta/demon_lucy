@@ -6,8 +6,7 @@ from demon_lucy.modules.research_map.documents import (
     ResearchMapError,
     contains_markdown_table,
     count_h1_headings,
-    ensure_timestamp,
-    extract_h1,
+    extract_title,
     markdown_targets,
     question_sort_key,
     read_document,
@@ -39,7 +38,7 @@ def test_read_document_parses_frontmatter_and_body(tmp_path: Path) -> None:
     data, body, text = read_document(path)
 
     assert data["id"] == "1"
-    assert extract_h1(body) == "Full question?"
+    assert extract_title(body) == "Full question?"
     assert text.startswith("---\n")
 
 
@@ -58,12 +57,9 @@ def test_markdown_helpers_use_parser_not_regex_only() -> None:
     assert contains_markdown_table(text) is True
     assert count_h1_headings(text) == 1
     assert question_sort_key("2.10.3") == (2, 10, 3)
-    assert slugify("Автоматическое обслуживание") == (
-        "автоматическое-обслуживание"
-    )
+    assert slugify("Автоматическое обслуживание") == ("автоматическое-обслуживание")
 
 
-@pytest.mark.parametrize("value", ["", "2026-13-01 12:00", "2026-08-08"])
-def test_ensure_timestamp_rejects_invalid_values(value: str) -> None:
-    with pytest.raises(ResearchMapError, match="expected YYYY-MM-DD HH:MM"):
-        ensure_timestamp(value)
+@pytest.mark.parametrize("body", ["Title\n\nBody", "# Title\n", "\nTitle\n"])
+def test_extract_title_accepts_plain_and_markdown_titles(body: str) -> None:
+    assert extract_title(body) == "Title"

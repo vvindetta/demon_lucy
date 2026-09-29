@@ -8,12 +8,11 @@ from demon_lucy.modules.research_map.documents import ResearchMapError, single_l
 from demon_lucy.modules.research_map.paths import resolve_map_dir, validate_map_name
 from demon_lucy.modules.research_map.storage import atomic_write_text_if_changed
 
-
 ACTIVE_HEADING_RE = re.compile(r"^## Active[ \t]*$", re.MULTILINE)
 NEXT_HEADING_RE = re.compile(r"^## ", re.MULTILINE)
 ENTRY_RE = re.compile(
     r"^- \[(?P<label>[^\]\r\n]+)\]"
-    r"\((?P<map_name>[a-z0-9]+(?:-[a-z0-9]+)*_map)/index\.md\)"
+    r"\((?P<map_name>[^)]+_map)/index\.md\)"
     r" - (?P<summary>[^\r\n]+)$"
 )
 DEFAULT_REGISTRY_PREFIX = "# Research Maps\n\n## Active\n"
@@ -143,45 +142,8 @@ def register_map(
         map_name=map_name,
         label=label,
         summary=summary,
+        allow_missing_registry=True,
     )
-    path = _registry_path(root)
+    path = root / "index.md"
     changed = atomic_write_text_if_changed(path, content)
-    return {str(path.resolve()): 1} if changed else {}
-
-
-def update_registry_entry(
-    root: Path,
-    *,
-    map_name: str,
-    label: str,
-) -> dict[str, int]:
-    safe_name = validate_map_name(map_name)
-    resolve_map_dir(root, safe_name, must_exist=True)
-    safe_label = single_line(label, "registry label")
-    if any(character in safe_label for character in "[]"):
-        raise ResearchMapError("registry label must not contain square brackets")
-
-    document = _read_document(root)
-    found = False
-    entries: list[RegistryEntry] = []
-    for entry in document.entries:
-        if entry.map_name != safe_name:
-            entries.append(entry)
-            continue
-        found = True
-        entries.append(
-            RegistryEntry(
-                label=safe_label,
-                map_name=safe_name,
-                summary=entry.summary,
-            )
-        )
-    if not found:
-        raise ResearchMapError(f"map is not registered: {safe_name}")
-
-    path = _registry_path(root)
-    changed = atomic_write_text_if_changed(
-        path,
-        replace(document, entries=tuple(entries)).render(),
-    )
     return {str(path.resolve()): 1} if changed else {}
