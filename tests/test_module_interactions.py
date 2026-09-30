@@ -159,14 +159,18 @@ def test_banner_formatter_archive_pipeline_archives_complex_note(
     assert note.read_text(encoding="utf-8") == ""
 
     archived = archive.read_text(encoding="utf-8")
-    assert "--formatter-todo" not in archived
-    assert "---\nSPRINT\n" in archived
-    assert "- [ ] call customer\n" in archived
-    assert "- [x] shipped\n" in archived
-    assert "**Important** line\n" in archived
+    assert archived.splitlines()[1:] == [
+        "SPRINT",
+        "",
+        "--- BACKLOG",
+        "- [ ] call customer",
+        "- [x] shipped",
+        "",
+        "**Important** line",
+    ]
 
 
-def test_formatter_blank_command_is_not_archived(tmp_path: Path):
+def test_formatter_blank_flag_is_preserved_when_archiving(tmp_path: Path):
     repo = _make_repo(tmp_path)
     note = repo / "daily.md"
     archive = repo / "past.md"
@@ -192,8 +196,13 @@ def test_formatter_blank_command_is_not_archived(tmp_path: Path):
     assert ignore == {str(note.resolve()): 2, str(archive.resolve()): 1}
     assert note.read_text(encoding="utf-8") == ""
     archived_lines = archive.read_text(encoding="utf-8").splitlines()
-    assert archived_lines[1:] == ["- [ ] inbox task"]
-    assert all("--formatter-" not in line for line in archived_lines)
+    assert archived_lines[1:] == [
+        "--formatter-blank up 3",
+        "",
+        "",
+        "",
+        "- [ ] inbox task",
+    ]
 
 
 def test_formatter_dropdir_archive_pipeline_formats_before_clean_archive(
