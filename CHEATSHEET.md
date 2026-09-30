@@ -149,7 +149,13 @@ python3 main_oneshot.py --workspace-init ~/Notes
 
 | Arg | Type | Meaning |
 |---|---:|---|
-| `--banner` | `str[]` | Insert ASCII banner text. Value `date` inserts today's date. |
+| `--banner` | `str[]` | Insert literal text as an ASCII banner. |
+| `--banner-date` | `bool` | Insert today's date as an ASCII banner. |
+
+```text
+--banner hello world
+--banner-date
+```
 
 ## Renamer
 

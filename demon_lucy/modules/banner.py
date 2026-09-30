@@ -6,6 +6,11 @@ import pyfiglet
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
 from demon_lucy.lib.args.models import KnownArg, ParsedArgs, Template
+from demon_lucy.lib.text_file import (
+    detect_newline,
+    normalize_newlines,
+    write_text_atomic,
+)
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -23,8 +28,13 @@ class Banner(AbstractModule):
             name="banner",
             value_type=str,
             default=[],
-            description="Insert an ASCII banner (pyfiglet) at the line where the flag appears. "
-            "Use '--banner date' to insert today's date. Example: --banner LOL, --banner hello world, or --banner date.",
+            description="Insert an ASCII text banner at the flag line. Example: --banner hello world.",
+        ),
+        KnownArg(
+            name="banner-date",
+            value_type=bool,
+            default=False,
+            description="Insert today's date as an ASCII banner at the flag line. Example: --banner-date.",
         ),
     ]
 
@@ -48,53 +58,61 @@ class Banner(AbstractModule):
                 values.append(text)
         return " ".join(values).strip()
 
-    def _apply(self, *, path: str, args: ParsedArgs) -> dict[str, int] | None:
+    def _commands_by_line(self, args: ParsedArgs) -> dict[int, dict[str, str]]:
+        commands: dict[int, dict[str, str]] = {}
         banner = args.require("banner")
         banner_text = self._banner_text(args)
-        if not banner_text:
+        if banner_text and banner.lines:
+            commands[banner.lines[0]] = {"--banner": banner_text}
+
+        banner_date = args.require("banner-date")
+        if banner_date.value and banner_date.lines:
+            today = date.today().isoformat()
+            for line_number in banner_date.lines:
+                commands.setdefault(line_number, {})["--banner-date"] = today
+        return commands
+
+    @staticmethod
+    def _render_banner(text: str, newline: str) -> str:
+        lines = pyfiglet.figlet_format(text).splitlines()
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+        return "".join(line + newline for line in lines)
+
+    def _apply(self, *, path: str, args: ParsedArgs) -> dict[str, int] | None:
+        commands_by_line = self._commands_by_line(args)
+        if not commands_by_line:
             return None
 
-        if not banner.lines:
-            return None
-        lineno_1based = banner.lines[0]
+        with open(path, "r", encoding="utf-8", newline="") as handle:
+            lines = handle.readlines()
+        original_text = "".join(lines)
+        newline = detect_newline(original_text)
 
-        if banner_text == "date":
-            banner_text = date.today().isoformat()
-
-        with open(path, "r+", encoding="utf-8") as f:
-            lines = f.readlines()
-            if not lines:
-                lines = ["\n"]
-
-            idx = max(0, min(len(lines) - 1, lineno_1based - 1))
-
-            ascii_lines = pyfiglet.figlet_format(banner_text).splitlines(
-                True
-            )  # keep '\n'
-
-            while ascii_lines and ascii_lines[0].strip() == "":
-                ascii_lines.pop(0)
-
-            while ascii_lines and ascii_lines[-1].strip() == "":
-                ascii_lines.pop()
-
-            if ascii_lines and not ascii_lines[-1].endswith("\n"):
-                ascii_lines[-1] += "\n"
-
-            if not ascii_lines:
-                return None
-
-            cleaned = delete_args_from_string(lines[idx], ["--banner"])
-
-            lines[idx : idx + 1] = ascii_lines
-
+        for line_number, commands in sorted(commands_by_line.items(), reverse=True):
+            index = line_number - 1
+            if not 0 <= index < len(lines):
+                continue
+            rendered = {
+                flag: banner
+                for flag, text in commands.items()
+                if (banner := self._render_banner(text, newline))
+            }
+            if not rendered:
+                continue
+            cleaned = delete_args_from_string(
+                normalize_newlines(lines[index], "\n"), rendered
+            )
+            lines[index] = "".join(rendered.values())
             if cleaned.strip():
-                lines[idx + len(ascii_lines) : idx + len(ascii_lines)] = [cleaned]
+                lines[index] += normalize_newlines(cleaned, newline)
 
-            f.seek(0)
-            f.truncate()
-            f.writelines(lines)
-
+        updated_text = "".join(lines)
+        if updated_text == original_text:
+            return None
+        write_text_atomic(path, updated_text, expected_text=original_text)
         return {path: 1}
 
     def created(self, ctx: Context, system: System) -> ModuleResult | None:

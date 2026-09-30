@@ -29,7 +29,7 @@ Lucy runs the modules and writes the output directly into the note.
 - `renamer`: renames notes and automatically names scratch files by date.<br>
   ![Renamer: add an extension, name a note by date, and rename it](media/modules/renamer_demo.gif)
 - `banner`: inserts ASCII banners with text or dates.<br>
-  ![Banner module: text crimes and today's date](media/modules/banner_demo.gif)
+  ![Banner: --banner text and --banner-date](media/modules/banner_demo.gif)
 - `formatter`: formats notes, converts bullet lists into checklists, and autocompletes Lucy arguments.<br>
   ![Formatter: checkboxes, dates, and flag completion](media/modules/formatter_demo.gif)
 - `graph`: creates graph blocks showing word frequencies.<br>

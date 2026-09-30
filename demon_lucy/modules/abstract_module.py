@@ -86,8 +86,8 @@ class AbstractModule(ABC):
             KnownArg(
                 name="banner",
                 value_type=str,
-                default="date",
-                description="Draws ASCII banner",
+                default=[],
+                description="Draws an ASCII text banner",
             ),
             KnownArg(
                 name="tags",
