@@ -27,9 +27,7 @@ class Alias(AbstractModule):
             name="alias",
             value_type=str,
             default=[],
-            description="Alias for note flags. Format: name=expansion. "
-            "Example: --alias 'b=--banner {args}' 'todo=--formatter-todo' 'rn=--rename {args}'. "
-            "System flags (--sys-*) and --cmd are not rewritten.",
+            description="Define aliases for note flags. Use {args} for supplied values. System flags (--sys-*) and --cmd are not rewritten. Usage: --alias \"<name>=<expansion>\" [...]. Example: --alias 'b=--banner {args}' 'todo=--formatter-todo'.",
         ),
         KnownArg(
             name="alias-dry-run",
@@ -120,6 +118,7 @@ class Alias(AbstractModule):
         rewritten_lines, changed_lines, alias_count = rewrite_lines(
             lines=lines,
             rules=rules,
+            template=system.global_template,
             event_id=ctx.event_id,
         )
 

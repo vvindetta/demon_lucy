@@ -37,20 +37,20 @@ class Linker(AbstractModule):
             value_type=bool,
             default=False,
             description=(
-                "If enabled and --linker-root is not set, delete managed root links."
+                "Remove managed root links when --linker-root is absent."
             ),
         ),
         KnownArg(
             name="linker-ignore",
             value_type=str,
             default=[],
-            description="Ignore files/links for linker actions. Supports basename or absolute/repo-relative path.",
+            description="Exclude files and links from linker actions. Accepts basenames, absolute paths, and repository-relative paths.",
         ),
         KnownArg(
             name="linker-auto-update-md-links",
             value_type=bool,
             default=False,
-            description="If enabled, keep markdown links and target files in sync both ways: moved files update links, edited links move target files.",
+            description="Keep Markdown links and targets in sync: moving a file updates its links; editing a link moves its target.",
         ),
     ]
 

@@ -28,13 +28,13 @@ class Banner(AbstractModule):
             name="banner",
             value_type=str,
             default=[],
-            description="Insert an ASCII text banner at the flag line. Example: --banner hello world.",
+            description="Insert an ASCII text banner at the command line. Usage: --banner <text ...>. Example: --banner hello world.",
         ),
         KnownArg(
             name="banner-date",
             value_type=bool,
             default=False,
-            description="Insert today's date as an ASCII banner at the flag line. Example: --banner-date.",
+            description="Insert today's date as an ASCII banner at the command line. Usage: --banner-date.",
         ),
     ]
 

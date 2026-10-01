@@ -11,7 +11,7 @@ GIT_TEMPLATE: Template = [
         name="git-commit-message",
         value_type=str,
         default="Auto-commit",
-        description="Base commit message. Example: --git-commit-message 'Notes update'.",
+        description="Base text for automatic commit messages. Example: --git-commit-message \"Notes update\".",
     ),
     KnownArg(
         name="git-commit-message-timestamp",
@@ -29,7 +29,7 @@ GIT_TEMPLATE: Template = [
         name="git-commit-message-style",
         value_type=GitCommitMessageStyle,
         default=GitCommitMessageStyle.DETAILED,
-        description="Commit message style: detailed or compact. Detailed adds a commit body with staged file actions.",
+        description="Commit message layout. Detailed messages include staged file actions in the commit body. Values: detailed, compact.",
     ),
     KnownArg(
         name="git-commit-message-max-subject-files",
@@ -47,27 +47,25 @@ GIT_TEMPLATE: Template = [
         name="git-sync-on-opened-disable",
         value_type=bool,
         default=False,
-        description="Disable git sync reaction for opened events. If enabled, opened events are ignored.",
+        description="Ignore opened events when scheduling Git sync.",
     ),
     KnownArg(
         name="git-push-auto-merge",
         value_type=bool,
         default=True,
-        description="If 'git push' is rejected because the remote is ahead, automatically run 'git pull --no-rebase' (merge) and retry push. No rebase, no force.",
+        description="Merge remote changes and retry when a push is rejected because the remote is ahead. Uses git pull --no-rebase; never rebases or force-pushes.",
     ),
     KnownArg(
         name="git-upstream-auto-set",
         value_type=bool,
         default=True,
-        description="If the current branch has no upstream, try to set it to <remote>/<branch> (prefer remote 'origin') when that remote branch exists.",
+        description="Set an upstream when the current branch has none and a matching remote branch exists. Prefer origin.",
     ),
     KnownArg(
         name="git-merge-autoresolve",
         value_type=MergeAutoresolveMode,
         default=MergeAutoresolveMode.UNION,
-        description="How to auto-resolve merge conflicts during auto-merge: "
-        "'none' (do not resolve), 'ours' (keep local), 'theirs' (keep remote), "
-        "'union' (keep both sides, remove markers), 'markers' (keep conflict markers and commit merge).",
+        description="Conflict handling during automatic merges. None leaves conflicts unresolved; ours keeps local changes; theirs keeps remote changes; union keeps both sides without markers; markers commits both sides with conflict markers.",
     ),
     KnownArg(
         name="git-command-timeout-seconds",
@@ -85,8 +83,7 @@ GIT_TEMPLATE: Template = [
         name="git-network-probe-timeout-seconds",
         value_type=float,
         default=2.0,
-        description="Timeout (seconds) for remote host network probe before pull. "
-        "Used to decide whether to wait for network and skip pull while offline.",
+        description="Timeout in seconds for checking the remote host before pulling. Failed probes postpone sync while offline.",
     ),
     KnownArg(
         name="git-pull-offline-error-markers",
@@ -102,8 +99,7 @@ GIT_TEMPLATE: Template = [
             "failed to connect",
             "connection refused",
         ],
-        description="Error markers treated as offline/network failures for git pull. "
-        "Provide one or more markers to customize detection.",
+        description="Error text fragments that identify offline or network failures during a pull.",
     ),
     KnownArg(
         name="git-push-timeout-seconds",

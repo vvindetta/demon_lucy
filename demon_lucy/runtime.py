@@ -64,7 +64,7 @@ DEMON_LUCY_DEFERRED_TEMPLATE: Template = [
     argument
     for module in MODULE_CLASSES
     for argument in module.template
-    if argument.literal_value_count
+    if argument.literal_value_count or argument.literal_first_value
 ]
 
 
@@ -81,31 +81,31 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         name="sys-config-path",
         value_type=str,
         default="config.txt",
-        description="Path to the config file. Default: config.txt",
+        description="Path to the startup config file.",
     ),
     KnownArg(
         name="sys-log-level",
         value_type=LogLevel,
         default=LogLevel.WARNING,
-        description="Logging level: debug, info, warning, error, critical. Info shows Lucy event decisions; debug can include low-level library logs. Default: warning.",
+        description="Logging level: debug, info, warning, error, critical. Info shows normal Lucy decisions; debug also includes low-level and third-party diagnostics.",
     ),
     KnownArg(
         name="sys-log-format",
         value_type=str,
         default="%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d: %(message)s",
-        description="Python logging format string. Default includes time, level, file, line, message.",
+        description="Python logging format string for each log record.",
     ),
     KnownArg(
         name="sys-watch-paths",
         value_type=str,
         default=[],
-        description="One or more directories to watch recursively. Example: --sys-watch-paths ~/notes ~/work/notes",
+        description="One or more directories to watch recursively. Example: --sys-watch-paths ~/Notes ~/Work/notes.",
     ),
     KnownArg(
         name="sys-opened-event-cooldown-seconds",
         value_type=int,
         default=60,
-        description="Cooldown for 'opened' events per file, in seconds. Prevents editor spam. Default: 60 seconds).",
+        description="Minimum interval in seconds between opened events for the same file.",
     ),
     KnownArg(
         name="sys-disable-opened-events",
@@ -123,14 +123,13 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         name="sys-notification-provider",
         value_type=NotificationProvider,
         default=NotificationProvider.AUTO,
-        description="Notification provider. Supported: auto, termuxapi, desktop, disable. "
-        "Default: auto (termuxapi when available, otherwise desktop).",
+        description="Notification backend. Auto uses Termux API when available, otherwise desktop notifications. Values: auto, termuxapi, desktop, disable.",
     ),
     KnownArg(
         name="sys-notification-min-interval-seconds",
         value_type=float,
         default=10.0,
-        description="Minimum seconds between repeated notifications with the same key. Default: 10.0.",
+        description="Minimum interval in seconds between notifications with the same key.",
     ),
     KnownArg(
         name="sys-notification-error-backoff-base-seconds",
@@ -160,13 +159,13 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         name="sys-ignore-paths",
         value_type=str,
         default=[],
-        description="Skip module execution for files inside these paths. Example: --sys-ignore-paths ~/.cache ~/Notes/private",
+        description="Skip module execution for files inside these paths. Usage: --sys-ignore-paths <path> [path ...]. Example: --sys-ignore-paths ~/.cache ~/Notes/private.",
     ),
     KnownArg(
         name="sys-ignore-move-paths",
         value_type=str,
         default=[".status"],
-        description="Ignore internal move events under these paths. Relative paths are resolved under every watched root. Default: .status.",
+        description="Ignore internal moves within these paths. Relative paths are resolved under each watched root.",
     ),
     KnownArg(
         name="sys-git-repo-lock-wait-timeout-seconds",
@@ -203,13 +202,13 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
             "status",
             "sys",
         ],
-        description="Run only selected modules by name. Example: --sys-modules git status",
+        description="Run only selected modules by name. Example: --sys-modules git status.",
     ),
     KnownArg(
         name="sys-modules-exclude",
         value_type=str,
         default=[],
-        description="Exclude modules from the selected/default module list. Example: --sys-modules-exclude status",
+        description="Exclude named modules from the selected or default module list. Example: --sys-modules-exclude status.",
     ),
 ]
 

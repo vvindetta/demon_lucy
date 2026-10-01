@@ -7,14 +7,14 @@ PLASMA_WIDGET_TEMPLATE: Template = [
         name="plasma-widget-path",
         value_type=str,
         default=None,
-        description="Path to the main Plasma note HTML file (widget file).",
+        description="Path to the main Plasma note HTML file.",
         required=True,
     ),
     KnownArg(
         name="plasma-bold-widget-path",
         value_type=str,
         default=None,
-        description="Optional: path to a Plasma widget HTML file used as a 'bold-only mirror'.",
+        description="Optional path to a Plasma widget that mirrors only bold text.",
     ),
     KnownArg(
         name="plasma-markdown-note-path",
@@ -27,7 +27,6 @@ PLASMA_WIDGET_TEMPLATE: Template = [
         name="plasma-css-style",
         value_type=bool,
         default=False,
-        description="If True: use CSS checkbox markers (☐/☒) via li.*::marker and real UL/LI. "
-        "If False (default): render plain text only (no glyphs, no bullets).",
+        description="Render checkboxes as CSS markers in HTML lists. When disabled, render plain text without checkbox glyphs or bullets.",
     ),
 ]

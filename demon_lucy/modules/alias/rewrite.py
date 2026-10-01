@@ -3,7 +3,12 @@ from __future__ import annotations
 import logging
 import shlex
 
-from demon_lucy.lib.args.parser import is_valid_flag_token, split_arg_line
+from demon_lucy.lib.args.models import Template
+from demon_lucy.lib.args.parser import (
+    is_valid_flag_token,
+    literal_value_indexes,
+    split_arg_line,
+)
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.modules.alias.rules import ARG_PLACEHOLDER, AliasRule, flag_head
 
@@ -14,16 +19,18 @@ def expand_line(
     *,
     tokens: list[str],
     rules: dict[str, AliasRule],
+    template: Template,
     line: int,
     event_id: str,
 ) -> tuple[list[str], int]:
     output: list[str] = []
     rewrites = 0
     i = 0
+    literal_indexes = literal_value_indexes(tokens, template)
 
     while i < len(tokens):
         token = tokens[i]
-        if not is_valid_flag_token(token):
+        if i in literal_indexes or not is_valid_flag_token(token):
             output.append(token)
             i += 1
             continue
@@ -86,6 +93,7 @@ def rewrite_lines(
     *,
     lines: list[str],
     rules: dict[str, AliasRule],
+    template: Template,
     event_id: str,
 ) -> tuple[list[str], int, int]:
     rewritten_lines: list[str] = []
@@ -121,6 +129,7 @@ def rewrite_lines(
         expanded_tokens, rewrites = expand_line(
             tokens=tokens,
             rules=rules,
+            template=template,
             line=lineno,
             event_id=event_id,
         )

@@ -27,10 +27,14 @@ class KnownArg:
     required: bool = False
     # Repeatable str[] groups whose values may themselves look like flags.
     literal_value_count: int = 0
+    # Protect the first value while allowing more ordinary str[] values.
+    literal_first_value: bool = False
     params: tuple[ArgParam, ...] = ()
     value: Any = None
     source: ArgSource | None = None
     lines: tuple[int, ...] = ()
+    # Explicit flag locations, including occurrences with an empty value list.
+    flag_lines: tuple[int, ...] = ()
 
 
 Template = list[KnownArg]
@@ -72,7 +76,7 @@ class ParsedArgs:
             existing = known.get(argument.name)
             if (
                 accumulate
-                and argument.literal_value_count
+                and (argument.literal_value_count or argument.literal_first_value)
                 and existing is not None
                 and existing.source is argument.source
             ):
@@ -80,6 +84,7 @@ class ParsedArgs:
                     argument,
                     value=[*existing.value, *argument.value],
                     lines=(*existing.lines, *argument.lines),
+                    flag_lines=(*existing.flag_lines, *argument.flag_lines),
                 )
             known[argument.name] = argument
         return type(self)(

@@ -16,11 +16,15 @@ from demon_lucy.lib.ascii_art import (
     LUCY_EYE_VERTICAL,
 )
 from demon_lucy.lib.operating_system import OperatingSystem
+from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.abstract_module import Context, RunMode, System
+from demon_lucy.modules.alias import Alias
+from demon_lucy.modules.banner import Banner
+from demon_lucy.modules.formatter import Formatter
 from demon_lucy.modules.graph import Graph
 from demon_lucy.modules.sys import Sys
 from demon_lucy.modules.sys import neofetch as neofetch_module
-from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE
+from demon_lucy.runtime import DEMON_LUCY_DEFERRED_TEMPLATE, DEMON_LUCY_STARTUP_TEMPLATE
 from tests.args_support import result_changes
 
 _TEMPLATE = [*DEMON_LUCY_STARTUP_TEMPLATE, *Sys.template]
@@ -408,12 +412,12 @@ def test_man_graph_description_is_direct() -> None:
     assert (
         "* --graph: Build a text graph for a literal search in a file. "
         "Format: --graph file pattern [week|month|year|all]. "
-        "Default period: year. (type=str, default=[])\n"
+        "Default period: year. (type=str[], default=[])\n"
     ) in text
     assert (
         "* --graph-regex: Build a text graph for a regular expression search in a file. "
         "Format: --graph-regex file regex [week|month|year|all]. "
-        "Default period: year. (type=str, default=[])\n"
+        "Default period: year. (type=str[], default=[])\n"
     ) in text
 
 
@@ -448,3 +452,258 @@ def test_ping_sends_lucy_notification(tmp_path: Path, monkeypatch):
             "use_rare_mode": False,
         }
     ]
+
+
+@pytest.mark.parametrize("heading", ["", "# Note\n"])
+@pytest.mark.parametrize(
+    "name", ["banner", "banner-date", "mods", "help", "man", "sys-log-level"]
+)
+def test_man_with_and_without_prefix_produces_same_inert_note(
+    tmp_path: Path, heading: str, name: str, monkeypatch
+):
+    manager = ModuleManager(
+        modules=[Sys(), Banner()],
+        startup_args=parse_args(
+            args=_BASE_TOKENS, template=DEMON_LUCY_STARTUP_TEMPLATE
+        ),
+    )
+
+    def unexpected_banner(*_args, **_kwargs):
+        pytest.fail("A manual request must not render a banner")
+
+    monkeypatch.setattr(Banner, "_render_banner", unexpected_banner)
+    results = []
+    for prefix in ("", "--"):
+        note = tmp_path / "note.md"
+        note.write_text(f"{heading}--man {prefix}{name}\nbody\n", encoding="utf-8")
+
+        assert manager.run(str(note), FileModifiedEvent(str(note))) == {str(note): 1}
+        text = note.read_text(encoding="utf-8")
+        assert "--- man ---\n" in text
+        assert f"* --{name}:" in text
+        assert text.endswith("body\n")
+        parsed = parse_note_args(str(note), manager.template)
+        assert parsed.known == ()
+        assert parsed.unknown == ()
+        assert manager.run(str(note), FileModifiedEvent(str(note))) is None
+        assert note.read_text(encoding="utf-8") == text
+        results.append(text)
+
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("heading", ["", "# Note\n"])
+def test_man_prefixed_target_keeps_neighboring_command(tmp_path: Path, heading: str):
+    note = tmp_path / "note.md"
+    note.write_text(
+        f"{heading}--man --banner-date --formatter-todo\n- task\n", encoding="utf-8"
+    )
+    manager = ModuleManager(
+        modules=[Sys(), Banner(), Formatter()],
+        startup_args=parse_args(
+            args=_BASE_TOKENS, template=DEMON_LUCY_STARTUP_TEMPLATE
+        ),
+    )
+
+    manager.run(str(note), FileModifiedEvent(str(note)))
+    text = note.read_text(encoding="utf-8")
+
+    assert "* --banner-date:" in text
+    assert "- [ ] task\n" in text
+    assert parse_note_args(str(note), manager.template).known == ()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "--man mods banner-date",
+        "--man --mods --man --banner-date",
+        "--man=--mods banner-date",
+    ],
+)
+def test_man_keeps_multiple_requested_names(tmp_path: Path, command: str):
+    note = tmp_path / "note.md"
+    note.write_text(command + "\n", encoding="utf-8")
+    manager = ModuleManager(
+        modules=[Sys(), Banner()],
+        startup_args=parse_args(
+            args=_BASE_TOKENS, template=DEMON_LUCY_STARTUP_TEMPLATE
+        ),
+    )
+
+    manager.run(str(note), FileModifiedEvent(str(note)))
+    text = note.read_text(encoding="utf-8")
+
+    assert text.count("* --mods:") == 1
+    assert text.count("* --banner-date:") == 1
+    assert parse_note_args(str(note), manager.template).known == ()
+
+
+def test_man_target_is_protected_while_startup_options_are_parsed():
+    startup = parse_args(
+        args=["--man", "--sys-log-level", "--sys-watch-paths", "/notes"],
+        template=DEMON_LUCY_STARTUP_TEMPLATE,
+        deferred_template=DEMON_LUCY_DEFERRED_TEMPLATE,
+    )
+    manager = ModuleManager(modules=[Sys()], startup_args=startup)
+
+    assert manager.args.require("man").value == ["--sys-log-level"]
+    assert manager.args.require("sys-log-level").value == "warning"
+    assert manager.args.require("sys-watch-paths").value == ["/notes"]
+
+
+@pytest.mark.parametrize("prefix", ["", "--"])
+def test_man_does_not_expand_or_execute_requested_alias(tmp_path: Path, prefix: str):
+    note = tmp_path / "note.md"
+    note.write_text(f"--man {prefix}combo\n- task\n", encoding="utf-8")
+    manager = ModuleManager(
+        modules=[Alias(), Sys(), Banner(), Formatter()],
+        startup_args=parse_args(
+            args=[*_BASE_TOKENS, "--alias", "combo=--formatter-todo --banner-date"],
+            template=DEMON_LUCY_STARTUP_TEMPLATE,
+        ),
+    )
+
+    changed = manager.run(str(note), FileModifiedEvent(str(note)))
+
+    assert changed == {str(note): 1}
+    assert note.read_text(encoding="utf-8") == (
+        "--- man ---\n\n* (unknown arg: combo)\n\n- task\n"
+    )
+    assert manager.run(str(note), FileModifiedEvent(str(note))) is None
+
+
+def test_man_protects_alias_target_but_allows_neighboring_alias(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("--man --combo --todo\n- task\n", encoding="utf-8")
+    manager = ModuleManager(
+        modules=[Alias(), Sys(), Banner(), Formatter()],
+        startup_args=parse_args(
+            args=[
+                *_BASE_TOKENS,
+                "--alias",
+                "combo=--formatter-todo --banner-date",
+                "todo=--formatter-todo",
+            ],
+            template=DEMON_LUCY_STARTUP_TEMPLATE,
+        ),
+    )
+
+    manager.run(str(note), FileModifiedEvent(str(note)))
+    text = note.read_text(encoding="utf-8")
+
+    assert "* (unknown arg: combo)\n" in text
+    assert text.endswith("- [ ] task\n")
+    assert "* --formatter-todo:" not in text
+    assert parse_note_args(str(note), manager.template).known == ()
+
+
+@pytest.mark.parametrize(
+    "commands",
+    ["--man\n", "--man\n--man banner-date\n", "--man banner-date\n--man\n"],
+)
+def test_man_reports_empty_requests_without_losing_other_lines(
+    tmp_path: Path, commands: str
+):
+    note = tmp_path / "note.md"
+    note.write_text(commands + "body\n", encoding="utf-8")
+    manager = ModuleManager(
+        modules=[Sys(), Banner()],
+        startup_args=parse_args(
+            args=_BASE_TOKENS, template=DEMON_LUCY_STARTUP_TEMPLATE
+        ),
+    )
+
+    assert manager.run(str(note), FileModifiedEvent(str(note))) == {str(note): 1}
+    text = note.read_text(encoding="utf-8")
+
+    assert text.count("--- man ---\n") == commands.count("--man")
+    assert text.count("* (missing name:") == 1
+    assert text.count("* --banner-date:") == int("banner-date" in commands)
+    assert text.endswith("body\n")
+    assert manager.run(str(note), FileModifiedEvent(str(note))) is None
+
+
+def test_help_processes_all_occurrences_in_one_event(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("--help\nmiddle\n--help\nbody\n", encoding="utf-8")
+    module = Sys()
+    system = System(global_template=_TEMPLATE, modules=[module])
+
+    module.modified(_context(note), system)
+    text = note.read_text(encoding="utf-8")
+
+    before, after = text.split("middle\n")
+    assert before.startswith("--- help ---\n")
+    assert after.startswith("--- help ---\n")
+    assert text.count("* --mods:") == 2
+    assert parse_note_args(str(note), _TEMPLATE).known == ()
+    assert module.modified(_context(note), system) is None
+
+
+def test_man_reports_unknown_names_alongside_matching_help():
+    module = Sys()
+    system = System(global_template=Sys.template, modules=[module])
+
+    text = "".join(
+        module._man_one_lines(
+            system, ["mods/no-such-flag", "--missing", "no-such-flag"]
+        )
+    )
+
+    assert "* --mods:" in text
+    assert text.endswith("* (unknown arg: no-such-flag, missing)\n")
+
+
+@pytest.mark.parametrize(
+    ("default", "expected_type"),
+    [(None, "str"), ("", "str"), ([], "str[]"), (["a"], "str[]")],
+)
+def test_man_distinguishes_scalar_and_list_types(default, expected_type):
+    module = Sys()
+    system = System(
+        global_template=[KnownArg(name="option", value_type=str, default=default)],
+        modules=[],
+    )
+
+    text = "".join(module._man_one_lines(system, ["option"]))
+
+    assert f"(type={expected_type}, default=" in text
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+@pytest.mark.parametrize("heading", ["", "# Note\n"])
+@pytest.mark.parametrize("command", ["--help", "--man mods", "--man", "--ping"])
+def test_sys_preserves_note_newlines(
+    tmp_path: Path, newline: str, heading: str, command: str
+):
+    note = tmp_path / "note.md"
+    note.write_bytes(
+        (heading + command + "\nbody\nlast line").replace("\n", newline).encode()
+    )
+    module = Sys()
+    system = System(global_template=_TEMPLATE, modules=[module])
+
+    assert module.modified(_context(note), system) is not None
+    data = note.read_bytes()
+    separator = newline.encode()
+
+    assert data.endswith(b"body" + separator + b"last line")
+    assert data.startswith(heading.replace("\n", newline).encode())
+    without_separators = data.replace(separator, b"")
+    assert b"\r" not in without_separators
+    assert b"\n" not in without_separators
+
+
+def test_help_preserves_untouched_bytes_in_a_note_with_mixed_newlines(tmp_path: Path):
+    note = tmp_path / "note.md"
+    prefix = b"heading\r\n"
+    body = b"first\nsecond\r\nthird\rlast"
+    note.write_bytes(prefix + b"--help\r\n" + body)
+    module = Sys()
+    system = System(global_template=_TEMPLATE, modules=[module])
+
+    module.modified(_context(note), system)
+
+    assert note.read_bytes().startswith(prefix + b"--- help ---\r\n")
+    assert note.read_bytes().endswith(body)

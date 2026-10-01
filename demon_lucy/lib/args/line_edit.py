@@ -3,6 +3,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
+from demon_lucy.lib.args.models import Template
 from demon_lucy.lib.args.parser import split_arg_line
 
 
@@ -85,7 +86,9 @@ def migrate_arg_line_segments(
     return render_arg_segments(migrated_segments) + newline, True
 
 
-def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
+def delete_args_from_string(
+    line: str, flags: Iterable[str], *, template: Template | None = None
+) -> str:
     """
     Remove flags and their values from a single line.
 
@@ -94,6 +97,7 @@ def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
     - If removed flag is in form "--flag" -> removes ALL following value tokens
       until the next flag-like token (greedy).
     - Preserves trailing newline automatically.
+    - With a template, respects literal values of removed and retained flags.
 
     Heuristic for "flag-like token":
       --something  -> flag
@@ -120,6 +124,7 @@ def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
         return line
 
     tokens = split_arg_line(raw)
+    schemas = {f"--{item.name}": item for item in template or ()}
 
     out: List[str] = []
     removed_any = False
@@ -129,13 +134,22 @@ def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
 
         # handle --flag=value by checking only the head part
         head = tok.split("=", 1)[0] if tok.startswith("-") else tok
+        schema = schemas.get(head)
+        literal_count = 0
+        if schema is not None:
+            literal_count = schema.literal_value_count or int(
+                schema.literal_first_value
+            )
+        if "=" in tok:
+            literal_count = max(0, literal_count - 1)
 
         if head in remove:
             removed_any = True
-            i += 1
+            i = min(len(tokens), i + 1 + literal_count)
 
-            # "--flag=value" -> already contains value, nothing else to consume
-            if "=" in tok:
+            if schema is not None and schema.literal_value_count:
+                continue
+            if "=" in tok and not (schema and schema.literal_first_value):
                 continue
 
             # consume value tokens until next flag-like token
@@ -145,6 +159,8 @@ def delete_args_from_string(line: str, flags: Iterable[str]) -> str:
 
         out.append(tok)
         i += 1
+        out.extend(tokens[i : i + literal_count])
+        i += literal_count
 
     if not removed_any:
         return line

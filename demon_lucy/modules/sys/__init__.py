@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
-from typing import Any, List
+from typing import List
 
 from demon_lucy.lib.args.line_edit import delete_args_from_string
-from demon_lucy.lib.args.models import ArgSource, KnownArg
+from demon_lucy.lib.args.models import ArgSource, KnownArg, Template
 from demon_lucy.lib.notifications import safe_notify
+from demon_lucy.lib.text_file import (
+    detect_newline,
+    normalize_newlines,
+    write_text_atomic,
+)
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
     Context,
@@ -37,19 +42,20 @@ class Sys(AbstractModule):
             name="ping",
             value_type=bool,
             default=False,
-            description="Health-check: sends notification and writes pong.",
+            description="Send a notification and replace the command with ++pong!.",
         ),
         KnownArg(
             name="config",
             value_type=bool,
             default=False,
-            description="Print config values that differ from defaults (and where they were set).",
+            description="Show config values that differ from their defaults and where they were set.",
         ),
         KnownArg(
             name="man",
             value_type=str,
             default=[],
-            description="Print one argument with description (example: --man mods or --man --mods).",
+            description="Show help for arguments or modules, with or without the -- prefix. Usage: --man <name> [name ...]. Examples: --man banner-date; --man --banner-date.",
+            literal_first_value=True,
         ),
         KnownArg(
             name="help",
@@ -66,8 +72,10 @@ class Sys(AbstractModule):
     ]
 
     @staticmethod
-    def _type_name(type_value: Any) -> str:
-        return getattr(type_value, "__name__", str(type_value))
+    def _type_name(argument: KnownArg) -> str:
+        return argument.value_type.__name__ + (
+            "[]" if isinstance(argument.default, list) else ""
+        )
 
     @staticmethod
     def _command_help_lines() -> List[str]:
@@ -75,7 +83,7 @@ class Sys(AbstractModule):
             "* --mods: print loaded modules and their priorities\n",
             "* --ping: send notification and rewrite command line to ++pong!\n",
             "* --config: print config values that differ from defaults\n",
-            "* --man <name>: print one argument with description (example: --man mods or --man --mods)\n",
+            "* --man <name>: show argument or module help (examples: --man mods; --man --mods)\n",
             "* --event: print current filesystem event details\n",
             "* --neofetch: print Demon Lucy runtime information\n",
         ]
@@ -85,11 +93,17 @@ class Sys(AbstractModule):
         file_lines: List[str],
         index: int,
         remove_flags: List[str],
+        template: Template,
+        newline: str,
     ) -> None:
-        cleaned_line = delete_args_from_string(file_lines[index], remove_flags)
-        file_lines[index : index + 1] = ["++pong!\n"]
+        cleaned_line = delete_args_from_string(
+            normalize_newlines(file_lines[index], "\n"), remove_flags, template=template
+        )
+        file_lines[index : index + 1] = ["++pong!" + newline]
         if cleaned_line.strip():
-            file_lines[index + 1 : index + 1] = [cleaned_line]
+            file_lines[index + 1 : index + 1] = [
+                normalize_newlines(cleaned_line, newline)
+            ]
 
     @staticmethod
     def _send_ping_notification(ctx: Context) -> None:
@@ -164,19 +178,27 @@ class Sys(AbstractModule):
 
         requested_set = set(requested)
         module_flags_map = self._module_flags_by_request_name(system)
+        available = {item.name.lower() for item in system.global_template}
+        unknown = [
+            name
+            for name in dict.fromkeys(requested)
+            if name not in available and name not in module_flags_map
+        ]
         for request_name in list(requested_set):
             requested_set.update(module_flags_map.get(request_name, set()))
         matched: List[str] = []
 
         for item in system.global_template:
             if item.name.lower() in requested_set:
-                type_name = self._type_name(item.value_type)
+                type_name = self._type_name(item)
                 description = (item.description or "").strip()
                 matched.append(
                     f"* --{item.name}: {description} "
                     f"(type={type_name}, default={item.default})\n"
                 )
 
+        if unknown:
+            matched.append(f"* (unknown arg: {', '.join(unknown)})\n")
         if matched:
             return matched
 
@@ -305,6 +327,8 @@ class Sys(AbstractModule):
                 add_option(line_number, "event", "--event")
 
         man_arg = ctx.args.require("man")
+        for line_number in man_arg.flag_lines:
+            add_option(line_number, "man", "--man")
         for man_value, line_number in zip(man_arg.value, man_arg.lines):
             add_option(line_number, "man", "--man")
             if man_value.strip():
@@ -318,14 +342,17 @@ class Sys(AbstractModule):
         if any("ping" in selected_opts for selected_opts in line_to_opts.values()):
             self._send_ping_notification(ctx)
 
+        original_text: str | None = None
         try:
-            with open(ctx.path, "r", encoding="utf-8") as file_handle:
+            with open(ctx.path, "r", encoding="utf-8", newline="") as file_handle:
                 file_lines = file_handle.readlines()
+            original_text = "".join(file_lines)
         except FileNotFoundError:
             file_lines = []
 
+        newline = detect_newline(original_text or "")
         if not file_lines:
-            file_lines = ["\n"]
+            file_lines = [newline]
 
         for lineno_1based in sorted(line_to_opts.keys(), reverse=True):
             index = max(0, min(len(file_lines) - 1, lineno_1based - 1))
@@ -338,6 +365,8 @@ class Sys(AbstractModule):
                     file_lines=file_lines,
                     index=index,
                     remove_flags=remove_flags,
+                    template=system.global_template,
+                    newline=newline,
                 )
                 continue
 
@@ -348,35 +377,43 @@ class Sys(AbstractModule):
                 path=ctx.path,
                 man_requests=man_requests,
             )
+            block = [normalize_newlines(line, newline) for line in block]
 
             if index == 0:
                 cleaned_first_line = delete_args_from_string(
-                    file_lines[0], remove_flags
+                    normalize_newlines(file_lines[0], "\n"),
+                    remove_flags,
+                    template=system.global_template,
                 )
                 if cleaned_first_line.strip() == "":
                     file_lines[0:1] = block
                     continue
 
-                file_lines[0] = cleaned_first_line
+                file_lines[0] = normalize_newlines(cleaned_first_line, newline)
 
                 if file_lines[0].strip():
-                    file_lines.insert(1, "\n")
+                    file_lines.insert(1, newline)
                     insert_pos = 2
                 else:
-                    file_lines[0] = "\n"
+                    file_lines[0] = newline
                     insert_pos = 1
 
-                file_lines[insert_pos:insert_pos] = ["---\n"] + block
+                file_lines[insert_pos:insert_pos] = ["---" + newline] + block
                 continue
 
-            cleaned_line = delete_args_from_string(file_lines[index], remove_flags)
+            cleaned_line = delete_args_from_string(
+                normalize_newlines(file_lines[index], "\n"),
+                remove_flags,
+                template=system.global_template,
+            )
             file_lines[index : index + 1] = block
             if cleaned_line.strip():
                 insert_at = index + len(block)
-                file_lines[insert_at:insert_at] = [cleaned_line]
+                file_lines[insert_at:insert_at] = [
+                    normalize_newlines(cleaned_line, newline)
+                ]
 
-        with open(ctx.path, "w", encoding="utf-8") as file_handle:
-            file_handle.writelines(file_lines)
+        write_text_atomic(ctx.path, "".join(file_lines), expected_text=original_text)
 
         return {ctx.path: 1}
 

@@ -22,19 +22,19 @@ class Renamer(AbstractModule):
             name="rename",
             value_type=str,
             default=None,
-            description="Rename file. Example: --rename new_name.md.",
+            description="Rename the current note. Usage: --rename <filename>. Example: --rename daily.md.",
         ),
         KnownArg(
             name="rename-auto",
             value_type=bool,
             default=False,  # IMPORTANT: for your argparse bool handling, default is a bool, not [False]
-            description="On create, add default extension to extensionless files and rename one-letter scratch filenames using --rename-auto-format.",
+            description="On creation, add an extension to extensionless files and name one-letter scratch files using --rename-auto-format.",
         ),
         KnownArg(
             name="rename-auto-format",
             value_type=str,
             default="md",
-            description="Auto rename extension. Default: md. Examples: txt, md, org.",
+            description="Extension used for automatic note names. Examples: --rename-auto-format md; --rename-auto-format txt.",
         ),
     ]
 

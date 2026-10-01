@@ -54,15 +54,14 @@ ONESHOT_STARTUP_TEMPLATE: Template = DEMON_LUCY_STARTUP_TEMPLATE + [
         value_type=OneShotEvent,
         default=OneShotEvent.MODIFIED,
         description=(
-            "Single event to trigger once. Allowed: created modified moved "
-            "deleted opened."
+            "Filesystem event to trigger once. Values: created, modified, moved, deleted, opened."
         ),
     ),
     KnownArg(
         name="oneshot-paths",
         value_type=str,
         default=[],
-        description="One or more file or directory paths to process in one-shot mode.",
+        description="Files or directories to process once. Omit to run a module CLI action in the current directory. Usage: --oneshot-paths <path> [path ...].",
     ),
     KnownArg(
         name="oneshot-move-src-path",

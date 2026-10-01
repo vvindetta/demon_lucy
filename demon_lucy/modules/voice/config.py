@@ -30,7 +30,7 @@ TEMPLATE: Template = [
         name="voice-provider",
         value_type=VoiceProvider,
         default=VoiceProvider.OFFLINE_VOSK,
-        description="Speech provider: offline-vosk, openai, groq, google, or yandex. Online providers upload microphone audio.",
+        description="Speech transcription provider. Online providers upload microphone audio. Values: offline-vosk, openai, groq, google, yandex.",
     ),
     KnownArg(
         name="voice-offline-vosk-model-path",

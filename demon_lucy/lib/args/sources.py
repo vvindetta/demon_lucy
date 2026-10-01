@@ -114,12 +114,19 @@ def parse_note_args(
             if (
                 existing is not None
                 and isinstance(argument.value, list)
-                and argument.value
+                and (argument.value or argument.literal_first_value)
             ):
                 merged_known[argument.name] = replace(
                     argument,
                     value=[*existing.value, *argument.value],
                     lines=(*existing.lines, *argument.lines),
+                    flag_lines=(*existing.flag_lines, *argument.flag_lines),
+                )
+            elif existing is not None and argument.value_type is bool:
+                merged_known[argument.name] = replace(
+                    argument,
+                    lines=(*existing.lines, *argument.lines),
+                    flag_lines=(*existing.flag_lines, *argument.flag_lines),
                 )
             else:
                 merged_known[argument.name] = argument

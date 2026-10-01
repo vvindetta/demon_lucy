@@ -17,7 +17,7 @@ INCLUDE_TEMPLATE: Template = [
         name="include",
         value_type=str,
         default=[],
-        description="Render a complete file inside a dynamic block. Format: --include file.",
+        description="Render a complete UTF-8 file inside a dynamic block. Usage: --include <file>. Example: --include reference.md.",
         params=(ArgParam(name="source", required=True),),
     ),
     KnownArg(
@@ -25,8 +25,7 @@ INCLUDE_TEMPLATE: Template = [
         value_type=str,
         default=[],
         description=(
-            "Collect paragraphs whose first line starts with a keyword. Format: "
-            "--include-find file-or-directory keyword."
+            "Collect paragraphs whose first line starts with a keyword. Usage: --include-find <file-or-directory> <keyword ...>. Example: --include-find ~/Notes TODO."
         ),
         params=(
             ArgParam(name="source", required=True),
@@ -37,7 +36,7 @@ INCLUDE_TEMPLATE: Template = [
         name="include-depth",
         value_type=int,
         default=3,
-        description="Maximum nested include render depth. Default: 3.",
+        description="Maximum nesting depth when rendering included files.",
     ),
 ]
 INCLUDE_DYNAMIC_ARGS = {"include", "include-find"}

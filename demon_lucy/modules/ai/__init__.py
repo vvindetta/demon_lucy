@@ -40,7 +40,7 @@ class Ai(AbstractModule):
             name="ai-timeout-seconds",
             value_type=int,
             default=900,
-            description="Maximum time for one Codex run. Default: 900 seconds.",
+            description="Timeout in seconds for one local Codex edit.",
         ),
     ]
 

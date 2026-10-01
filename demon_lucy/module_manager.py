@@ -61,8 +61,7 @@ class ModuleManager:
                 name="sys-modules-priority",
                 value_type=str,
                 default=[],
-                description="Override module execution order (lower runs first). "
-                "Format: name=int. Example: --sys-modules-priority banner=5 renamer=20 todo=30",
+                description="Override module execution order. Lower numbers run first. Usage: --sys-modules-priority <module=priority> [module=priority ...]. Example: --sys-modules-priority banner=5 renamer=20 formatter=30.",
             ),
         ]
         self.template.extend(DEMON_LUCY_STARTUP_TEMPLATE)

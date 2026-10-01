@@ -57,7 +57,7 @@ class Cmd(AbstractModule):
             name="cmd",
             value_type=str,
             default=[],
-            description="Command tokens to execute (nargs='+'). Example: --cmd ls -la",
+            description="Run a local command and insert its output into the note. Usage: --cmd <command ...>. Example: --cmd ls -la.",
         ),
         KnownArg(
             name="cmd-timeout-seconds",
@@ -69,13 +69,13 @@ class Cmd(AbstractModule):
             name="cmd-output-max-bytes",
             value_type=int,
             default=20000,
-            description="Maximum bytes of stdout/stderr written into the file (output is clipped).",
+            description="Maximum number of output bytes written to the note; longer output is clipped.",
         ),
         KnownArg(
             name="cmd-stream",
             value_type=CmdStream,
             default=CmdStream.BOTH,
-            description="Output streams to include: both, stdout, stderr, none.",
+            description="Select which command output streams to insert into the note.",
         ),
     ]
 

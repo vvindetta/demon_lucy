@@ -14,57 +14,49 @@ ARCHIVE_TEMPLATE: Template = [
         name="archive-pair",
         value_type=str,
         default=[],
-        description="Force archive through the configured --archive-auto-pair rule. "
-        "Optional value: text or file.",
+        description="Archive now using the configured --archive-auto-pair rule. Usage: --archive-pair [text|file].",
     ),
     KnownArg(
         name="archive-local",
         value_type=str,
         default=[],
-        description="Force archive the current file beside itself. Optional value: text or file.",
+        description="Archive the current note beside itself. Usage: --archive-local [text|file].",
     ),
     KnownArg(
         name="archive-global",
         value_type=str,
         default=[],
-        description="Force archive the current file into the global archive destination. "
-        "Optional value: text or file.",
+        description="Archive the current note to the global destination. Usage: --archive-global [text|file].",
     ),
     KnownArg(
         name="archive-auto-pair",
         value_type=str,
         default=[],
-        description="Automatic pair archive rule: <src> <dest> [idle_hours] [text|file]. "
-        "In text mode dest is an archive file; in file mode dest is a directory.",
+        description="Automatic pair archive rule: <src> <dest> [idle_hours] [text|file]. Text mode appends to a file; file mode writes into a directory. Example: --archive-auto-pair now.md past.md 12 text.",
     ),
     KnownArg(
         name="archive-auto-local",
         value_type=str,
         default=[],
-        description="Automatic local archive rule: <src> [idle_hours] [text|file]. "
-        "Text mode appends beside the source; file mode writes into .archive/.",
+        description="Archive idle sources beside themselves. Text mode appends beside the source; file mode writes into .archive/. Usage: --archive-auto-local <src> [idle_hours] [text|file].",
     ),
     KnownArg(
         name="archive-auto-global",
         value_type=str,
         default=[],
-        description="Automatic global archive rule: <src> [idle_hours] [text|file]. "
-        "Uses --archive-global-dest-path, or the Git repo root fallback.",
+        description="Archive idle sources using --archive-global-dest-path or the Git repository root fallback. Usage: --archive-auto-global <src> [idle_hours] [text|file].",
     ),
     KnownArg(
         name="archive-ignore-paths",
         value_type=str,
         default=[".lucy"],
-        description="Skip archive events, sources, and destinations matching these paths. "
-        "Relative names/paths match whole path components at any depth; absolute "
-        "paths match that file or directory and its contents. Default: .lucy. "
-        "An explicit list replaces the default; an empty list disables exclusions.",
+        description="Exclude matching archive events, sources, and destinations. Relative paths match whole path components at any depth; absolute paths match the target and its contents. An explicit list replaces the default; an empty list disables exclusions.",
     ),
     KnownArg(
         name="archive-default-mode",
         value_type=ArchiveOutputMode,
         default=ArchiveOutputMode.TEXT,
-        description="Default archive output mode for rules without explicit mode: text or file.",
+        description="Output mode for archive rules that do not specify one. Values: text, file.",
     ),
     KnownArg(
         name="archive-global-dest-path",
@@ -78,15 +70,13 @@ ARCHIVE_TEMPLATE: Template = [
         name="archive-idle-hours",
         value_type=float,
         default=12.0,
-        description="Archive source file when its last modification age is >= this many hours. Default: 12",
+        description="Minimum source age in hours before automatic archiving.",
     ),
     KnownArg(
         name="archive-date-prefix",
         value_type=str,
         default="--- ",
-        description="Text inserted before archive date in text-mode history header. The date "
-        "uses the source file's latest Git commit when available, otherwise "
-        "today's date. Default: '--- '.",
+        description="Text before the archive date header. The date comes from the source's latest Git commit when available, otherwise today.",
     ),
     KnownArg(
         name="archive-date-suffix",

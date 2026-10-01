@@ -28,25 +28,20 @@ DROPDIR_TEMPLATE: Template = [
         value_type=str,
         default=[],
         literal_value_count=1,
-        description="In a folder's init.md, run temporary Lucy flags for files dropped "
-        'directly into that folder. Example: --dropdir-init "--linker-root". '
-        "Repeat for more actions; files return to their source before actions run.",
+        description="In a folder's init.md, apply temporary Lucy flags to files dropped directly into that folder. Repeat for more actions; files return to their source before actions run. Usage: --dropdir-init \"<flags>\". Example: --dropdir-init \"--linker-root\".",
     ),
     KnownArg(
         name="dropdir-action",
         value_type=str,
         default=[],
         literal_value_count=2,
-        description="Run temporary Lucy flags when a file is moved into a matching drop directory. "
-        'Repeat for each rule: --dropdir-action "--linker-root" "/notes/directory". '
-        "Each rule takes a flags string and a directory selector.",
+        description="Apply temporary Lucy flags when a file is dropped into a matching directory. Repeat the flag for additional rules. Usage: --dropdir-action \"<flags>\" <directory>. Example: --dropdir-action \"--linker-root\" \"/notes/directory\".",
     ),
     KnownArg(
         name="dropdir-action-delay-milliseconds",
         value_type=int,
         default=0,
-        description="Delay before running dropdir action after instant move-back (milliseconds). "
-        "Example: --dropdir-action-delay-milliseconds 1200",
+        description="Delay in milliseconds between returning the dropped file and running its actions.",
     ),
 ]
 

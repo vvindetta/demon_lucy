@@ -38,7 +38,7 @@ class Workspace(AbstractModule):
             name="workspace-init",
             value_type=str,
             default="",
-            description="Initialize a Lucy workspace at the given directory path.",
+            description="Initialize a Lucy workspace at the given directory. Usage: --workspace-init <directory>. Example: --workspace-init ~/Notes.",
         ),
     ]
 

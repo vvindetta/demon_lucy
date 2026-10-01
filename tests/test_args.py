@@ -16,6 +16,7 @@ from demon_lucy.lib.args.models import (
 )
 from demon_lucy.lib.args.parser import (
     is_valid_flag_token,
+    literal_value_indexes,
     parse_args,
     resolve_unknown_args,
     split_arg_line,
@@ -213,6 +214,135 @@ def test_literal_value_groups_preserve_tokens_after_option_terminator():
 
     assert parsed.require("rule").value == []
     assert [argument.token for argument in parsed.unknown] == args
+
+
+_LITERAL_FIRST_TEMPLATE = [
+    KnownArg(name="lookup", value_type=str, default=[], literal_first_value=True),
+    KnownArg(name="enabled", value_type=bool, default=False),
+    KnownArg(name="name", default=""),
+]
+
+
+@pytest.mark.parametrize(
+    ("tokens", "expected"),
+    [
+        (["--lookup", "--enabled"], ["--enabled"]),
+        (["--lookup=--enabled"], ["--enabled"]),
+        (["--lookup", "--enabled", "more"], ["--enabled", "more"]),
+        (["--lookup=--enabled", "more"], ["--enabled", "more"]),
+        (["--lookup", "--unknown"], ["--unknown"]),
+        (["--lookup", "--enabled=value"], ["--enabled=value"]),
+        (["--lookup", "--"], ["--"]),
+        (["--lookup", ""], [""]),
+        (["--lookup", r"C:\My Notes"], [r"C:\My Notes"]),
+        (
+            ["--lookup", "--enabled", "--lookup", "--name"],
+            ["--enabled", "--name"],
+        ),
+    ],
+)
+def test_literal_first_value_protects_target_and_keeps_following_option(
+    tokens, expected
+):
+    parsed = parse_args(
+        args=[*tokens, "--name", "outside"], template=_LITERAL_FIRST_TEMPLATE
+    )
+
+    assert parsed.require("lookup").value == expected
+    assert parsed.require("enabled").value is False
+    assert parsed.require("name").value == "outside"
+    assert parsed.unknown == ()
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+def test_literal_first_value_accumulates_in_config_and_cli_overrides(
+    tmp_path: Path, monkeypatch, deferred: bool
+):
+    config = tmp_path / "config.txt"
+    config.write_text("--lookup --enabled more\n--lookup --name\n", encoding="utf-8")
+    lookup_template = _LITERAL_FIRST_TEMPLATE[:1]
+    startup_template = [
+        KnownArg(name="sys-config-path", default=str(config)),
+        *_LITERAL_FIRST_TEMPLATE[1:],
+    ]
+    template = startup_template if deferred else [*startup_template, *lookup_template]
+    monkeypatch.setattr(sys, "argv", ["lucy"])
+
+    parsed = load_args(template, deferred_template=lookup_template)
+    if deferred:
+        parsed = ParsedArgs(known=parsed.known).merged_with(
+            resolve_unknown_args(parsed.unknown, lookup_template)
+        )
+    assert parsed.require("lookup").value == ["--enabled", "more", "--name"]
+    assert parsed.require("lookup").lines == (1, 1, 2)
+    assert parsed.require("enabled").value is False
+    assert parsed.require("name").value == ""
+    assert parsed.unknown == ()
+
+    monkeypatch.setattr(sys, "argv", ["lucy", "--lookup", "--other"])
+    overridden = load_args(template, deferred_template=lookup_template)
+    if deferred:
+        overridden = overridden.merged_with(
+            resolve_unknown_args(overridden.unknown, lookup_template)
+        )
+    assert overridden.require("lookup").value == ["--other"]
+    assert overridden.require("lookup").source is ArgSource.CLI
+
+
+def test_literal_first_value_accumulates_in_note_with_line_locations(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text(
+        "--lookup --enabled more --lookup --name\nbody\n--lookup last\n",
+        encoding="utf-8",
+    )
+
+    parsed = parse_note_args(str(note), _LITERAL_FIRST_TEMPLATE)
+
+    assert parsed.require("lookup").value == ["--enabled", "more", "--name", "last"]
+    assert parsed.require("lookup").lines == (1, 1, 1, 3)
+    assert parsed.find("enabled") is None
+    assert parsed.find("name") is None
+    assert parsed.unknown == ()
+
+
+def test_literal_first_value_respects_option_terminator():
+    tokens = ["--", "--lookup", "--enabled"]
+    parsed = parse_args(args=tokens, template=_LITERAL_FIRST_TEMPLATE)
+
+    assert parsed.require("lookup").value == []
+    assert parsed.require("enabled").value is False
+    assert [arg.token for arg in parsed.unknown] == tokens
+
+
+@pytest.mark.parametrize(
+    ("line", "remove", "remaining"),
+    [
+        ("--lookup --enabled --name outside\n", ["--lookup"], "--name outside\n"),
+        ("--lookup=--enabled more --name outside", ["--lookup"], "--name outside"),
+        ("--lookup --enabled --lookup --name\n", ["--lookup"], "\n"),
+        ("--enabled --lookup --enabled", ["--enabled"], "--lookup --enabled"),
+        ("--lookup --enabled", ["--enabled"], "--lookup --enabled"),
+        ("--lookup", ["--lookup"], ""),
+        ("--lookup --unknown", ["--lookup"], ""),
+    ],
+)
+def test_delete_args_respects_literal_first_values(line, remove, remaining):
+    assert (
+        delete_args_from_string(line, remove, template=_LITERAL_FIRST_TEMPLATE)
+        == remaining
+    )
+
+
+def test_delete_args_preserves_retained_literal_group_values():
+    template = [
+        KnownArg(name="rule", value_type=str, default=[], literal_value_count=2),
+        KnownArg(name="enabled", value_type=bool, default=False),
+    ]
+    line = '--enabled --rule "--enabled" "C:\\My Notes"\n'
+    remaining = delete_args_from_string(line, ["--enabled"], template=template)
+
+    assert split_arg_line(remaining) == ["--rule", "--enabled", r"C:\My Notes"]
+    assert delete_args_from_string(line, ["--rule"], template=template) == "--enabled\n"
 
 
 def test_parse_args_supports_required_field_in_template_item():
@@ -527,6 +657,67 @@ def test_parse_note_args_combines_repeated_list_values(tmp_path: Path) -> None:
 
     assert parsed.require("alias").value == ["first", "second", "third"]
     assert parsed.require("alias").lines == (1, 2, 2)
+
+
+def test_empty_literal_request_keeps_flag_location_without_misaligning_values(
+    tmp_path: Path,
+):
+    path = tmp_path / "note.md"
+    path.write_text(
+        "--lookup\n--lookup first second\n--lookup\n--lookup last\n", encoding="utf-8"
+    )
+
+    parsed = parse_note_args(str(path), _LITERAL_FIRST_TEMPLATE)
+    request = parsed.require("lookup")
+
+    assert request.value == ["first", "second", "last"]
+    assert request.lines == (2, 2, 4)
+    assert request.flag_lines == (1, 2, 3, 4)
+
+
+def test_empty_ordinary_list_still_clears_previous_note_values(tmp_path: Path):
+    path = tmp_path / "note.md"
+    path.write_text("--items first second\n--items\n", encoding="utf-8")
+
+    parsed = parse_note_args(str(path), [KnownArg(name="items", default=[])])
+
+    assert parsed.require("items").value == []
+    assert parsed.require("items").lines == ()
+    assert parsed.require("items").flag_lines == (2,)
+
+
+def test_repeated_note_booleans_keep_all_locations(tmp_path: Path):
+    path = tmp_path / "note.md"
+    path.write_text("--enabled\nbody\n--enabled\n", encoding="utf-8")
+
+    parsed = parse_note_args(str(path), _LITERAL_FIRST_TEMPLATE)
+
+    assert parsed.require("enabled").value is True
+    assert parsed.require("enabled").lines == (1, 3)
+    assert parsed.require("enabled").flag_lines == (1, 3)
+
+
+@pytest.mark.parametrize(
+    ("tokens", "expected"),
+    [
+        (["--lookup", "--enabled"], {1}),
+        (["--lookup=--enabled", "--enabled"], set()),
+        (["--rule=--lookup", "--enabled", "--enabled"], {1}),
+        (["--rule", "--lookup", "--enabled", "--enabled"], {1, 2}),
+        (["--lookup", "--lookup", "--enabled"], {1}),
+        (["--lookup", "--", "--rule", "--enabled", "dir"], {1, 3, 4}),
+        (["--", "--lookup", "--enabled"], set()),
+    ],
+)
+def test_literal_value_indexes_follow_flag_arity_and_option_terminator(
+    tokens, expected
+):
+    template = [
+        *_LITERAL_FIRST_TEMPLATE,
+        KnownArg(name="rule", default=[], literal_value_count=2),
+    ]
+
+    assert literal_value_indexes(tokens, template) == expected
 
 
 def test_load_args_keeps_config_values_when_cli_uses_defaults(

@@ -99,25 +99,25 @@ class Formatter(AbstractModule):
             name="formatter-todo",
             value_type=bool,
             default=False,
-            description="Enable TODO formatting: converts list items like '- task' into unchecked checkboxes '- [ ] task' in the current file.",
+            description="Convert list items such as - task into unchecked checkboxes. The command is removed after formatting.",
         ),
         KnownArg(
             name="formatter-blank",
             value_type=str,
             default=[],
-            description="Keep blank padding at file top and/or bottom; the flag stays in the note. Values: up, down, both, and optional int count. Example: --formatter-blank both 20",
+            description="Maintain blank padding at the top, bottom, or both. The flag stays in the note; an optional count sets the padding size. Usage: --formatter-blank <up|down|both> [count]. Example: --formatter-blank both 20.",
         ),
         KnownArg(
             name="formatter-date",
             value_type=bool,
             default=False,
-            description="Keep completing consecutive archive date headers written as '--- day'.",
+            description="Complete consecutive archive date headers written as --- day. The flag stays in the note.",
         ),
         KnownArg(
             name="formatter-autocomplete",
             value_type=bool,
             default=False,
-            description="Autocomplete Demon Lucy arguments.",
+            description="Complete Lucy argument prefixes. The flag stays in the note.",
         ),
     ]
 

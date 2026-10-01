@@ -29,7 +29,7 @@ KDECONNECT_SYNC_TEMPLATE: Template = [
         name="kdeconnect-remote-root",
         value_type=str,
         default="",
-        description="Existing repository directory relative to KDE Connect's mounted filesystem (for example storage/emulated/0/Notes).",
+        description="Existing repository path relative to the device's mounted filesystem. Example: --kdeconnect-remote-root storage/emulated/0/Notes.",
     ),
     KnownArg(
         name="kdeconnect-patch-queue-dir",
@@ -41,7 +41,7 @@ KDECONNECT_SYNC_TEMPLATE: Template = [
         name="kdeconnect-patch-coalesce-milliseconds",
         value_type=int,
         default=250,
-        description="Coalesce window for rapid edit events before building one patch packet.",
+        description="Wait in milliseconds to combine rapid file edits into one patch packet.",
     ),
     KnownArg(
         name="kdeconnect-patch-max-retries",
@@ -53,13 +53,13 @@ KDECONNECT_SYNC_TEMPLATE: Template = [
         name="kdeconnect-command-timeout-seconds",
         value_type=float,
         default=10.0,
-        description="Timeout for each KDE Connect or local Git command.",
+        description="Timeout in seconds for each KDE Connect or local Git command.",
     ),
     KnownArg(
         name="kdeconnect-mount-retry-seconds",
         value_type=float,
         default=1.5,
-        description="Delay between mount retries when device is temporarily unavailable.",
+        description="Delay in seconds between mount attempts while the device is unavailable.",
     ),
     KnownArg(
         name="kdeconnect-commit-message",
@@ -71,7 +71,7 @@ KDECONNECT_SYNC_TEMPLATE: Template = [
         name="kdeconnect-patch-retry-seconds",
         value_type=float,
         default=30.0,
-        description="Daemon delay before retrying a busy repository or pending transfer.",
+        description="Delay in seconds before retrying a busy repository or pending transfer.",
     ),
     KnownArg(
         name="kdeconnect-dry-run",

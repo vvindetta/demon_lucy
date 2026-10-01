@@ -32,32 +32,52 @@ class _LiteralValue(str):
         return self[1:]
 
 
-def _literal_value_tokens(args: list[str], template: Template) -> list[str]:
+def literal_value_indexes(args: list[str], template: Template) -> set[int]:
+    """Locate flag-shaped values that must be kept literal by argument consumers."""
     counts = {
-        f"--{item.name}": item.literal_value_count
+        f"--{item.name}": item.literal_value_count or int(item.literal_first_value)
         for item in template
-        if item.literal_value_count
+        if item.literal_value_count or item.literal_first_value
     }
-    tokens: list[str] = []
+    indexes: set[int] = set()
     index = 0
     while index < len(args):
         token = args[index]
         if token == "--":
-            tokens.extend(args[index:])
             break
-        flag, separator, inline_value = token.partition("=")
+        flag, separator, _ = token.partition("=")
         count = counts.get(flag, 0)
         index += 1
         if not count or isinstance(token, _LiteralValue):
-            tokens.append(token)
             continue
-        tokens.append(flag)
         if separator:
-            tokens.append(_LiteralValue(inline_value))
             count -= 1
-        values = args[index : index + count]
-        tokens.extend(_LiteralValue(value) for value in values)
-        index += len(values)
+        end = min(len(args), index + count)
+        indexes.update(range(index, end))
+        index = end
+    return indexes
+
+
+def _literal_value_tokens(args: list[str], template: Template) -> list[str]:
+    literal_indexes = literal_value_indexes(args, template)
+    literal_flags = {
+        f"--{item.name}"
+        for item in template
+        if item.literal_value_count or item.literal_first_value
+    }
+    tokens: list[str] = []
+    for index, token in enumerate(args):
+        if index in literal_indexes:
+            tokens.append(_LiteralValue(token))
+        elif token == "--":
+            tokens.extend(args[index:])
+            break
+        else:
+            flag, separator, inline_value = token.partition("=")
+            if separator and flag in literal_flags:
+                tokens.extend((flag, _LiteralValue(inline_value)))
+            else:
+                tokens.append(token)
     return tokens
 
 
@@ -176,7 +196,7 @@ def parse_args(
             options["type"] = _argparse_type(item.value_type)
             if isinstance(item.default, list):
                 options["nargs"] = item.literal_value_count or "*"
-                if item.literal_value_count:
+                if item.literal_value_count or item.literal_first_value:
                     options["action"] = "extend"
         parser.add_argument(f"--{item.name}", **options)
 
@@ -216,6 +236,7 @@ def parse_args(
                 value=value,
                 source=value_source,
                 lines=lines,
+                flag_lines=(line,) if line is not None and dest in values else (),
             )
         )
 

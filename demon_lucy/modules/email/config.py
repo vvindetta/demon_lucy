@@ -60,13 +60,13 @@ SETTINGS_TEMPLATE: Template = [
         name="email-imap-port",
         value_type=int,
         default=993,
-        description="IMAP port; default 993 for TLS. Use 143 with STARTTLS.",
+        description="IMAP port. Use 993 with TLS or 143 with STARTTLS.",
     ),
     KnownArg(
         name="email-imap-security",
         value_type=Security,
         default=Security.TLS,
-        description="IMAP encryption: tls or starttls; certificates are verified.",
+        description="IMAP encryption mode; server certificates are verified. Values: tls, starttls.",
     ),
     KnownArg(
         name="email-imap-username",
@@ -90,13 +90,13 @@ SETTINGS_TEMPLATE: Template = [
         name="email-smtp-port",
         value_type=int,
         default=587,
-        description="SMTP port; default 587 for STARTTLS. Use 465 with TLS.",
+        description="SMTP port. Use 587 with STARTTLS or 465 with TLS.",
     ),
     KnownArg(
         name="email-smtp-security",
         value_type=Security,
         default=Security.STARTTLS,
-        description="SMTP encryption: starttls or tls; certificates are verified.",
+        description="SMTP encryption mode; server certificates are verified. Values: tls, starttls.",
     ),
     KnownArg(
         name="email-smtp-username",
@@ -138,7 +138,7 @@ SETTINGS_TEMPLATE: Template = [
         name="email-sent-copy-mode",
         value_type=SentCopyMode,
         default=SentCopyMode.APPEND,
-        description="append: Lucy saves sent mail via IMAP; server: SMTP provider saves it.",
+        description="Control who saves sent mail. Append saves a copy through IMAP; server relies on the SMTP provider.",
     ),
     KnownArg(
         name="email-initial-message-limit",
@@ -156,7 +156,7 @@ SETTINGS_TEMPLATE: Template = [
         name="email-max-message-bytes",
         value_type=int,
         default=25 * 1024 * 1024,
-        description="Maximum received or outgoing MIME message size; default 25 MiB.",
+        description="Maximum size in bytes of an incoming or outgoing MIME message.",
     ),
 ]
 
@@ -165,13 +165,13 @@ TEMPLATE: Template = [
         name="email-fetch-interval-seconds",
         value_type=int,
         default=300,
-        description="Fetch interval inside Lucy; 0 disables automatic fetches.",
+        description="Interval in seconds between background mail fetches. Set 0 to disable automatic fetching.",
     ),
     KnownArg(
         name="email-repair-interval-seconds",
         value_type=int,
         default=2,
-        description="Check and restore missing email folders and control files at this interval.",
+        description="Interval in seconds between checks that restore missing email folders and control files.",
     ),
     KnownArg(
         name="email-credentials-save",
