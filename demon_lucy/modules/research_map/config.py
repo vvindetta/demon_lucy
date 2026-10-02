@@ -74,7 +74,12 @@ RESEARCH_MAP_TEMPLATE: Template = [
     _arg("research-map-artifact-question", str, "", "Optional related question ID."),
     _arg("research-map-put", str, "", "Publish a prepared map file."),
     _arg("research-map-put-source-path", str, "", "Prepared source file below /tmp."),
-    _arg("research-map-put-target", str, "", "Map-relative destination."),
+    _arg(
+        "research-map-put-target",
+        str,
+        "",
+        "Map-relative destination: existing index/node or a new supporting file in any folder outside artifacts/.",
+    ),
     _arg("research-map-rebuild", str, "", "Reconcile a research map."),
     _arg("research-map-validate", str, "", "Validate a research map read-only."),
 ]

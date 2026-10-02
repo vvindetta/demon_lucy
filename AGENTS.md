@@ -339,6 +339,8 @@ When renaming a flag, update all related places at once:
 
 # Notifications
 
+- The `research_map` module never sends notifications. Report its errors in
+  logs and CLI failures only.
 - For failures, call `safe_notify(..., use_rare_mode=True)` (default mode).
 - Use one stable root-cause key per incident scope (for example per repo/path), not separate keys per command step.
 - Do not send multiple notifications for cause + symptoms. Send one consolidated error notification with the root cause.

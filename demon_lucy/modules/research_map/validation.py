@@ -15,8 +15,10 @@ from demon_lucy.modules.research_map.documents import (
     markdown_image_targets,
     markdown_targets,
     read_document,
+    read_node_document,
     section_prefix,
     single_link_target,
+    validate_image_target,
 )
 from demon_lucy.modules.research_map.models import ValidationResult
 from demon_lucy.modules.research_map.questions import render_questions_body
@@ -67,24 +69,22 @@ def validate_map(map_dir: Path) -> ValidationResult:
     elif attachments_dir.exists() and not attachments_dir.is_dir():
         errors.append(f".attach/ must be a directory: {attachments_dir}")
     elif attachments_dir.is_dir():
-        entries = list(attachments_dir.iterdir())
-        if not entries:
-            errors.append(".attach/ must not exist while it is empty")
-        for path in entries:
-            if path.is_symlink() or not path.is_file():
-                errors.append(
-                    f"attachments must be regular files in flat .attach/: {path}"
-                )
+        for path in attachments_dir.rglob("*"):
+            if path.is_symlink() or not (path.is_file() or path.is_dir()):
+                errors.append(f"unsafe attachment path: {path}")
     if errors:
         return ValidationResult(errors=tuple(errors), warnings=tuple(warnings))
 
     documents: dict[Path, tuple[dict, str, str]] = {}
 
-    def load(path: Path) -> tuple[dict, str, str] | None:
+    def load(path: Path, *, node: bool = False) -> tuple[dict, str, str] | None:
         if path in documents:
             return documents[path]
         try:
-            documents[path] = read_document(path)
+            document = read_node_document(path) if node else read_document(path)
+            if document is None:
+                return None
+            documents[path] = document
         except ResearchMapError as exc:
             errors.append(str(exc))
             return None
@@ -107,16 +107,16 @@ def validate_map(map_dir: Path) -> ValidationResult:
             errors.append("index.md must not contain a current-focus section")
 
     node_paths: list[Path] = []
-    node_directories: list[Path] = []
     for path in sorted(nodes_dir.rglob("*")):
         if path.is_symlink():
             errors.append(f"node-tree path must not be a symlink: {path}")
         elif path.is_dir():
-            node_directories.append(path)
+            continue
         elif path.is_file() and path.suffix == ".md":
-            node_paths.append(path)
-        else:
-            errors.append(f"b-nodes/ may contain only node Markdown files: {path}")
+            if load(path, node=True) is not None:
+                node_paths.append(path)
+        elif not path.is_file():
+            errors.append(f"node-tree path must be a regular file or directory: {path}")
 
     nodes_by_id: dict[str, Path] = {}
     node_data: dict[Path, dict] = {}
@@ -199,10 +199,6 @@ def validate_map(map_dir: Path) -> ValidationResult:
         ):
             errors.append(f"parent {parent_path} does not link child {path.name}")
 
-    for directory in node_directories:
-        if not any(path.is_relative_to(directory) for path in node_paths):
-            errors.append(f"node directory has no nodes: {directory}")
-
     artifact_paths = sorted(artifacts_dir.rglob("*.md"))
     artifact_numbers: dict[int, Path] = {}
     for path in artifact_paths:
@@ -248,10 +244,10 @@ def validate_map(map_dir: Path) -> ValidationResult:
         if contains_markdown_table(checked_text):
             errors.append(f"Markdown table is not allowed: {path}")
         for target in markdown_image_targets(checked_text):
-            if is_external_target(target):
-                errors.append(f"image must be stored locally in .attach/: {target}")
-            elif _resolve_target(path, target).parent != attachments_dir.resolve():
-                errors.append(f"image must be stored directly in .attach/: {target}")
+            try:
+                validate_image_target(map_dir, path, target)
+            except ResearchMapError as exc:
+                errors.append(str(exc))
         for target in markdown_targets(checked_text):
             if (
                 not is_external_target(target)

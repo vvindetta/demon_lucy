@@ -15,6 +15,7 @@ from demon_lucy.modules.research_map.documents import (
     read_document,
     single_line,
     slugify,
+    validate_image_target,
 )
 from demon_lucy.modules.research_map.nodes import read_nodes
 from demon_lucy.modules.research_map.storage import (
@@ -48,17 +49,8 @@ def validate_artifact_content(
     if contains_markdown_table(text):
         raise ResearchMapError(f"Markdown table is not allowed: {path}")
 
-    attachments_root = (map_dir / ".attach").resolve()
     for target in markdown_image_targets(text):
-        if is_external_target(target):
-            raise ResearchMapError(
-                f"image must be stored locally in .attach/: {target}"
-            )
-        clean = target.split("#", 1)[0]
-        if (path.parent / clean).resolve().parent != attachments_root:
-            raise ResearchMapError(
-                f"image must be stored directly in .attach/: {target}"
-            )
+        validate_image_target(map_dir, path, target)
     for target in markdown_targets(text):
         if is_external_target(target):
             continue

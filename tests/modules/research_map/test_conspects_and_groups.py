@@ -86,7 +86,7 @@ def test_grouping_roots_preserves_ids_and_needs_no_parent_node(tmp_path: Path) -
 def test_automatic_maintenance_finds_unregistered_nested_maps_and_leaves_conspect_body(
     tmp_path: Path,
     name: str,
-    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     map_dir = make_map(tmp_path, name)
     node = add(map_dir, "Place")
@@ -105,23 +105,18 @@ def test_automatic_maintenance_finds_unregistered_nested_maps_and_leaves_conspec
         event_id="test",
         event=FileModifiedEvent(str(node)),
     )
-    errors = []
-    monkeypatch.setattr(
-        "demon_lucy.modules.research_map.module.safe_notify",
-        lambda **kwargs: errors.append(kwargs),
-    )
     system = System(global_template=RESEARCH_MAP_TEMPLATE, modules=[module])
     assert map_name_for_path(tmp_path, str(node)) == name
     assert module.modified(ctx, system) is not None
     assert "## Done" in (map_dir / "questions.md").read_text()
     assert conspect.read_bytes() == original
     assert module.modified(ctx, system) is None
-    assert not errors
+    assert "research_map.validation_failed" not in caplog.text
     assert not (tmp_path / "index.md").exists()
 
 
 def test_directory_move_refreshes_group_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     map_dir = make_map(tmp_path)
     node = add(map_dir, "Place", conspect=True)
@@ -142,17 +137,12 @@ def test_directory_move_refreshes_group_paths(
         event_id="move",
         event=DirMovedEvent(str(old_group), str(new_group)),
     )
-    errors = []
-    monkeypatch.setattr(
-        "demon_lucy.modules.research_map.module.safe_notify",
-        lambda **kwargs: errors.append(kwargs),
-    )
     result = module.moved(
         ctx, System(global_template=RESEARCH_MAP_TEMPLATE, modules=[module])
     )
     assert result is not None
     assert "b-nodes/after/1_place.md" in (map_dir / "index.md").read_text()
-    assert not errors
+    assert "research_map.validation_failed" not in caplog.text
 
 
 def test_grouping_does_not_hide_duplicate_ids_or_broken_links(tmp_path: Path) -> None:

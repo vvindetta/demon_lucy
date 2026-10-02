@@ -72,15 +72,20 @@ def atomic_copy(source: Path, target: Path, *, overwrite: bool) -> bool:
     if source.is_symlink() or not source.is_file():
         raise ResearchMapError(f"source must be a regular non-symlink file: {source}")
 
-    created_parent = False
-    if not target.parent.exists():
-        if target.parent.parent.is_symlink() or not target.parent.parent.is_dir():
-            raise ResearchMapError(
-                f"target parent must be a safe directory: {target.parent.parent}"
-            )
-        target.parent.mkdir()
-        created_parent = True
+    missing_parents: list[Path] = []
+    parent = target.parent
+    while not parent.exists() and not parent.is_symlink():
+        missing_parents.append(parent)
+        parent = parent.parent
+    if parent.is_symlink() or not parent.is_dir():
+        raise ResearchMapError(
+            f"target parent must be a safe non-symlink directory: {parent}"
+        )
+    created_parents: list[Path] = []
     try:
+        for parent in reversed(missing_parents):
+            parent.mkdir()
+            created_parents.append(parent)
         _ensure_safe_target(target)
         if overwrite:
             if not target.is_file():
@@ -116,8 +121,8 @@ def atomic_copy(source: Path, target: Path, *, overwrite: bool) -> bool:
                 os.close(descriptor)
             temporary.unlink(missing_ok=True)
     except BaseException:
-        if created_parent:
-            remove_empty_directory(target.parent)
+        for parent in reversed(created_parents):
+            remove_empty_directory(parent)
         raise
     return True
 

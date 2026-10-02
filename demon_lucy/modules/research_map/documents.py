@@ -13,6 +13,7 @@ from markdown_it.token import Token
 
 FRONTMATTER_RE = re.compile(r"\A---\r?\n(?P<header>.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
 QUESTION_ID_RE = re.compile(r"\A(?P<parts>[1-9]\d*(?:\.[1-9]\d*)*)\Z")
+NODE_FILENAME_RE = re.compile(r"\A[1-9]\d*(?:\.[1-9]\d*)*_.+\.md\Z")
 ARTIFACT_ID_RE = re.compile(r"\AA(?P<number>\d+)\Z")
 SINGLE_LINK_RE = re.compile(r"\A\[[^\]]+\]\(([^)]+)\)\Z")
 MARKDOWN = MarkdownIt("commonmark").enable("table")
@@ -29,7 +30,9 @@ def single_line(value: str, field: str) -> str:
     return result
 
 
-def read_document(path: Path) -> tuple[dict[str, Any], str, str]:
+def read_document(
+    path: Path, *, require_frontmatter: bool = True
+) -> tuple[dict[str, Any], str, str]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -37,16 +40,45 @@ def read_document(path: Path) -> tuple[dict[str, Any], str, str]:
 
     match = FRONTMATTER_RE.match(text)
     if not match:
+        if not require_frontmatter:
+            return {}, text, text
         raise ResearchMapError(f"missing YAML frontmatter in {path}")
 
     try:
         data = yaml.safe_load(match.group("header")) or {}
     except yaml.YAMLError as exc:
+        if not require_frontmatter:
+            return {}, text, text
         raise ResearchMapError(f"invalid YAML in {path}: {exc}") from exc
     if not isinstance(data, dict):
+        if not require_frontmatter:
+            return {}, text, text
         raise ResearchMapError(f"frontmatter must be a mapping in {path}")
 
     return data, text[match.end() :], text
+
+
+def read_node_document(path: Path) -> tuple[dict[str, Any], str, str] | None:
+    numbered = bool(NODE_FILENAME_RE.fullmatch(path.name))
+    document = read_document(path, require_frontmatter=numbered)
+    if numbered or document[0].get("type") in {"node", "question", "conspect"}:
+        return document
+    return None
+
+
+def validate_image_target(map_dir: Path, source: Path, target: str) -> None:
+    clean = target.split("#", 1)[0]
+    if is_external_target(target) or Path(clean).is_absolute():
+        raise ResearchMapError(
+            f"image must be stored locally with a relative link: {target}"
+        )
+    resolved = (source.parent / clean).resolve()
+    if not resolved.is_relative_to(map_dir.resolve()):
+        raise ResearchMapError(f"image must be stored inside the map: {target}")
+    if not resolved.is_file():
+        raise ResearchMapError(
+            f"broken link in {source}: image is not a file: {target}"
+        )
 
 
 def extract_title(body: str) -> str | None:

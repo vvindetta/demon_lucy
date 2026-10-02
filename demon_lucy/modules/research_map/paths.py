@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from demon_lucy.lib.path import path_inside_no_symlinks
-from demon_lucy.modules.research_map.documents import ResearchMapError
+from demon_lucy.modules.research_map.documents import NODE_FILENAME_RE, ResearchMapError
 
 TMP_ROOT = Path("/tmp")
 MAP_NAME_RE = re.compile(r"[\w]+(?:-[\w]+)*_map", re.UNICODE)
@@ -105,20 +105,18 @@ def classify_put_target(value: str) -> PutTarget:
     if (
         len(relative.parts) >= 2
         and relative.parts[0] == "b-nodes"
-        and relative.suffix == ".md"
-        and relative.name != ".md"
+        and NODE_FILENAME_RE.fullmatch(relative.name)
     ):
         return PutTarget(relative_path=relative, overwrite=True)
     if (
-        len(relative.parts) == 2
-        and relative.parts[0] == ".attach"
-        and relative.name not in {".", ".."}
+        relative.parts[0] in {"index.md", "questions.md", "seed.md", "artifacts"}
+        or (len(relative.parts) == 1 and relative.name in {"b-nodes", ".attach"})
+        or any(part.startswith(".") and part != ".attach" for part in relative.parts)
     ):
-        return PutTarget(relative_path=relative, overwrite=False)
-    raise ResearchMapError(
-        "target must be index.md, b-nodes/<node-path>.md, or .attach/<name>; "
-        "questions are derived and artifacts are immutable"
-    )
+        raise ResearchMapError(
+            "target is reserved; questions are derived and artifacts are immutable"
+        )
+    return PutTarget(relative_path=relative, overwrite=False)
 
 
 def map_name_for_path(root: Path, value: str) -> str | None:

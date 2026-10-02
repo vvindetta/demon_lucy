@@ -100,6 +100,16 @@ def test_safe_tmp_file_rejects_file_outside_configured_tmp_root(
             ".attach/diagram.png",
             PutTarget(Path(".attach/diagram.png"), overwrite=False),
         ),
+        ("diagram.png", PutTarget(Path("diagram.png"), overwrite=False)),
+        ("b-nodes/source.md", PutTarget(Path("b-nodes/source.md"), overwrite=False)),
+        (
+            "b-nodes/1_example/images/diagram.png",
+            PutTarget(Path("b-nodes/1_example/images/diagram.png"), overwrite=False),
+        ),
+        (
+            ".attach/images/diagram.png",
+            PutTarget(Path(".attach/images/diagram.png"), overwrite=False),
+        ),
     ],
 )
 def test_classify_put_target_accepts_only_mutable_contract(
@@ -114,7 +124,11 @@ def test_classify_put_target_accepts_only_mutable_contract(
     [
         "questions.md",
         "artifacts/a1-result.md",
-        "nodes/1_node.md",
+        "artifacts/images/diagram.png",
+        ".git/config",
+        "seed.md",
+        "b-nodes",
+        ".attach",
         "../index.md",
         "/tmp/index.md",
     ],
@@ -161,6 +175,15 @@ def test_atomic_copy_overwrites_document_but_never_attachment(tmp_path: Path) ->
     with pytest.raises(FileExistsError):
         atomic_copy(source, attachment, overwrite=False)
     assert attachment.read_bytes() == b"new"
+
+
+def test_atomic_copy_creates_nested_attachment_directories(tmp_path: Path) -> None:
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"document")
+    target = tmp_path / "branch" / "documents" / "source.pdf"
+
+    assert atomic_copy(source, target, overwrite=False)
+    assert target.read_bytes() == b"document"
 
 
 def test_storage_rejects_symlink_target_and_parent(tmp_path: Path) -> None:

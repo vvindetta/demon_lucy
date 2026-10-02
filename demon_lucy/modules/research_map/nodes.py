@@ -11,6 +11,7 @@ from demon_lucy.modules.research_map.documents import (
     node_label,
     question_sort_key,
     read_document,
+    read_node_document,
     single_line,
     slugify,
 )
@@ -31,7 +32,10 @@ def read_nodes(map_dir: Path) -> dict[str, Path]:
     for path in sorted(nodes_dir.rglob("*.md")):
         if path.is_symlink() or not path.is_file():
             raise ResearchMapError(f"node must be a regular file: {path}")
-        data, _, _ = read_document(path)
+        document = read_node_document(path)
+        if document is None:
+            continue
+        data, _, _ = document
         question_id = str(data.get("id", ""))
         if not QUESTION_ID_RE.fullmatch(question_id):
             raise ResearchMapError(f"invalid question ID in {path}: {question_id!r}")

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.logfmt import log_record
-from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import path_inside_no_symlinks
 from demon_lucy.modules.abstract_module import (
     AbstractModule,
@@ -190,12 +189,6 @@ class ResearchMap(AbstractModule):
                     error=message,
                 )
             )
-            safe_notify(
-                name=f"research-map:{scope.resolve(strict=False)}",
-                message=message,
-                args=ctx.args,
-                use_rare_mode=True,
-            )
             raise ValueError(message) from exc
 
         logger.info(
@@ -244,12 +237,6 @@ class ResearchMap(AbstractModule):
                     reason="automatic_maintenance",
                     error=exc,
                 )
-            )
-            safe_notify(
-                name=f"research-map:{map_dir.resolve(strict=False)}",
-                message=str(exc),
-                args=ctx.args,
-                use_rare_mode=True,
             )
             return ModuleResult(context=ctx, changed=changed) if changed else None
         logger.info(

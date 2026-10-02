@@ -1,7 +1,10 @@
 from pathlib import Path
+from unittest.mock import Mock
 
+import pytest
 from watchdog.events import FileModifiedEvent
 
+from demon_lucy.lib import notifications
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.modules.abstract_module import AbstractModule, Context, System
 from demon_lucy.modules.research_map import ResearchMap
@@ -113,3 +116,28 @@ def test_index_change_does_not_write_optional_registry(tmp_path: Path) -> None:
     assert second is None
     assert registry.stat().st_mtime_ns == registry_mtime
     assert registry.read_text(encoding="utf-8") == "# Maps\n\n## Active\n"
+
+
+@pytest.mark.parametrize("handler", ["created", "modified", "moved", "deleted"])
+def test_validation_errors_are_logged_without_notifications(
+    tmp_path: Path, monkeypatch, caplog, handler: str
+) -> None:
+    init_map(root=tmp_path, map_name="test_map", title="Test", goal="Goal", seed="Seed")
+    map_dir = tmp_path / "test_map"
+    path = map_dir / "index.md"
+    path.write_text(
+        path.read_text().replace("## Seed", "[Missing](missing.pdf)\n\n## Seed")
+    )
+    notify = Mock()
+    monkeypatch.setattr(notifications, "notify", notify)
+    module = ResearchMap()
+    ctx = _context(tmp_path, path, FileModifiedEvent(str(path)))
+    assert (
+        getattr(module, handler)(
+            ctx, System(global_template=RESEARCH_MAP_TEMPLATE, modules=[module])
+        )
+        is None
+    )
+    assert "research_map.validation_failed" in caplog.text
+    assert "broken link" in caplog.text
+    notify.assert_not_called()

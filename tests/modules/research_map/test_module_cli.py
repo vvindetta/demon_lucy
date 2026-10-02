@@ -1,12 +1,17 @@
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
+from demon_lucy.lib import notifications
 from demon_lucy.lib.args.models import ArgSource, ParsedArgs, UnknownArg
 from demon_lucy.lib.args.parser import parse_args
 from demon_lucy.module_manager import ModuleManager
 from demon_lucy.modules.research_map import ResearchMap
 from demon_lucy.modules.research_map.config import RESEARCH_MAP_TEMPLATE
+from demon_lucy.modules.research_map.maps import init_map
+from demon_lucy.modules.research_map.nodes import read_nodes
+from demon_lucy.modules.research_map.validation import validate_map
 from demon_lucy.runtime import DEMON_LUCY_STARTUP_TEMPLATE, select_demon_lucy_modules
 
 
@@ -92,7 +97,11 @@ def test_cli_init_and_new_node_leave_valid_derived_state(
     assert "# Maps\n\n## Active\n" == (root / "index.md").read_text(encoding="utf-8")
 
 
-def test_cli_validation_failure_is_expected_module_error(tmp_path: Path) -> None:
+def test_cli_validation_failure_is_logged_without_notifications(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    notify = Mock()
+    monkeypatch.setattr(notifications, "notify", notify)
     root = tmp_path / "maps"
     root.mkdir()
     (root / "index.md").write_text(
@@ -107,6 +116,8 @@ def test_cli_validation_failure_is_expected_module_error(tmp_path: Path) -> None
     )
     with pytest.raises(ValueError, match="research map validation failed"):
         manager.run_cli(event_id="validate-1")
+    assert "research_map.operation_failed" in caplog.text
+    notify.assert_not_called()
 
 
 def test_cli_creates_nested_conspect_without_registry_or_invented_body(
@@ -147,3 +158,51 @@ def test_cli_creates_nested_conspect_without_registry_or_invented_body(
     )
     assert document.split("---", 2)[2].strip() == ""
     assert not (tmp_path / "index.md").exists()
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "guide.pdf",
+        "b-nodes/guide.md",
+        "b-nodes/components/documents/guide.pdf",
+        ".attach/sources/guide.md",
+    ],
+)
+def test_cli_put_supporting_file_anywhere_without_overwriting(
+    tmp_path: Path,
+    monkeypatch,
+    target: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    init_map(
+        root=tmp_path, map_name="topic_map", title="Topic", goal="Goal", seed="Seed"
+    )
+    source = tmp_path / "source"
+    source.write_bytes(b"Supporting material\n")
+    manager = ModuleManager(
+        [ResearchMap()],
+        _startup_args(
+            tmp_path,
+            [
+                "--research-map-put",
+                "topic_map",
+                "--research-map-put-source-path",
+                str(source),
+                "--research-map-put-target",
+                target,
+            ],
+        ),
+        run_mode="cli",
+    )
+    assert manager.run_cli(event_id="put")[1] == 1
+    map_dir = tmp_path / "topic_map"
+    assert (map_dir / target).read_bytes() == b"Supporting material\n"
+    assert read_nodes(map_dir) == {}
+    result = validate_map(map_dir)
+    assert result.is_valid, result.errors
+
+    source.write_bytes(b"Replacement")
+    with pytest.raises(ValueError):
+        manager.run_cli(event_id="put-again")
+    assert (map_dir / target).read_bytes() == b"Supporting material\n"
