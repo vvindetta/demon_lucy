@@ -190,7 +190,7 @@ def test_main_does_not_log_unavailable_opened_events_when_disabled(
     assert "watcher.opened_events_unavailable" not in captured.err
 
 
-def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
+def test_main_returns_2_when_notes_dirs_are_missing(monkeypatch, caplog):
     monkeypatch.setattr(main_daemon, "run_config_migrations", lambda _path: [])
     monkeypatch.setattr(
         main_daemon,
@@ -210,11 +210,11 @@ def test_main_raises_when_notes_dirs_are_missing(monkeypatch):
         ),
     )
 
-    with pytest.raises(ValueError):
-        main_daemon.main()
+    assert main_daemon.main() == 2
+    assert "--sys-watch-paths is required" in caplog.text
 
 
-def test_main_raises_when_startup_args_are_invalid(monkeypatch):
+def test_main_returns_2_when_startup_args_are_invalid(monkeypatch, caplog):
     monkeypatch.setattr(main_daemon, "run_config_migrations", lambda _path: [])
     monkeypatch.setattr(
         main_daemon,
@@ -222,8 +222,8 @@ def test_main_raises_when_startup_args_are_invalid(monkeypatch):
         lambda template, deferred_template: ParsedArgs(),
     )
 
-    with pytest.raises(ValueError):
-        main_daemon.main()
+    assert main_daemon.main() == 2
+    assert "--sys-watch-paths is required" in caplog.text
 
 
 def test_main_continues_when_module_is_unknown(

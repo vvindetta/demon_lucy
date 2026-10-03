@@ -40,7 +40,10 @@ def main() -> int:
     )
     watch_paths = startup_args.find("sys-watch-paths")
     if watch_paths is None or not watch_paths.value:
-        raise ValueError("--sys-watch-paths is required")
+        logger.error(
+            log_record("runtime.config_error", error="--sys-watch-paths is required")
+        )
+        return 2
     notes_dirs = watch_paths.value
     if "/path/to/note/dir" in notes_dirs:
         raise ValueError(
