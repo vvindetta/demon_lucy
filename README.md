@@ -1,10 +1,12 @@
 ![Demon Lucy](media/lucy.gif)
 
-# D(a)emon Lucy — a modular file modification program
+# Lucy is a modular filesystem automation d(a)emon
+
+She reacts to file events. Reads commands from files and writes results back.
 
 Lucy works at the filesystem level. Use any editor you like. You don't need any plugins.
 
-Lucy monitors your directory via `inotify` and runs the modules whenever a file event occurs.
+Daemon monitors your directory via `inotify` and runs the modules whenever a file event occurs.
 
 ![Lucy demo](media/lucy_demo.gif)
 
