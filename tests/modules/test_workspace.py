@@ -290,7 +290,7 @@ def test_workspace_init_creates_workspace_files_from_note_flag(
     assert "# One or more directories to watch recursively." in config_text
     assert f"--sys-watch-paths {workspace_root}" in config_text
     assert "--sys-config-path" not in config_text
-    assert "# Run only selected modules by name." in config_text
+    assert "# Run selected modules plus sys." in config_text
     assert "--sys-modules workspace archive status" in config_text
     assert "# Automatic pair archive rule:" in config_text
     assert "--archive-auto-pair now.md past.md 10 text" in config_text
