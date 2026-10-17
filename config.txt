@@ -11,7 +11,8 @@
 # --- runtime/system ---
 
 # Common desktop modules. The cmd module is intentionally excluded.
-# --sys-modules "dropdir" "alias" "workspace" "banner" "renamer" "linker" "formatter" "archive" "status" "sys" "git"
+# Sys is always included unless disabled with --sys-modules-exclude sys.
+# --sys-modules "dropdir" "alias" "workspace" "banner" "renamer" "linker" "formatter" "archive" "status" "git"
 
 # Override module order. Lower number runs earlier.
 # --sys-modules-priority dropdir=-1 alias=0 workspace=1 sys=2 banner=10 renamer=20 linker=22 formatter=23 archive=25 status=30 git=50

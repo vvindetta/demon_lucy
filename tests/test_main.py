@@ -241,7 +241,7 @@ def test_main_continues_when_module_is_unknown(
     assert state.started is True
     assert len(state.scheduled) == 1
     handler, _scheduled_path, _recursive = state.scheduled[0]
-    assert handler.modules.modules == []
+    assert [module.name for module in handler.modules.modules] == ["sys"]
     captured = capsys.readouterr()
     assert "runtime.module_unknown" in captured.err
     assert "modules=missing" in captured.err

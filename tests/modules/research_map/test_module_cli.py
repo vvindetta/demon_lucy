@@ -37,7 +37,8 @@ def _startup_args(root: Path, cli_tokens: list[str]) -> ParsedArgs:
 
 def test_research_map_is_available_but_not_default() -> None:
     assert [module.name for module in select_demon_lucy_modules(["research_map"])] == [
-        "research_map"
+        "sys",
+        "research_map",
     ]
     defaults = parse_args(args=[], template=DEMON_LUCY_STARTUP_TEMPLATE)
     assert "research_map" not in defaults.require("sys-modules").value

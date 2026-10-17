@@ -103,6 +103,24 @@ def test_run_oneshot_passes_oneshot_run_mode(tmp_path: Path, monkeypatch):
     assert captured["run_mode"] == "oneshot"
 
 
+def test_run_oneshot_handles_sys_commands_with_explicit_module_selection(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    note = tmp_path / "note.md"
+    note.write_text("--mods\n", encoding="utf-8")
+    values = _base_values(tmp_path)
+    values["sys-modules"] = ["formatter"]
+    monkeypatch.setattr(oneshot_mod, "configure_logging", lambda _args: None)
+
+    assert oneshot_mod.run_oneshot(startup_args=_startup_args(values)) == 0
+
+    content = note.read_text(encoding="utf-8")
+    assert "* sys (2)" in content
+    assert "* formatter (23)" in content
+    assert "--mods" not in content
+
+
 def test_run_oneshot_without_paths_runs_cli_flow(
     tmp_path: Path,
     monkeypatch,

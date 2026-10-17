@@ -202,7 +202,7 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
             "status",
             "sys",
         ],
-        description="Run only selected modules by name. Example: --sys-modules git status.",
+        description="Run selected modules plus sys. Disable sys with --sys-modules-exclude sys. Example: --sys-modules git status.",
     ),
     KnownArg(
         name="sys-modules-exclude",
@@ -331,7 +331,9 @@ def select_demon_lucy_modules(
 
     selected_classes = MODULE_CLASSES
     if requested_include:
-        selected_classes = [cls for cls in selected_classes if cls.name in include_set]
+        selected_classes = [
+            cls for cls in selected_classes if cls is Sys or cls.name in include_set
+        ]
     if exclude_set:
         selected_classes = [
             cls for cls in selected_classes if cls.name not in exclude_set

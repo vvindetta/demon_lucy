@@ -146,7 +146,7 @@ def test_email_is_optional_and_available():
         for module in select_demon_lucy_modules(
             include_names=["email"], exclude_names=[]
         )
-    ] == ["email"]
+    ] == ["email", "sys"]
 
 
 def test_real_oneshot_initializes_without_a_target(tmp_path, monkeypatch):

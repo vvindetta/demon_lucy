@@ -7,10 +7,6 @@ help and defaults from loaded modules.
 - `str[]`: space-separated values. `enum`: one of the listed values.
 - `<value>` marks a required value; `[value]` marks an optional value.
 - In notes and config files, quote values containing spaces. Backslashes are literal.
-- Commands starting with `python3` run in a terminal; other examples belong in notes
-  or config files unless stated otherwise.
-
-Run terminal examples from Lucy's project directory unless stated otherwise.
 
 ## Runtime and module selection
 
@@ -36,21 +32,9 @@ Set these flags in the config file or at startup.
 | `--sys-git-repo-lock-wait-timeout-seconds` | `float` | Maximum wait in seconds for Lucy's Git repository lock before skipping the cycle. |
 | `--sys-git-repo-lock-retry-sleep-seconds` | `float` | Delay in seconds between Git repository lock attempts. |
 | `--sys-git-repo-lock-stale-seconds` | `float` | Age in seconds after which a Git repository lock is considered stale. |
-| `--sys-modules` | `str[]` | Load only the named modules, replacing the default selection. |
-| `--sys-modules-exclude` | `str[]` | Remove named modules from the selected or default list. |
+| `--sys-modules` | `str[]` | Replace the default selection with the named modules; `sys` stays enabled. |
+| `--sys-modules-exclude` | `str[]` | Remove named modules, including `sys`, from the selected or default list. |
 | `--sys-modules-priority` | `str[]` | Override execution order with `name=integer`. Lower numbers run first. |
-
-```bash
-python3 main_daemon.py --sys-watch-paths ~/Notes --sys-disable-opened-events
-```
-
-```text
---sys-notification-provider desktop
---sys-ignore-paths ~/.cache ~/Notes/private
---sys-modules git status archive sys
---sys-modules-exclude status
---sys-modules-priority archive=20 git=50
-```
 
 ## One-shot runs
 
@@ -63,12 +47,6 @@ modules that support direct CLI actions use the current directory as their scope
 | `--oneshot-paths` | `str[]` | Files or directories to process. Omit for direct CLI actions or a `moved` event. |
 | `--oneshot-move-src-path` | `str` | Original path for a synthetic `moved` event. |
 | `--oneshot-move-dest-path` | `str` | New path for a synthetic `moved` event. |
-
-```bash
-python3 main_oneshot.py --oneshot-event modified --oneshot-paths ~/Notes
-python3 main_oneshot.py --oneshot-paths ~/Notes/note.md --sys-modules git
-python3 main_oneshot.py --oneshot-event moved --oneshot-move-src-path old.md --oneshot-move-dest-path new.md
-```
 
 ## Sys commands
 
@@ -84,17 +62,6 @@ Write these commands in a note to insert their results.
 | `--help` | `bool` | Show Sys command help. |
 | `--event` | `bool` | Show the current filesystem event. |
 
-```text
---neofetch
---man git
---man sys
---man banner-date
---man --banner-date
---man mods banner-date
---man graph/include
---man --mods --man --banner-date
-```
-
 ## Alias
 
 System flags (`--sys-*`) and `--cmd` cannot be alias targets.
@@ -105,7 +72,8 @@ System flags (`--sys-*`) and `--cmd` cannot be alias targets.
 | `--alias-dry-run` | `bool` | Log alias expansions without rewriting the note. |
 
 ```text
---alias "b=--banner {args}" "todo=--formatter-todo" "rn=--rename {args}"
+--alias "b=--banner {args}"
+--b "Project plan"
 ```
 
 ## Workspace
@@ -113,6 +81,8 @@ System flags (`--sys-*`) and `--cmd` cannot be alias targets.
 | Argument | Type | Meaning |
 |---|---|---|
 | `--workspace-init` | `str` | Create a notes workspace at this path, initialize Git when available, and add systemd setup files where supported. |
+
+Run in a terminal from Lucy's project directory:
 
 ```bash
 python3 main_oneshot.py --workspace-init ~/Notes
@@ -125,11 +95,6 @@ python3 main_oneshot.py --workspace-init ~/Notes
 | `--banner` | `str[]` | Insert the supplied text as an ASCII banner. |
 | `--banner-date` | `bool` | Insert today's date as an ASCII banner. |
 
-```text
---banner hello world
---banner-date
-```
-
 ## Renamer
 
 | Argument | Type | Meaning |
@@ -137,10 +102,6 @@ python3 main_oneshot.py --workspace-init ~/Notes
 | `--rename` | `str` | Rename the current file. |
 | `--rename-auto` | `bool` | On creation, add an extension to extensionless files; date one-letter filenames that already have an extension. |
 | `--rename-auto-format` | `str` | Extension for automatic renaming. Default: `md`. |
-
-```text
---rename "Project notes.md"
-```
 
 ## Linker
 
@@ -150,11 +111,6 @@ python3 main_oneshot.py --workspace-init ~/Notes
 | `--linker-auto-clean-root-links` | `bool` | Remove managed root links when `--linker-root` is absent. |
 | `--linker-ignore` | `str[]` | Exclude files and links by basename, absolute path, or repository-relative path. |
 | `--linker-auto-update-md-links` | `bool` | Update Markdown links when files move; move target files when their links are edited. |
-
-```text
---linker-root
---linker-auto-update-md-links
-```
 
 ## Graph
 
@@ -167,8 +123,7 @@ Default: `year`.
 | `--graph-regex` | `str[]` | Graph regular expression matches: `<file> <regex> [period]`. |
 
 ```text
---graph past.md sleep week
---graph-regex past.md "\bsleep\b|slept|nap" month
+--graph-regex journal.md "\b(coffee|tea)\b" month
 ```
 
 ## Include
@@ -178,11 +133,6 @@ Default: `year`.
 | `--include` | `str[]` | Show a complete UTF-8 file in an indented dynamic block: `<file>`. |
 | `--include-find` | `str[]` | Collect paragraphs whose first line starts with a keyword: `<file-or-directory> <keyword ...>`. |
 | `--include-depth` | `int` | Maximum include nesting depth. Default: `3`. |
-
-```text
---include shared/project.md
---include-find notes "tasks:"
-```
 
 ## Archive
 
@@ -217,7 +167,6 @@ cannot be a source or destination.
 
 ```text
 --archive-auto-pair now.md past.md 12 text
---archive-local file
 ```
 
 ## Formatter
@@ -228,13 +177,6 @@ cannot be a source or destination.
 | `--formatter-blank` | `str[]` | Maintain blank padding: `<up\|down\|both> [count]`. The flag stays in the note. |
 | `--formatter-date` | `bool` | Complete consecutive archive date headers written as `--- day`. The flag stays in the note. |
 | `--formatter-autocomplete` | `bool` | Complete Lucy argument prefixes. The flag stays in the note. |
-
-```text
---formatter-todo
---formatter-blank both 20
---formatter-date
---formatter-autocomplete
-```
 
 ## Git
 
@@ -261,11 +203,6 @@ Select `git` with `--sys-modules` to enable automatic commits and remote sync.
 | `--git-sync-retry-backoff-start-seconds` | `float` | Initial delay in seconds between background retries. |
 | `--git-sync-retry-backoff-max-seconds` | `float` | Maximum delay in seconds between background retries. |
 
-```text
---git-merge-autoresolve union
---git-commit-message-style detailed
-```
-
 ## Plasma Widget
 
 Select `plasma_widget` with `--sys-modules`.
@@ -288,16 +225,16 @@ and the target modules loaded; actions cannot contain `--sys-*` flags.
 | `--dropdir-action` | `str[]` | Define a drop rule: `"<flags>" <directory>`. Match a directory name or absolute path; repeat for more rules. |
 | `--dropdir-action-delay-milliseconds` | `int` | Delay in milliseconds between returning the file and running its actions. |
 
+In the config file:
+
 ```text
---dropdir-action "--linker-root" "/notes/directory"
 --dropdir-action "--formatter-todo" "todo-drop"
---dropdir-action-delay-milliseconds 1200
 ```
 
-In the drop folder's `init.md`:
+Or in the drop folder's `init.md`:
 
 ```text
---dropdir-init "--linker-root"
+--dropdir-init "--formatter-todo"
 ```
 
 ## Status
@@ -317,14 +254,6 @@ In the drop folder's `init.md`:
 | `--status-git-sync-prefix-cycle-pause-seconds` | `float` | Pause in seconds between Git sync prefix animation cycles. Default: `1.0`. |
 | `--status-opened-events` | `bool` | Update status on `opened` events. Disabled by default. |
 
-```text
---status date time
---status git update
---status-banner "Working"
---status-animation "loading" "loading." "loading.."
---status-animation-speed-milliseconds 800
-```
-
 ## Cmd
 
 Requires an entry point that loads `cmd`; the standard launchers do not offer it.
@@ -336,8 +265,3 @@ Use only with trusted notes: synced edits can execute local commands.
 | `--cmd-timeout-seconds` | `int` | Timeout in seconds for each command. |
 | `--cmd-output-max-bytes` | `int` | Maximum output size in bytes to insert into the note. |
 | `--cmd-stream` | `enum` | Output to insert: `both`, `stdout`, `stderr`, `none`. |
-
-```text
---cmd echo hello
---cmd-stream stdout
-```

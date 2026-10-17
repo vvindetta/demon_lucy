@@ -15,23 +15,24 @@ def _module_names(modules) -> list[str]:
     return [module.name for module in modules]
 
 
-def test_select_demon_lucy_modules_include_only_requested_names():
+def test_select_demon_lucy_modules_include_requested_names_and_sys():
     modules = select_demon_lucy_modules(include_names=["git", "status"])
     names = _module_names(modules)
-    assert set(names) == {"git", "status"}
+    assert set(names) == {"git", "status", "sys"}
 
 
 def test_select_demon_lucy_modules_exclude_removes_from_default_list():
-    modules = select_demon_lucy_modules(exclude_names=["status", "git"])
+    modules = select_demon_lucy_modules(exclude_names=["status", "git", "sys"])
     names = _module_names(modules)
     assert "status" not in names
     assert "git" not in names
+    assert "sys" not in names
 
 
 def test_select_demon_lucy_modules_include_then_exclude_applies_exclude():
     modules = select_demon_lucy_modules(
         include_names=["git", "status", "archive"],
-        exclude_names=["status"],
+        exclude_names=["status", "sys"],
     )
     names = _module_names(modules)
     assert set(names) == {"git", "archive"}
@@ -41,7 +42,7 @@ def test_select_demon_lucy_modules_skips_unknown_include(caplog):
     with caplog.at_level(logging.ERROR, logger="demon_lucy.runtime"):
         modules = select_demon_lucy_modules(include_names=["git", "nope"])
 
-    assert _module_names(modules) == ["git"]
+    assert set(_module_names(modules)) == {"git", "sys"}
     assert "runtime.module_unknown" in caplog.text
     assert "reason=include" in caplog.text
     assert "modules=nope" in caplog.text
@@ -59,9 +60,11 @@ def test_select_demon_lucy_modules_skips_unknown_exclude(caplog):
     assert "modules=nope" in caplog.text
 
 
-def test_select_demon_lucy_modules_can_return_empty_after_unknown_include(caplog):
+def test_select_demon_lucy_modules_can_return_empty_when_sys_is_excluded(caplog):
     with caplog.at_level(logging.ERROR, logger="demon_lucy.runtime"):
-        modules = select_demon_lucy_modules(include_names=["nope"])
+        modules = select_demon_lucy_modules(
+            include_names=["nope"], exclude_names=["sys"]
+        )
 
     assert modules == []
     assert "runtime.module_unknown" in caplog.text
@@ -79,6 +82,7 @@ def test_sys_modules_default_is_defined_in_startup_template():
     assert "include" in modules
     assert "ai" not in modules
     assert "status" in modules
+    assert "sys" in modules
 
 
 def test_fixed_system_string_domains_use_enums():
@@ -104,7 +108,7 @@ def test_voice_module_is_available_only_when_requested():
         include_names=parsed.require("sys-modules").value
     )
 
-    assert _module_names(requested) == ["voice"]
+    assert set(_module_names(requested)) == {"voice", "sys"}
     assert "voice" not in _module_names(default_modules)
 
 
