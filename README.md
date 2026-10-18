@@ -16,49 +16,6 @@ Write a `--arg` command in your note and save it (`Ctrl+S`).
 
 Lucy runs the modules and writes the output directly into the note.
 
-### Modules
-
-**Basic modules (loaded by default):**
-
-- `sys`: writes runtime debug information and manual help text.<br>
-  ![Sys module: ping, help, loaded modules, and flag manual](media/modules/sys_demo.gif)
-- `linker`: keeps Markdown links in sync and pins active notes.<br>
-  ![Linker module: renaming a file updates its link; editing the link moves the file](media/modules/linker_demo.gif)
-- `archive`: moves idle text to an archive note, keeping the working note clear.<br>
-  ![Archive: after 12 idle hours, on demand, or into a dated file](media/modules/archive_demo.gif)
-- `dropdir`: runs actions when you drop notes into configured folders.<br>
-  ![Dropdir: drop a note to make a checklist, then archive it; the file returns to its original folder](media/modules/dropdir_demo.gif)
-- `renamer`: renames notes and automatically names scratch files by date.<br>
-  ![Renamer: add an extension, name a note by date, and rename it](media/modules/renamer_demo.gif)
-- `banner`: inserts ASCII banners with text or dates.<br>
-  ![Banner: --banner text and --banner-date](media/modules/banner_demo.gif)
-- `formatter`: formats notes, converts bullet lists into checklists, and autocompletes Lucy arguments.<br>
-  ![Formatter: checkboxes, dates, and flag completion](media/modules/formatter_demo.gif)
-- `graph`: creates graph blocks showing word frequencies.<br>
-  ![Graph: count coffee mentions across a week of notes](media/modules/graph_demo.gif)
-- `include`: renders complete files or matching source paragraphs inside notes.<br>
-  ![Include: insert a file and collect matching task paragraphs](media/modules/include_demo.gif)
-- `status`: updates filenames with dynamic tokens (time, date, Git status, animations).<br>
-  ![Status: configure a clock, scrolling message, and Git sync indicator](media/modules/status_demo.gif)
-- `alias`: creates aliases.
-- `workspace`: initializes a default notes workspace with Git and systemd files.
-
-**Integration modules:**
-
-- `git`: syncs notes with a remote Git repository.
-- `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
-
-**WIP modules:**
-
-- `cmd`: runs commands. Not loaded by default for security reasons.<br>
-  ![Cmd: read /etc/os-release and draw a folder tree inside the note](media/modules/cmd_demo.gif)
-- `kdeconnect_sync`: sends note changes to your phone via KDE Connect.
-- `voice`: transcribes speech into notes using offline Vosk or online speech providers.
-- `ai`: edits the current note from an inline prompt using a local agent.
-- `email`: reads email as notes, sends drafts, and manages messages by moving files.
-
-See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
-
 ## Theory
 
 ### Argument system
@@ -88,18 +45,56 @@ Use `--mods` to see loaded modules and their priorities.
 * renamer (20)
 * status (21)
 * linker (22)
-* formatter (23)
-* graph (24)
-* archive (25)
 ```
 
 ### Read the manual
 
 `--man <name/module>` shows help for an argument or module.
 
-## Lucy on Android
+### Modules
 
-You can run Lucy in [Termux](https://f-droid.org/packages/com.termux/). See the [setup guide](#termux-setup).
+**Basic modules (loaded by default):**
+
+- `sys`: writes runtime debug information and manual help text.<br>
+  ![Sys module: ping, help, loaded modules, and flag manual](media/modules/sys_demo.gif)
+- `linker`: keeps Markdown links in sync and pins active notes.<br>
+  ![Linker module: renaming a file updates its link; editing the link moves the file](media/modules/linker_demo.gif)
+- `archive`: moves idle text to an archive note, keeping the working note clear.<br>
+  ![Archive: after 12 idle hours, on demand, or into a dated file](media/modules/archive_demo.gif)
+- `dropdir`: runs actions when you drop notes into configured folders.<br>
+  ![Dropdir: drop a note to make a checklist, then archive it; the file returns to its original folder](media/modules/dropdir_demo.gif)
+- `renamer`: renames notes and automatically names scratch files by date.<br>
+  ![Renamer: add an extension, name a note by date, and rename it](media/modules/renamer_demo.gif)
+- `banner`: inserts ASCII banners with text or dates.<br>
+  ![Banner: --banner text and --banner-date](media/modules/banner_demo.gif)
+- `formatter`: formats notes, converts bullet lists into checklists, and autocompletes Lucy arguments.<br>
+  ![Formatter: checkboxes, dates, and flag completion](media/modules/formatter_demo.gif)
+- `graph`: creates graph blocks showing word frequencies.<br>
+  ![Graph: count coffee mentions across a week of notes](media/modules/graph_demo.gif)
+- `include`: renders complete files or matching source paragraphs inside notes.<br>
+  ![Include: insert a file and collect matching task paragraphs](media/modules/include_demo.gif)
+- `status`: updates filenames with dynamic tokens (time, date, Git status, animations).<br>
+  ![Status: configure a clock, scrolling message, and Git sync indicator](media/modules/status_demo.gif)
+- `alias`: creates aliases.<br>
+  ![Alias: shortcuts for a date banner and a closing sentence](media/modules/alias_demo.gif)
+- `workspace`: initializes a default notes workspace with Git and systemd files.
+
+**Integration modules:**
+
+- `git`: syncs notes with a remote Git repository.
+- `plasma_widget`: syncs Markdown notes with KDE Plasma note widgets ([see video](media/plasma_widget.mp4)).
+
+**WIP modules:**
+
+- `cmd`: runs commands. Not loaded by default for security reasons.<br>
+  ![Cmd: read /etc/os-release and draw a folder tree inside the note](media/modules/cmd_demo.gif)
+- `kdeconnect_sync`: sends note changes to your phone via KDE Connect.
+- `voice`: transcribes speech into notes using offline Vosk or online speech providers.
+- `ai`: edits the current note from an inline prompt using a local agent.
+- `email`: reads email as notes, sends drafts, and manages messages by moving files.
+
+See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
+
 
 ## Install
 
@@ -188,7 +183,9 @@ systemctl --user start lucy-oneshot.service
 journalctl --user -u lucy-daemon.service -f
 ```
 
-## Termux setup
+## Android setup
+
+You can run Lucy in [Termux](https://f-droid.org/packages/com.termux/).
 
 Install these apps from F-Droid:
 
