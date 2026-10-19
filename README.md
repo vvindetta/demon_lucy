@@ -1,28 +1,29 @@
 ![Demon Lucy](media/lucy.gif)
 
-# Lucy is a modular filesystem automation d(a)emon
+# Lucy — turn plain text into actions
 
-She reacts to file events. Reads commands from files and writes results back.
+The daemon monitors your directory using `inotify` and reacts to file events.
+
+You can give Lucy commands directly inside a file and get the output right there.
+
+For example, to run a shell command:
+
+`--cmd neofetch`
+
+Press `CTRL+S` — the command output appears on the next line.
 
 Lucy works at the filesystem level. Use any editor you like. You don't need any plugins.
 
-Daemon monitors your directory via `inotify` and runs the modules whenever a file event occurs.
-
 ![Lucy demo](media/lucy_demo.gif)
 
-#### Usage
-
-Write a `--arg` command in your note and save it (`Ctrl+S`).
-
-Lucy runs the modules and writes the output directly into the note.
 
 ## Theory
 
 ### Argument system
 
-All `--args` use Unix-style syntax. You can provide them in three places:
+All command arguments (`--args`) use Unix-style syntax. You can provide them in three places:
 
-1. Inside the note file (local, for per-note behavior)
+1. Inside a note file (local, for per-note behavior)
 2. In `config.txt` (global)
 3. At startup: `python3 main_daemon.py --arg` (global)
 
@@ -37,7 +38,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all `--args`.
 * `--man <name>`: show an argument and its description (for example, `--man mods` or `--man --mods`).
 ```
 
-Use `--mods` to see loaded modules and their priorities.
+### `--mods` to see loaded modules and their priorities
 
 ```text
 * sys (2)
@@ -47,16 +48,15 @@ Use `--mods` to see loaded modules and their priorities.
 * linker (22)
 ```
 
-### Read the manual
+### `--man <name/module>` to read the manual
 
-`--man <name/module>` shows help for an argument or module.
 
-### Modules
+## Modules
 
 **Basic modules (loaded by default):**
 
-- `sys`: writes runtime debug information and manual help text.<br>
-  ![Sys module: ping, help, loaded modules, and flag manual](media/modules/sys_demo.gif)
+- `sys`: shows runtime information and command help.<br>
+  ![Sys module: ping, help, loaded modules, and argument help](media/modules/sys_demo.gif)
 - `linker`: keeps Markdown links in sync and pins active notes.<br>
   ![Linker module: renaming a file updates its link; editing the link moves the file](media/modules/linker_demo.gif)
 - `archive`: moves idle text to an archive note, keeping the working note clear.<br>
@@ -71,7 +71,7 @@ Use `--mods` to see loaded modules and their priorities.
   ![Formatter: checkboxes, dates, and flag completion](media/modules/formatter_demo.gif)
 - `graph`: creates graph blocks showing word frequencies.<br>
   ![Graph: count coffee mentions across a week of notes](media/modules/graph_demo.gif)
-- `include`: renders complete files or matching source paragraphs inside notes.<br>
+- `include`: inserts complete files or matching paragraphs into notes.<br>
   ![Include: insert a file and collect matching task paragraphs](media/modules/include_demo.gif)
 - `status`: updates filenames with dynamic tokens (time, date, Git status, animations).<br>
   ![Status: configure a clock, scrolling message, and Git sync indicator](media/modules/status_demo.gif)
@@ -90,19 +90,19 @@ Use `--mods` to see loaded modules and their priorities.
   ![Cmd: read /etc/os-release and draw a folder tree inside the note](media/modules/cmd_demo.gif)
 - `kdeconnect_sync`: sends note changes to your phone via KDE Connect.
 - `voice`: transcribes speech into notes using offline Vosk or online speech providers.
-- `ai`: edits the current note from an inline prompt using a local agent.
+- `ai`: uses a local agent to edit the current note based on an inline prompt.
 - `email`: reads email as notes, sends drafts, and manages messages by moving files.
 
 See [CHEATSHEET.md](CHEATSHEET.md) for all arguments.
 
 
-## Install
+## Installation
 
 Warnings:
 
 - **Turn on automatic file reloading in your text editor!**
-- The project has only been tested on GNU/Linux-based distributions. Sorry :<
-- macOS and Windows do not support daemon `opened` events (for example, the Git module uses opened events to sync your repo).
+- The project has only been tested on GNU/Linux distributions. Sorry :<
+- The daemon does not support `opened` events on macOS or Windows (for example, the Git module uses these events to sync your repository).
 
 1. Clone the repository:
 
@@ -116,10 +116,10 @@ git clone --depth 1 https://codeberg.org/vvindetta/demon_lucy && cd demon_lucy
 python3 -m pip install -r requirements.txt
 ```
 
-3. Edit the config file. `config.txt` is a template.
+3. Edit the config file, using `config.txt` as a template.
 Uncomment and edit the lines you need.
 
-### Manual run
+### Running manually
 
 Run Lucy in daemon mode:
 
@@ -138,11 +138,11 @@ python3 main_oneshot.py \
 
 ### Systemd setup
 
-The repo includes four units in `setup-systemd/`:
+The repository includes four systemd unit files in `setup-systemd/`:
 
-- [lucy-daemon.service](setup-systemd/lucy-daemon.service): watches note events in real time.
+- [lucy-daemon.service](setup-systemd/lucy-daemon.service): watches for note events in real time.
 - [lucy-daemon.timer](setup-systemd/lucy-daemon.timer): starts the daemon 30 seconds after the user service manager starts.
-- [lucy-oneshot.service](setup-systemd/lucy-oneshot.service): runs once and exits, for periodic or manual tasks.
+- [lucy-oneshot.service](setup-systemd/lucy-oneshot.service): runs once and exits; suitable for scheduled or manual tasks.
 - [lucy-oneshot.timer](setup-systemd/lucy-oneshot.timer): starts `lucy-oneshot.service` on a schedule.
 
 Edit the service files and set the paths to your repository, notes, and config.
@@ -155,7 +155,7 @@ Default service paths:
 - notes: `$HOME/Notes`
 - config: `$HOME/Notes/.lucy/config.txt`
 
-Move the units:
+Move the unit files:
 
 ```bash
 mkdir -p ~/.config/systemd/user; \
@@ -165,7 +165,7 @@ mv setup-systemd/lucy-oneshot.service ~/.config/systemd/user/; \
 mv setup-systemd/lucy-oneshot.timer ~/.config/systemd/user/
 ```
 
-Reload and enable:
+Reload systemd and enable the timers:
 
 ```bash
 systemctl --user daemon-reload; \
@@ -189,7 +189,7 @@ You can run Lucy in [Termux](https://f-droid.org/packages/com.termux/).
 
 Install these apps from F-Droid:
 
-- [Termux](https://f-droid.org/packages/com.termux/): base shell/runtime.
+- [Termux](https://f-droid.org/packages/com.termux/): terminal and shell environment.
 
 Optional add-ons:
 
@@ -200,7 +200,7 @@ Optional add-ons:
 
 I recommend [Markor](https://github.com/gsantner/markor) as a text editor.
 
-Ready-to-use Termux scripts are in `setup-termux`:
+Ready-to-use Termux scripts are in `setup-termux/`:
 
 - `lucy-daemon.sh`
 - `lucy-oneshot.sh`
@@ -213,4 +213,4 @@ Default script paths:
 - config: `$HOME/storage/shared/Notes/.lucy/config.txt`
 - state/logs: `$HOME/.lucy`
 
-Periodic mobile sync can also be registered through Android JobScheduler with [lucy-job-scheduler.sh](setup-termux/lucy-job-scheduler.sh). Use Termux:Boot for this mode only to register the persisted job after reboot.
+You can also schedule periodic mobile sync through Android JobScheduler using [lucy-job-scheduler.sh](setup-termux/lucy-job-scheduler.sh). In this mode, use Termux:Boot only to register the persistent job after reboot.
