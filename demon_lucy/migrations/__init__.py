@@ -165,6 +165,7 @@ ConfigMigrationFactory = Callable[[str], Migration]
 
 # Migration modules import the toolkit above, so keep registry imports last.
 from demon_lucy.migrations import (  # noqa: E402
+    alias_kinds_20261018,  # noqa: E402
     archive_modes_20260618,  # noqa: E402
     sys_modules_priority_20260626,  # noqa: E402
 )
@@ -172,4 +173,5 @@ from demon_lucy.migrations import (  # noqa: E402
 MIGRATIONS: tuple[ConfigMigrationFactory, ...] = (
     archive_modes_20260618.ArchiveModes20260618,
     sys_modules_priority_20260626.SysModulesPriority20260626,
+    alias_kinds_20261018.AliasKinds20261018,
 )

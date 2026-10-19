@@ -10,7 +10,7 @@ from demon_lucy.lib.args.parser import (
     split_arg_line,
 )
 from demon_lucy.lib.logfmt import log_record
-from demon_lucy.modules.alias.rules import ARG_PLACEHOLDER, AliasRule, flag_head
+from demon_lucy.modules.alias.rules import ARG_PLACEHOLDER, CommandAliasRule, flag_head
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def expand_line(
     *,
     tokens: list[str],
-    rules: dict[str, AliasRule],
+    rules: dict[str, CommandAliasRule],
     template: Template,
     line: int,
     event_id: str,
@@ -92,7 +92,7 @@ def expand_line(
 def rewrite_lines(
     *,
     lines: list[str],
-    rules: dict[str, AliasRule],
+    rules: dict[str, CommandAliasRule],
     template: Template,
     event_id: str,
 ) -> tuple[list[str], int, int]:
@@ -137,8 +137,9 @@ def rewrite_lines(
             rewritten_lines.append(raw_line)
             continue
 
-        newline = "\n" if raw_line.endswith("\n") else ""
-        rewritten_lines.append(shlex.join(expanded_tokens) + newline)
+        newline = raw_line[len(raw_line.rstrip("\r\n")) :]
+        indent = raw_line[: len(raw_line) - len(raw_line.lstrip())]
+        rewritten_lines.append(indent + shlex.join(expanded_tokens) + newline)
         changed_lines += 1
         alias_count += rewrites
 

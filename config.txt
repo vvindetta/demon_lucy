@@ -38,8 +38,8 @@
 
 # --- alias ---
 
-# Alias creates shortcuts for module args.
-# --alias "b=--banner {args}" "todo=--formatter-todo" "rn=--rename {args}"
+# --alias-command "date=--banner-date"
+# --alias-text ";thanks=Thank you for your time."
 
 
 # --- linker ---

@@ -12,11 +12,18 @@ ARG_PLACEHOLDER = "{args}"
 
 
 @dataclass(frozen=True)
-class AliasRule:
+class CommandAliasRule:
     alias: str
     alias_flag: str
     expansion_tokens: list[str]
     consumes_args: bool
+    raw: str
+
+
+@dataclass(frozen=True)
+class TextAliasRule:
+    source: str
+    replacement: str
     raw: str
 
 
@@ -44,11 +51,11 @@ def _alias_flag(alias_name: str) -> str:
     return "--" + alias_name
 
 
-def parse_rule(
+def parse_command_rule(
     raw_rule: str,
     *,
     known_flag_values: set[str],
-) -> AliasRule | RuleError:
+) -> CommandAliasRule | RuleError:
     raw = raw_rule.strip()
     if not raw:
         return RuleError(raw=raw_rule, reason="empty_rule")
@@ -105,6 +112,9 @@ def parse_rule(
             alias=alias_flag,
         )
 
+    if not is_valid_flag_token(expansion_tokens[0]):
+        return RuleError(raw=raw, reason="command_target_required", alias=alias_flag)
+
     for token in expansion_tokens:
         if token == ARG_PLACEHOLDER:
             continue
@@ -133,10 +143,27 @@ def parse_rule(
                 alias=alias_flag,
             )
 
-    return AliasRule(
+    return CommandAliasRule(
         alias=alias_name,
         alias_flag=alias_flag,
         expansion_tokens=expansion_tokens,
         consumes_args=ARG_PLACEHOLDER in expansion_tokens,
         raw=raw,
     )
+
+
+def parse_text_rule(raw: str) -> TextAliasRule | RuleError:
+    source, separator, replacement = raw.partition("=")
+    if not separator:
+        return RuleError(raw=raw, reason="missing_equals")
+    if not source:
+        return RuleError(raw=raw, reason="empty_text_source")
+    if "\n" in raw or "\r" in raw:
+        return RuleError(raw=raw, reason="multiline_text_rule", alias=source)
+    try:
+        tokens = split_arg_line(replacement)
+    except ValueError:
+        tokens = replacement.split()
+    if any(is_valid_flag_token(token) for token in tokens):
+        return RuleError(raw=raw, reason="text_target_contains_command", alias=source)
+    return TextAliasRule(source=source, replacement=replacement, raw=raw)

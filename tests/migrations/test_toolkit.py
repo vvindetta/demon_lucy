@@ -13,6 +13,7 @@ from demon_lucy.migrations import (
     Migration,
 )
 from demon_lucy.migrations.archive_modes_20260618 import ArchiveModes20260618
+from demon_lucy.migrations.alias_kinds_20261018 import AliasKinds20261018
 from demon_lucy.migrations.sys_modules_priority_20260626 import (
     SysModulesPriority20260626,
 )
@@ -100,6 +101,7 @@ def test_migration_registry_contains_migration_classes() -> None:
     assert MIGRATIONS == (
         ArchiveModes20260618,
         SysModulesPriority20260626,
+        AliasKinds20261018,
     )
     migration = MIGRATIONS[0]("config.txt")
     assert isinstance(migration, Migration)

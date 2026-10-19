@@ -559,7 +559,11 @@ def test_man_does_not_expand_or_execute_requested_alias(tmp_path: Path, prefix: 
     manager = ModuleManager(
         modules=[Alias(), Sys(), Banner(), Formatter()],
         startup_args=parse_args(
-            args=[*_BASE_TOKENS, "--alias", "combo=--formatter-todo --banner-date"],
+            args=[
+                *_BASE_TOKENS,
+                "--alias-command",
+                "combo=--formatter-todo --banner-date",
+            ],
             template=DEMON_LUCY_STARTUP_TEMPLATE,
         ),
     )
@@ -581,8 +585,9 @@ def test_man_protects_alias_target_but_allows_neighboring_alias(tmp_path: Path):
         startup_args=parse_args(
             args=[
                 *_BASE_TOKENS,
-                "--alias",
+                "--alias-command",
                 "combo=--formatter-todo --banner-date",
+                "--alias-command",
                 "todo=--formatter-todo",
             ],
             template=DEMON_LUCY_STARTUP_TEMPLATE,

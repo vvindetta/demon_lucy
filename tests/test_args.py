@@ -82,20 +82,20 @@ def test_parse_args_allows_empty_list_flag_value():
 
 def test_parse_args_repeated_list_flag_uses_last_value():
     template = [
-        KnownArg(name="alias", value_type=str, default=[]),
+        KnownArg(name="items", value_type=str, default=[]),
     ]
 
     parsed = parse_args(
         args=[
-            "--alias",
+            "--items",
             "b=--banner {args}",
-            "--alias",
+            "--items",
             "todo=--formatter-todo",
         ],
         template=template,
     )
 
-    assert parsed.require("alias").value == ["todo=--formatter-todo"]
+    assert parsed.require("items").value == ["todo=--formatter-todo"]
     assert parsed.unknown == ()
 
 
@@ -646,17 +646,17 @@ def test_parse_note_args_preserves_windows_path(tmp_path: Path) -> None:
 def test_parse_note_args_combines_repeated_list_values(tmp_path: Path) -> None:
     path = tmp_path / "note.md"
     path.write_text(
-        "--alias first\n--alias second third\n",
+        "--items first\n--items second third\n",
         encoding="utf-8",
     )
     template = [
-        KnownArg(name="alias", value_type=str, default=[]),
+        KnownArg(name="items", value_type=str, default=[]),
     ]
 
     parsed = parse_note_args(str(path), template)
 
-    assert parsed.require("alias").value == ["first", "second", "third"]
-    assert parsed.require("alias").lines == (1, 2, 2)
+    assert parsed.require("items").value == ["first", "second", "third"]
+    assert parsed.require("items").lines == (1, 2, 2)
 
 
 def test_empty_literal_request_keeps_flag_location_without_misaligning_values(

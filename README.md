@@ -75,7 +75,7 @@ Use `--mods` to see loaded modules and their priorities.
   ![Include: insert a file and collect matching task paragraphs](media/modules/include_demo.gif)
 - `status`: updates filenames with dynamic tokens (time, date, Git status, animations).<br>
   ![Status: configure a clock, scrolling message, and Git sync indicator](media/modules/status_demo.gif)
-- `alias`: creates aliases.<br>
+- `alias`: expands command shortcuts and text snippets.<br>
   ![Alias: shortcuts for a date banner and a closing sentence](media/modules/alias_demo.gif)
 - `workspace`: initializes a default notes workspace with Git and systemd files.
 

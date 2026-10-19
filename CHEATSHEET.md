@@ -64,17 +64,24 @@ Write these commands in a note to insert their results.
 
 ## Alias
 
-System flags (`--sys-*`) and `--cmd` cannot be alias targets.
+Command aliases cannot target system flags (`--sys-*`).
+Text aliases match literal, case-sensitive text, preserving spaces and punctuation;
+they skip command lines, fenced code and generated blocks and cannot create commands.
+Replacements run once per event, longest match first. Repeat either flag for more rules.
 
 | Argument | Type | Meaning |
 |---|---|---|
-| `--alias` | `str[]` | Define `name=expansion` rules. `{args}` inserts values passed to the alias. |
+| `--alias-command` | `str[]` | Define one `name=flags` rule, invoked as `--name`. `{args}` forwards arguments. |
+| `--alias-text` | `str[]` | Define one `source=replacement` rule. Spaces are significant; an empty replacement deletes the match. `{args}` is ordinary text. |
 | `--alias-dry-run` | `bool` | Log alias expansions without rewriting the note. |
 
 ```text
---alias "b=--banner {args}"
---b "Project plan"
+--alias-command "date=--banner-date"
+--alias-text " -- = — "
 ```
+
+`--date` inserts a date banner; `word -- word` becomes `word — word`.
+Old `--alias` config rules migrate at startup with a backup. Use the new flags in notes and CLI commands.
 
 ## Workspace
 

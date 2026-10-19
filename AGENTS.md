@@ -88,9 +88,11 @@ watchdog file events.
 - `modules/sys/`: in-note runtime and manual commands. `__init__.py` owns the
   `Sys` module class and command handling; `neofetch.py` renders Lucy and system
   information for `--neofetch`.
-- `modules/alias/`: in-note aliases for module args. `__init__.py` owns the
-  `Alias` module class, rule error logging/notifications, and event handlers;
-  `rules.py` owns alias validation/parsing, and `rewrite.py` owns line expansion.
+- `modules/alias/`: command shortcuts (`--alias-command`) and literal text
+  replacements (`--alias-text`). `__init__.py` owns the `Alias` module class,
+  rule error logging/notifications, and event handlers; `rules.py` owns rule
+  validation/parsing, `rewrite.py` expands command aliases, and `text.py`
+  replaces plain text while preserving command lines, fences and generated blocks.
 - `modules/banner.py`: inserts pyfiglet banners or date banners at flag lines.
 - `modules/renamer.py`: manual `--rename` and create-time `--rename-auto` for
   one-letter scratch files with configurable output format.
