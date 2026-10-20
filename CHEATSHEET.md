@@ -182,7 +182,7 @@ cannot be a source or destination.
 |---|---|---|
 | `--formatter-todo` | `bool` | Convert `- task` to `- [ ] task`, then remove the command. |
 | `--formatter-blank` | `str[]` | Maintain blank padding: `<up\|down\|both> [count]`. The flag stays in the note. |
-| `--formatter-date` | `bool` | Complete consecutive archive date headers written as `--- day`. The flag stays in the note. |
+| `--formatter-date` | `bool` | Complete `--- day` and `--- day - day` headers using the previous date. The flag stays in the note. |
 | `--formatter-autocomplete` | `bool` | Complete Lucy argument prefixes. The flag stays in the note. |
 
 ## Git

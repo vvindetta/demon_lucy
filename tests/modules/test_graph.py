@@ -222,6 +222,24 @@ def test_graph_date_sections_allow_comments_and_ranges(tmp_path: Path) -> None:
     assert "2026-01-14      1  [######]\n" in text
 
 
+def test_graph_recognizes_short_date_ranges_without_rewriting_source(tmp_path: Path):
+    archive = tmp_path / "past.md"
+    source = "--- 13.10.2026\nsleep\n--- 14 - 18\nsleep sleep\n---19...20\nsleep\n"
+    archive.write_text(source, encoding="utf-8")
+    note = tmp_path / "graph.md"
+    note.write_text("--graph past.md sleep all\n", encoding="utf-8")
+
+    assert _run_graph(note) == {str(note): 1}
+
+    text = note.read_text(encoding="utf-8")
+    assert "2026-10-13      1  [######]\n" in text
+    assert "2026-10-14      0  |\n" in text
+    assert "2026-10-18      2  [######][######]\n" in text
+    assert "2026-10-19      0  |\n" in text
+    assert "2026-10-20      1  [######]\n" in text
+    assert archive.read_text(encoding="utf-8") == source
+
+
 def test_graph_regex_command_uses_arg_name_in_markers(tmp_path: Path) -> None:
     data = tmp_path / "tasks.md"
     data.write_text(

@@ -130,14 +130,20 @@ def test_apply_todo_does_not_change_dynamic_block_lists(tmp_path: Path):
     assert text.endswith("- [ ] task\n")
 
 
-def test_apply_date_does_not_change_dynamic_block_body(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("header", "completed"),
+    [("--- 10", "--- 10.01.2030"), ("--- 10 - 12", "--- 10.01.2030 - 12.01.2030")],
+)
+def test_apply_date_does_not_change_dynamic_block_body(
+    tmp_path: Path, header, completed
+):
     block = format_dynamic_block(
         arg="example",
         params={"value": "one"},
-        body=format_fenced_body("--- 10", info="text"),
+        body=format_fenced_body(header, info="text"),
     )
     note = tmp_path / "note.md"
-    note.write_text("--- 9.01.2030\n" + block + "--- 10\n", encoding="utf-8")
+    note.write_text("--- 9.01.2030\n" + block + header + "\n", encoding="utf-8")
 
     changed = _run_formatter(
         Formatter(),
@@ -152,8 +158,8 @@ def test_apply_date_does_not_change_dynamic_block_body(tmp_path: Path):
 
     assert changed == {str(note.resolve()): 1}
     text = note.read_text(encoding="utf-8")
-    assert "```text\n--- 10\n```" in text
-    assert text.endswith("--- 10.01.2030\n")
+    assert block in text
+    assert text.endswith(completed + "\n")
 
 
 @pytest.mark.parametrize(
@@ -190,6 +196,22 @@ def test_apply_date_does_not_change_dynamic_block_body(tmp_path: Path):
         (
             "--- 28.02.2030\n--- 1\n",
             "--- 28.02.2030\n--- 1.03.2030\n",
+        ),
+        (
+            "--- 13.10.2026\n--- 14 - 18\n--- 19\n",
+            "--- 13.10.2026\n--- 14.10.2026 - 18.10.2026\n--- 19.10.2026\n",
+        ),
+        (
+            "--- 29.12.2026\n--- 30 - 2\n--- 3 - 5\n",
+            "--- 29.12.2026\n--- 30.12.2026 - 2.01.2027\n--- 3.01.2027 - 5.01.2027\n",
+        ),
+        (
+            "--- 13.10.2026\n---14...18\n",
+            "--- 13.10.2026\n---14.10.2026...18.10.2026\n",
+        ),
+        (
+            "--- 10.10.2026 - 13.10.2026\n--- 14 - 18\n",
+            "--- 10.10.2026 - 13.10.2026\n--- 14.10.2026 - 18.10.2026\n",
         ),
     ],
 )
@@ -266,6 +288,9 @@ def test_apply_date_remains_enabled_for_future_updates(
         "--- 31.02.2030\n--- 1\n",
         "--- 10\n",
         "--- 31.01.2030\n--- 30\n",
+        "--- 14 - 18\n",
+        "--- 27.02.2030\n--- 28 - 29\n--- 1\n",
+        "--- 13.10.2026\n--- 14 - 0\n--- 19\n",
     ],
 )
 def test_apply_leaves_ambiguous_date_sequences_unchanged(

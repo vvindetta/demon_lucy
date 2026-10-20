@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Iterator
 
-
 DATE_SECTION_VALUE_PATTERN = r"\d{1,2}\.\d{1,2}\.\d{4}"
 
 _DATE_SECTION_HEADER_RE = re.compile(
@@ -17,7 +16,9 @@ _DATE_SECTION_HEADER_RE = re.compile(
 )
 _FULL_DATE_SECTION_PREFIX_RE = re.compile(r"^\s*---\s*\d{1,2}\.")
 _PARTIAL_DATE_SECTION_RE = re.compile(
-    r"^(?P<prefix>\s*---\s*)(?P<day>\d{1,2})(?P<trailing>[ \t]*)$"
+    r"^\s*---\s*(?P<day>\d{1,2})"
+    r"(?:[ \t]*(?:-|\.\.\.)[ \t]*(?P<end_day>\d{1,2}))?"
+    r"[ \t]*$"
 )
 
 
@@ -67,10 +68,17 @@ def parse_exact_date_section_header(
     return parse_date_section_value(line[len(prefix) : value_end])
 
 
-def parse_date_section_header(line: str) -> DateSection | None:
+def parse_date_section_header(
+    line: str,
+    *,
+    previous_date: date | None = None,
+) -> DateSection | None:
     match = _DATE_SECTION_HEADER_RE.match(line)
     if match is None:
-        return None
+        partial = _PARTIAL_DATE_SECTION_RE.match(line.rstrip("\r\n"))
+        if partial is None or previous_date is None:
+            return None
+        return _resolve_partial_date_section(partial, previous_date)
 
     start = parse_date_section_value(match.group("start"))
     if start is None:
@@ -110,6 +118,22 @@ def _next_date_with_day(previous_date: date, day: int) -> date | None:
     return candidate if candidate > previous_date else None
 
 
+def _resolve_partial_date_section(
+    match: re.Match[str], previous_date: date
+) -> DateSection | None:
+    start = _next_date_with_day(previous_date, int(match.group("day")))
+    if start is None:
+        return None
+
+    end = start
+    end_day = match.group("end_day")
+    if end_day is not None and int(end_day) != start.day:
+        end = _next_date_with_day(start, int(end_day))
+        if end is None:
+            return None
+    return DateSection(start=start, end=end)
+
+
 def complete_partial_date_section_headers(
     lines: list[str],
     *,
@@ -133,13 +157,10 @@ def complete_partial_date_section_headers(
             completed_lines.append(original_line)
             continue
 
-        if _FULL_DATE_SECTION_PREFIX_RE.match(line):
-            previous_date = None
-            completed_lines.append(original_line)
-            continue
-
         partial_match = _PARTIAL_DATE_SECTION_RE.match(line)
         if partial_match is None:
+            if _FULL_DATE_SECTION_PREFIX_RE.match(line):
+                previous_date = None
             completed_lines.append(original_line)
             continue
 
@@ -147,19 +168,23 @@ def complete_partial_date_section_headers(
             completed_lines.append(original_line)
             continue
 
-        day_text = partial_match.group("day")
-        next_date = _next_date_with_day(previous_date, int(day_text))
-        if next_date is None:
+        section = _resolve_partial_date_section(partial_match, previous_date)
+        if section is None:
             previous_date = None
             completed_lines.append(original_line)
             continue
 
-        completed_lines.append(
-            f"{partial_match.group('prefix')}{day_text}"
-            f".{next_date.month:02d}.{next_date.year:04d}"
-            f"{partial_match.group('trailing')}{newline}"
-        )
-        previous_date = next_date
+        completed_line = line
+        for group, value in (("end_day", section.end), ("day", section.start)):
+            if partial_match.group(group) is not None:
+                position = partial_match.end(group)
+                completed_line = (
+                    completed_line[:position]
+                    + f".{value.month:02d}.{value.year:04d}"
+                    + completed_line[position:]
+                )
+        completed_lines.append(completed_line + newline)
+        previous_date = section.end
         changed = True
 
     return completed_lines, changed

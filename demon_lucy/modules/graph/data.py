@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Pattern
 
 from demon_lucy.lib.date_sections import (
+    complete_partial_date_section_headers,
     iter_date_section_days,
     parse_date_section_header,
 )
@@ -55,7 +56,8 @@ def counts_from_dated_text(text: str, pattern: Pattern[str]) -> dict[date, int] 
             counts[current_date] += count_matches("".join(current_lines), pattern)
         current_lines = []
 
-    for raw_line in text.splitlines(keepends=True):
+    lines, _ = complete_partial_date_section_headers(text.splitlines(keepends=True))
+    for raw_line in lines:
         section = parse_date_section_header(raw_line)
         if section is not None:
             flush_current_section()

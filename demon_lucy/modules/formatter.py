@@ -111,7 +111,7 @@ class Formatter(AbstractModule):
             name="formatter-date",
             value_type=bool,
             default=False,
-            description="Complete consecutive archive date headers written as --- day. The flag stays in the note.",
+            description="Complete archive date headers written as --- day or --- day - day using the previous date. The flag stays in the note.",
         ),
         KnownArg(
             name="formatter-autocomplete",
