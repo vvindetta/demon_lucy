@@ -4,6 +4,7 @@ import logging
 import re
 
 from demon_lucy.lib.args.parser import is_valid_flag_token, split_arg_line
+from demon_lucy.lib.command_blocks import find_command_blocks
 from demon_lucy.lib.dynamic_blocks.parser import parse_dynamic_blocks
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.modules.alias.rules import TextAliasRule, flag_head
@@ -44,6 +45,12 @@ def rewrite_text_lines(
     protected_lines = {
         number for block in blocks for number in range(block.line, block.end_line + 1)
     }
+    if "--new" in command_flags:
+        protected_lines.update(
+            number
+            for block in find_command_blocks(lines, opening_flag="--new")
+            for number in range(block.start + 1, block.end + 1)
+        )
     pattern = re.compile(
         "|".join(re.escape(key) for key in sorted(rules, key=len, reverse=True))
     )

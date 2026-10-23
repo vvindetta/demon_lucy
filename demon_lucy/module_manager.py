@@ -17,6 +17,7 @@ from demon_lucy.lib.args.parser import (
     resolve_unknown_args,
 )
 from demon_lucy.lib.args.sources import parse_note_args
+from demon_lucy.lib.command_blocks import find_command_blocks
 from demon_lucy.lib.logfmt import ignore_summary, log_record, next_event_id
 from demon_lucy.lib.notifications import safe_notify
 from demon_lucy.lib.path import canonical_path, path_is_inside
@@ -155,6 +156,19 @@ class ModuleManager:
             )
             return False
 
+        if args.find("new") is not None and find_command_blocks(
+            text.splitlines(keepends=True), opening_flag="--new"
+        ):
+            logger.info(
+                log_record(
+                    "dynamic_block.refresh_skipped",
+                    id=event_id,
+                    path=path,
+                    reason="pending_new_blocks",
+                )
+            )
+            return False
+
         try:
             refreshed, changed_blocks = refresh_dynamic_blocks(
                 text=text,
@@ -259,10 +273,14 @@ class ModuleManager:
         )
 
         def _update_args(config_path: str) -> ParsedArgs:
+            alias_rules = self.args.find("alias-command")
             file_args = parse_note_args(
                 path=config_path,
                 template=self.template,
                 deferred_template=DEMON_LUCY_DEFERRED_TEMPLATE,
+                command_alias_rules=(
+                    alias_rules.value if alias_rules is not None else None
+                ),
             )
             return self.args.merged_with(file_args)
 

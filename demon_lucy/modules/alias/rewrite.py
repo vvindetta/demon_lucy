@@ -9,6 +9,7 @@ from demon_lucy.lib.args.parser import (
     literal_value_indexes,
     split_arg_line,
 )
+from demon_lucy.lib.command_blocks import literal_line_numbers, starts_command_block
 from demon_lucy.lib.logfmt import log_record
 from demon_lucy.modules.alias.rules import ARG_PLACEHOLDER, CommandAliasRule, flag_head
 
@@ -99,8 +100,23 @@ def rewrite_lines(
     rewritten_lines: list[str] = []
     changed_lines = 0
     alias_count = 0
+    protect_new = any(argument.name == "new" for argument in template)
+    literal_lines = literal_line_numbers(lines) if protect_new else set()
+    in_new_block = False
 
     for lineno, raw_line in enumerate(lines, start=1):
+        if lineno in literal_lines:
+            rewritten_lines.append(raw_line)
+            continue
+        if in_new_block:
+            rewritten_lines.append(raw_line)
+            if raw_line.strip() == "--end":
+                in_new_block = False
+            continue
+        if protect_new and starts_command_block(raw_line, "--new"):
+            in_new_block = True
+            rewritten_lines.append(raw_line)
+            continue
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
             rewritten_lines.append(raw_line)
@@ -139,7 +155,10 @@ def rewrite_lines(
 
         newline = raw_line[len(raw_line.rstrip("\r\n")) :]
         indent = raw_line[: len(raw_line) - len(raw_line.lstrip())]
-        rewritten_lines.append(indent + shlex.join(expanded_tokens) + newline)
+        rewritten = indent + shlex.join(expanded_tokens) + newline
+        rewritten_lines.append(rewritten)
+        if protect_new and starts_command_block(rewritten, "--new"):
+            in_new_block = True
         changed_lines += 1
         alias_count += rewrites
 

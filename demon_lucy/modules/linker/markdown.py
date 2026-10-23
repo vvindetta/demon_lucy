@@ -5,10 +5,11 @@ import posixpath
 import re
 import subprocess
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from watchdog.events import FileSystemEvent
 
+from demon_lucy.lib.markdown_links import encode_markdown_path
 from demon_lucy.lib.path import (
     canonical_path,
     find_parent_git_repo,
@@ -17,7 +18,7 @@ from demon_lucy.lib.path import (
 )
 from demon_lucy.modules.linker.root import is_ignored_path
 
-INLINE_LINK_PATTERN = r"(!?\[[^\]\r\n]*\]\()([^\)\r\n]*)(\))"
+INLINE_LINK_PATTERN = r"(!?\[(?:\\.|[^\]\\\r\n])*\]\()([^\)\r\n]*)(\))"
 REFERENCE_LINK_FILE_EXTENSIONS = {".md", ".markdown", ".mdx"}
 _INLINE_LINK_RE = re.compile(INLINE_LINK_PATTERN)
 
@@ -33,7 +34,7 @@ def _split_link_destination_and_suffix(destination: str) -> tuple[str, str]:
         suffix += f"?{parsed.query}"
     if parsed.fragment:
         suffix += f"#{parsed.fragment}"
-    return parsed.path, suffix
+    return unquote(parsed.path), suffix
 
 
 def _is_local_link_destination(destination: str) -> bool:
@@ -156,6 +157,9 @@ def rewrite_inline_links_for_moved_target(
                 new_path_part=new_path_part,
             )
 
+        new_path_part = encode_markdown_path(new_path_part)
+        if wrapped:
+            new_path_part = new_path_part.replace("%20", " ")
         new_destination_value = f"{new_path_part}{trailing_suffix}"
         if wrapped:
             new_destination_token = f"<{new_destination_value}>"

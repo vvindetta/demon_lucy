@@ -1,12 +1,52 @@
 from __future__ import annotations
 
+import logging
 import os
 import stat
 import tempfile
 
+from demon_lucy.lib.logfmt import log_record
+
+logger = logging.getLogger(__name__)
+
 
 class SourceChangedError(OSError):
     """The destination no longer contains the expected source content."""
+
+
+def create_bytes_atomic(path: str, content: bytes) -> os.stat_result:
+    """Publish a complete new regular file without replacing any existing entry.
+
+    Returns the identity of the created inode for guarded rollback. Filesystems
+    without hard-link support fail before the source needs to be changed.
+    """
+    fd, temporary = tempfile.mkstemp(
+        prefix="." + os.path.basename(path) + ".",
+        suffix=".tmp",
+        dir=os.path.dirname(path) or ".",
+    )
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            fd = -1
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+            identity = os.fstat(handle.fileno())
+        os.link(temporary, path)
+        return identity
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            os.unlink(temporary)
+        except OSError as exc:
+            logger.warning(
+                log_record(
+                    "file.cleanup_failed",
+                    path=temporary,
+                    error=exc,
+                )
+            )
 
 
 def detect_newline(text: str) -> str:

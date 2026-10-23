@@ -33,6 +33,8 @@ watchdog file events.
   their merge order.
 - `demon_lucy/lib/args/line_edit.py`: reusable arg-segment helpers and flag
   deletion from note lines.
+- `demon_lucy/lib/args/aliases.py`: shared command-alias validation for expansion
+  and recognizing literal command bodies before note arguments are interpreted.
 - `demon_lucy/lib/ascii_art.py`: reusable Demon Lucy ASCII art.
 - `demon_lucy/lib/path.py`: path normalization, safe `path_is_inside`
   containment checks, parent marker lookup, Git repo discovery, and `.git`
@@ -46,7 +48,10 @@ watchdog file events.
 - `demon_lucy/lib/file_time.py`: shared Git/mtime content timestamps, local
   timestamp formatting, and relative age text.
 - `demon_lucy/lib/text_file.py`: newline detection/normalization and atomic
-  UTF-8 text/byte replacement with mode preservation.
+  UTF-8 text/byte replacement with mode preservation and exclusive creation.
+- `demon_lucy/lib/command_blocks.py`: literal Markdown regions and bounded
+  command bodies shared by note argument parsing, aliases, and file creation.
+- `demon_lucy/lib/markdown_links.py`: readable, escaped relative file links.
 - `demon_lucy/lib/dynamic_blocks/`: parsing, serialization, and pure-text
   refresh of `--- <arg> begin ---` generated blocks; parameter schemas come
   from the owning module's main `KnownArg`.
@@ -90,12 +95,16 @@ watchdog file events.
   information for `--neofetch`.
 - `modules/alias/`: command shortcuts (`--alias-command`) and literal text
   replacements (`--alias-text`). `__init__.py` owns the `Alias` module class,
-  rule error logging/notifications, and event handlers; `rules.py` owns rule
-  validation/parsing, `rewrite.py` expands command aliases, and `text.py`
+  rule error logging/notifications, and event handlers; `rules.py` owns text-rule
+  validation and command-rule exports, `rewrite.py` expands command aliases, and `text.py`
   replaces plain text while preserving command lines, fences and generated blocks.
 - `modules/banner.py`: inserts pyfiglet banners or date banners at flag lines.
 - `modules/renamer.py`: manual `--rename` and create-time `--rename-auto` for
   one-letter scratch files with configurable output format.
+- `modules/new/`: `--new <path>` moves a text block into a new file and leaves
+  a Markdown link. `--end` is optional at EOF. `module.py` validates and applies
+  transfers; `storage.py` rolls back only unchanged files created by this run.
+  Bodies remain literal during transfer; creation events are suppressed.
 - `modules/formatter.py`: TODO checkbox formatting, archive date completion,
   and top/bottom blank padding; dynamic blocks are left untouched.
 - `modules/ai/`: isolated local Codex edits for the current note;

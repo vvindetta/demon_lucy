@@ -11,11 +11,28 @@ from watchdog.events import FileModifiedEvent, FileMovedEvent
 
 from demon_lucy.lib.args.models import ParsedArgs
 from demon_lucy.lib.args.parser import parse_args
+from demon_lucy.lib.markdown_links import encode_markdown_path, format_file_link
 from demon_lucy.lib.operating_system import OperatingSystem
 from demon_lucy.modules.abstract_module import Context, System
 from demon_lucy.modules.linker import Linker
 from demon_lucy.modules.linker.markdown import rewrite_inline_links_for_moved_target
 from tests.args_support import result_changes
+
+
+def test_linker_updates_escaped_links_created_by_new(tmp_path):
+    source = tmp_path / "index.md"
+    old = tmp_path / "Идея [1] (#%)?.md"
+    new = tmp_path / "moved (#%).md"
+    old.write_text("body")
+    link = format_file_link(str(source), str(old))
+    source.write_text(link + "\n")
+    old.rename(new)
+
+    assert rewrite_inline_links_for_moved_target(
+        markdown_path=str(source), moved_from_path=str(old), moved_to_path=str(new)
+    )
+    label = link.rsplit("](", 1)[0]
+    assert source.read_text() == label + "](" + encode_markdown_path(new.name) + ")\n"
 
 
 def _setup_repo(tmp_path: Path) -> Path:

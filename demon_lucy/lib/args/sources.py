@@ -14,6 +14,7 @@ from demon_lucy.lib.args.parser import (
     parse_args,
     split_arg_line,
 )
+from demon_lucy.lib.command_blocks import command_block_aliases, find_command_blocks
 from demon_lucy.lib.logfmt import log_record
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ def parse_note_args(
     template: Template,
     *,
     deferred_template: Template | None = None,
+    command_alias_rules: list[str] | None = None,
 ) -> ParsedArgs:
     try:
         with open(path, "r", encoding="utf-8") as file:
@@ -77,7 +79,26 @@ def parse_note_args(
     merged_known: dict[str, KnownArg] = {}
     merged_unknown: list[UnknownArg] = []
 
+    block_lines: set[int] = set()
+    block_headers: set[int] = set()
+    if any(argument.name == "new" for argument in template):
+        aliases = command_block_aliases(
+            lines,
+            opening_flag="--new",
+            template=template,
+            configured_rules=command_alias_rules or (),
+        )
+        blocks = find_command_blocks(lines, opening_flag="--new", aliases=aliases)
+        block_headers = {block.start + 1 for block in blocks}
+        block_lines = {
+            number
+            for block in blocks
+            for number in range(block.start + 2, block.end + 1)
+        }
+
     for lineno, raw_line in enumerate(lines, start=1):
+        if lineno in block_lines:
+            continue
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
             continue
@@ -106,6 +127,14 @@ def parse_note_args(
             line=lineno,
             deferred_template=deferred_template,
         )
+
+        if lineno in block_headers:
+            # A malformed block header is still one command, not permission to
+            # execute trailing flags against the source file.
+            line_parsed = ParsedArgs(
+                known=tuple(arg for arg in line_parsed.known if arg.name == "new"),
+                unknown=line_parsed.unknown,
+            )
 
         merged_unknown.extend(line_parsed.unknown)
 

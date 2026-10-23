@@ -21,6 +21,15 @@ _PARAM_RE = re.compile(
 _FENCE_RE = re.compile(r"^(?P<ticks>`{3,})(?P<info>[^`]*)$")
 
 
+def dynamic_block_marker(line: str) -> tuple[str, str] | None:
+    """Recognize a boundary without parsing the block's parameters or body."""
+    for kind, pattern in (("begin", _BEGIN_RE), ("end", _END_RE)):
+        match = pattern.fullmatch(line.rstrip("\r\n"))
+        if match is not None:
+            return match.group("arg"), kind
+    return None
+
+
 def _without_newline(line: str) -> str:
     return line.rstrip("\r\n")
 

@@ -110,6 +110,21 @@ python3 main_oneshot.py --workspace-init ~/Notes
 | `--rename-auto` | `bool` | On creation, add an extension to extensionless files; date one-letter filenames that already have an extension. |
 | `--rename-auto-format` | `str` | Extension for automatic renaming. Default: `md`. |
 
+## New
+
+| Argument | Type | Meaning |
+|---|---|---|
+| `--new` | `str[]` | Move the following text into a new file and leave a Markdown link: `<path>`. Relative paths start at the current note; missing extensions become `.md`. Existing files are not overwritten. |
+| `--end` | `bool` | End a `--new` block. Omit to move everything through the end of the note. |
+
+```text
+--new "Idea"
+Content of the new note.
+--end
+```
+
+The block becomes `[Idea](Idea.md)`. Commands in its content are not executed during the transfer.
+
 ## Linker
 
 | Argument | Type | Meaning |

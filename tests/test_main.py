@@ -131,6 +131,7 @@ def test_main_schedules_observer_and_modules(
     assert handler.modules.run_mode == "daemon"
     assert [m.name for m in handler.modules.modules] == [
         "alias",
+        "new",
         "workspace",
         "banner",
         "renamer",

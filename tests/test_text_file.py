@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import stat
+import os
+import sys
+import threading
 from pathlib import Path
 
 import pytest
 
 from demon_lucy.lib.text_file import (
+    create_bytes_atomic,
     SourceChangedError,
     write_bytes_atomic,
     write_text_atomic,
@@ -90,3 +94,62 @@ def test_guarded_write_checks_empty_source(tmp_path):
         write_text_atomic(str(target), "transcript", expected_text="")
 
     assert target.read_text() == "concurrent edit"
+
+
+def test_atomic_creation_preserves_bytes_and_returns_owned_inode(tmp_path):
+    target = tmp_path / "note.md"
+    content = b"\x00\xff\r\n\n"
+    identity = create_bytes_atomic(str(target), content)
+    assert target.read_bytes() == content
+    assert (identity.st_dev, identity.st_ino) == (
+        target.stat().st_dev,
+        target.stat().st_ino,
+    )
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_atomic_creation_loses_race_without_overwriting_destination(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "note.md"
+    link = os.link
+
+    def competing_create(source, destination):
+        target.write_text("outside write")
+        link(source, destination)
+
+    monkeypatch.setattr("demon_lucy.lib.text_file.os.link", competing_create)
+    with pytest.raises(FileExistsError):
+        create_bytes_atomic(str(target), b"our content")
+    assert target.read_text() == "outside write"
+    assert list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="native inotify event contract")
+def test_atomic_creation_emits_only_one_visible_event(tmp_path):
+    from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
+
+    complete = threading.Event()
+    events = []
+
+    class Capture(FileSystemEventHandler):
+        def on_any_event(self, event):
+            if event.is_directory:
+                return
+            filename = Path(event.src_path).name
+            if filename == "note.md":
+                events.append(event.event_type)
+            elif filename.endswith(".tmp") and event.event_type == "deleted":
+                complete.set()
+
+    observer = Observer()
+    observer.schedule(Capture(), str(tmp_path), recursive=False)
+    observer.start()
+    try:
+        create_bytes_atomic(str(tmp_path / "note.md"), b"--rename other.md\n")
+        assert complete.wait(3), "temporary file cleanup event was not delivered"
+    finally:
+        observer.stop()
+        observer.join()
+    assert events == ["created"]

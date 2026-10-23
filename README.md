@@ -73,6 +73,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all `--args`.
   ![Graph: count coffee mentions across a week of notes](media/modules/graph_demo.gif)
 - `include`: inserts complete files or matching paragraphs into notes.<br>
   ![Include: insert a file and collect matching task paragraphs](media/modules/include_demo.gif)
+- `new`: moves text into a new file and leaves a Markdown link in its place.
 - `status`: updates filenames with dynamic tokens (time, date, Git status, animations).<br>
   ![Status: configure a clock, scrolling message, and Git sync indicator](media/modules/status_demo.gif)
 - `alias`: expands command shortcuts and text snippets.<br>

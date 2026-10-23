@@ -25,6 +25,7 @@ from demon_lucy.modules.include import Include
 from demon_lucy.modules.git import Git
 from demon_lucy.modules.kdeconnect_sync import KdeconnectSync
 from demon_lucy.modules.linker import Linker
+from demon_lucy.modules.new import New
 from demon_lucy.modules.plasma_widget import PlasmaWidget
 from demon_lucy.modules.renamer import Renamer
 from demon_lucy.modules.research_map import ResearchMap
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 MODULE_CLASSES: list[type[AbstractModule]] = [
     Alias,
+    New,
     Workspace,
     Banner,
     Renamer,
@@ -191,6 +193,7 @@ DEMON_LUCY_STARTUP_TEMPLATE: Template = [
         default=[
             "dropdir",
             "alias",
+            "new",
             "workspace",
             "banner",
             "renamer",

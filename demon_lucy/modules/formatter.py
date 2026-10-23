@@ -11,6 +11,7 @@ from demon_lucy.lib.args.parser import (
     parse_args,
     split_arg_line,
 )
+from demon_lucy.lib.command_blocks import find_command_blocks
 from demon_lucy.lib.date_sections import complete_partial_date_section_headers
 from demon_lucy.lib.text_file import detect_newline
 from demon_lucy.lib.dynamic_blocks.parser import parse_dynamic_blocks
@@ -336,6 +337,15 @@ class Formatter(AbstractModule):
 
         lines = original_text.splitlines(keepends=True)
         if not lines:
+            return None
+
+        pending_blocks = (
+            find_command_blocks(lines, opening_flag="--new")
+            if args.find("new") is not None
+            else []
+        )
+        if pending_blocks:
+            # Keep an unsuccessful transfer intact for correction/retry.
             return None
 
         new_lines = lines[:]
