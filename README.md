@@ -57,7 +57,7 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all `--args`.
 
 - `sys`: shows runtime information and command help.<br>
   ![Sys module: ping, help, loaded modules, and argument help](media/modules/sys_demo.gif)
-- `linker`: keeps Markdown links in sync and pins active notes.<br>
+- `linker`: keeps Markdown links and symlinks in sync and pins active notes.<br>
   ![Linker module: renaming a file updates its link; editing the link moves the file](media/modules/linker_demo.gif)
 - `archive`: moves idle text to an archive note, keeping the working note clear.<br>
   ![Archive: after 12 idle hours, on demand, or into a dated file](media/modules/archive_demo.gif)
@@ -66,16 +66,17 @@ See [CHEATSHEET.md](CHEATSHEET.md) for all `--args`.
 - `renamer`: renames notes and automatically names scratch files by date.<br>
   ![Renamer: add an extension, name a note by date, and rename it](media/modules/renamer_demo.gif)
 - `banner`: inserts ASCII banners with text or dates.<br>
-  ![Banner: --banner text and --banner-date](media/modules/banner_demo.gif)
+  ![Banner: insert text or today's date as an ASCII banner](media/modules/banner_demo.gif)
 - `formatter`: formats notes, converts bullet lists into checklists, and autocompletes Lucy arguments.<br>
   ![Formatter: checkboxes, dates, and flag completion](media/modules/formatter_demo.gif)
 - `graph`: creates graph blocks showing word frequencies.<br>
   ![Graph: count coffee mentions across a week of notes](media/modules/graph_demo.gif)
 - `include`: inserts complete files or matching paragraphs into notes.<br>
   ![Include: insert a file and collect matching task paragraphs](media/modules/include_demo.gif)
-- `new`: moves text into a new file and leaves a Markdown link in its place.
+- `new`: moves text into a new file and leaves a Markdown link in its place.<br>
+  ![New: save a text block as Idea.md, then open the generated link](media/modules/new_demo.gif)
 - `status`: updates filenames with dynamic tokens (time, date, Git status, animations).<br>
-  ![Status: configure a clock, scrolling message, and Git sync indicator](media/modules/status_demo.gif)
+  ![Status: create a clock, animated banner, and Git sync indicator](media/modules/status_demo.gif)
 - `alias`: expands command shortcuts and text snippets.<br>
   ![Alias: shortcuts for a date banner and a closing sentence](media/modules/alias_demo.gif)
 - `workspace`: initializes a default notes workspace with Git and systemd files.
