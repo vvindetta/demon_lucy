@@ -132,7 +132,7 @@ The block becomes `[Idea](Idea.md)`. Commands in its content are not executed du
 | `--linker-root` | `bool` | Create a link to the note in the Git repository root; use a hard link on Windows if needed. |
 | `--linker-auto-clean-root-links` | `bool` | Remove managed root links when `--linker-root` is absent. |
 | `--linker-ignore` | `str[]` | Exclude files and links by basename, absolute path, or repository-relative path. |
-| `--linker-auto-update-md-links` | `bool` | Update Markdown links when files move; move target files when their links are edited. |
+| `--linker-auto-update-links` | `bool` | Update Markdown links and symlinks when files move; editing a Markdown link moves its target. |
 
 ## Graph
 

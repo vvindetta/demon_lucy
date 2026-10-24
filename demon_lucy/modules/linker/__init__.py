@@ -10,7 +10,7 @@ from demon_lucy.modules.abstract_module import (
     ModuleResult,
     System,
 )
-from demon_lucy.modules.linker.markdown import (
+from demon_lucy.modules.linker.moves import (
     move_targets_for_edited_links,
     update_moved_links,
 )
@@ -36,9 +36,7 @@ class Linker(AbstractModule):
             name="linker-auto-clean-root-links",
             value_type=bool,
             default=False,
-            description=(
-                "Remove managed root links when --linker-root is absent."
-            ),
+            description=("Remove managed root links when --linker-root is absent."),
         ),
         KnownArg(
             name="linker-ignore",
@@ -47,10 +45,10 @@ class Linker(AbstractModule):
             description="Exclude files and links from linker actions. Accepts basenames, absolute paths, and repository-relative paths.",
         ),
         KnownArg(
-            name="linker-auto-update-md-links",
+            name="linker-auto-update-links",
             value_type=bool,
             default=False,
-            description="Keep Markdown links and targets in sync: moving a file updates its links; editing a link moves its target.",
+            description="Update Markdown links and symlinks when files move; editing a Markdown link moves its target.",
         ),
     ]
 
@@ -111,24 +109,24 @@ class Linker(AbstractModule):
     def modified(self, ctx: Context, system: System) -> ModuleResult | None:
         link_changed = self._apply(ctx, system)
         edited_links_changed = None
-        if ctx.args.require("linker-auto-update-md-links").value:
+        if ctx.args.require("linker-auto-update-links").value:
             edited_links_changed = move_targets_for_edited_links(
                 markdown_path=ctx.path,
-                ignore_selectors=ctx.args.require("linker-ignore").value,
+                args=ctx.args,
+                event_id=ctx.event_id,
             )
         changed = self._merge_changes(link_changed, edited_links_changed)
         return ModuleResult(context=ctx, changed=changed) if changed else None
 
     def moved(self, ctx: Context, system: System) -> ModuleResult | None:
-        link_changed = self._apply(ctx, system)
         moved_links_changed = None
-        if (
-            ctx.event is not None
-            and ctx.args.require("linker-auto-update-md-links").value
-        ):
+        if ctx.event is not None and ctx.args.require("linker-auto-update-links").value:
             moved_links_changed = update_moved_links(
                 event=ctx.event,
-                ignore_selectors=ctx.args.require("linker-ignore").value,
+                args=ctx.args,
+                event_id=ctx.event_id,
             )
+        # Repair links before cleanup checks the flags in their targets.
+        link_changed = self._apply(ctx, system)
         changed = self._merge_changes(link_changed, moved_links_changed)
         return ModuleResult(context=ctx, changed=changed) if changed else None

@@ -44,8 +44,8 @@
 
 # --- linker ---
 
-# Keep markdown links and note files in sync both ways.
-# --linker-auto-update-md-links
+# Update Markdown links and symlinks when files move; edited Markdown links move files.
+# --linker-auto-update-links
 
 # Cleanup for --linker-root: if a note used to create a root symlink and later
 # no longer has --linker-root, remove the old symlink.

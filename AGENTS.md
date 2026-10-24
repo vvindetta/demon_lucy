@@ -52,6 +52,7 @@ watchdog file events.
 - `demon_lucy/lib/command_blocks.py`: literal Markdown regions and bounded
   command bodies shared by note argument parsing, aliases, and file creation.
 - `demon_lucy/lib/markdown_links.py`: readable, escaped relative file links.
+- `demon_lucy/lib/symlink.py`: guarded atomic replacement of symlink targets.
 - `demon_lucy/lib/dynamic_blocks/`: parsing, serialization, and pure-text
   refresh of `--- <arg> begin ---` generated blocks; parameter schemas come
   from the owning module's main `KnownArg`.
@@ -126,11 +127,12 @@ watchdog file events.
   destination resolution, `storage.py` owns no-follow IO and text/file archive
   writes, `clock.py` applies archive timestamp policy through `lib.file_time`,
   and `notify.py` owns archive error/security notifications.
-- `modules/linker/`: root link creation/cleanup and markdown link updates on
+- `modules/linker/`: root link creation/cleanup and Markdown/symlink updates on
   move/rename. `__init__.py` owns the `Linker` module class and event handlers,
   `root.py` owns symlink creation, the Windows hard-link fallback, and
-  ignore-selector logic; `markdown.py` owns Markdown link parsing, rewrites,
-  and edited-link target moves.
+  ignore-selector logic; `markdown.py` owns Markdown link parsing and rewrites;
+  `moves.py` coordinates moved targets and edited-link target moves;
+  `symlinks.py` retargets matching symlinks without following directory links.
 - `modules/dropdir/`: configurable moved-file drop-directory actions.
   `module.py` owns the flags/directory rule template and move-back workflow;
   `actions.py` parses configured rules and folder-local `init.md` actions,

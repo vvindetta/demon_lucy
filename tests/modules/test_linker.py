@@ -79,7 +79,7 @@ def _linker_args(
     if auto_cleanup:
         tokens.append("--linker-auto-clean-root-links")
     if auto_update:
-        tokens.append("--linker-auto-update-md-links")
+        tokens.append("--linker-auto-update-links")
     if ignore:
         tokens.extend(["--linker-ignore", *ignore])
     return parse_args(tokens, Linker.template)
@@ -848,3 +848,244 @@ def test_moved_skips_update_for_unsupported_extension(tmp_path: Path):
 
     assert changed is None
     assert index_path.read_text(encoding="utf-8") == "[good day](day.log)\n"
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+@pytest.mark.parametrize("renamed", [False, True])
+def test_moved_retargets_symlinks_and_markdown_without_root_flag(
+    tmp_path, absolute, renamed, caplog
+):
+    repo = _setup_repo(tmp_path)
+    old = repo / "writing" / "планета-гигант.md"
+    new = repo / "projects" / ("renamed.md" if renamed else old.name)
+    old.parent.mkdir()
+    new.parent.mkdir()
+    old.write_text("body\n")
+    link = repo / old.name
+    link.symlink_to(str(old) if absolute else os.path.relpath(old, repo))
+    nested_link = old.parent / "shortcut"
+    nested_link.symlink_to(old.name)
+    chain = repo / "chain.md"
+    chain.symlink_to(link.name)
+    index = repo / "index.md"
+    index.write_text(f"[direct](writing/{old.name})\n[shortcut]({link.name})\n")
+    old.rename(new)
+    assert link.is_symlink() and not link.exists()
+    module = Linker()
+
+    with caplog.at_level("INFO"):
+        result = module.moved(
+            _context(new, event=FileMovedEvent(str(old), str(new))), _system(module)
+        )
+
+    assert result_changes(result) == {str(link): 1, str(nested_link): 1, str(index): 1}
+    assert os.readlink(link) == (str(new) if absolute else os.path.relpath(new, repo))
+    assert os.readlink(nested_link) == os.path.relpath(new, nested_link.parent)
+    assert os.readlink(chain) == link.name
+    assert link.read_text() == chain.read_text() == new.read_text() == "body\n"
+    assert (
+        index.read_text() == f"[direct](projects/{new.name})\n[shortcut]({link.name})\n"
+    )
+    assert "linker.symlink_updated | id=test" in caplog.text
+    assert (
+        module.moved(
+            _context(new, event=FileMovedEvent(str(old), str(new))), _system(module)
+        )
+        is None
+    )
+
+
+def test_moved_repairs_root_link_before_cleanup(tmp_path):
+    repo = _setup_repo(tmp_path)
+    old = repo / "old" / "note.md"
+    new = repo / "new" / old.name
+    old.parent.mkdir()
+    new.parent.mkdir()
+    old.write_text("--linker-root\nbody\n")
+    link = repo / old.name
+    link.symlink_to("old/note.md")
+    old.rename(new)
+    module = Linker()
+
+    result = module.moved(
+        _context(new, auto_cleanup=True, event=FileMovedEvent(str(old), str(new))),
+        _system(module),
+    )
+
+    assert result_changes(result) == {str(link): 1}
+    assert link.is_symlink() and link.samefile(new)
+
+
+@pytest.mark.parametrize("extension", [".txt", ".log", ""])
+def test_moved_retargets_symlinks_to_any_regular_file(tmp_path, extension):
+    repo = _setup_repo(tmp_path)
+    old = repo / ("old" + extension)
+    new = repo / ("new" + extension)
+    old.write_text("body")
+    link = repo / "shortcut"
+    link.symlink_to(old.name)
+    old.rename(new)
+    module = Linker()
+
+    result = module.moved(
+        _context(new, event=FileMovedEvent(str(old), str(new))), _system(module)
+    )
+
+    assert result_changes(result) == {str(link): 1}
+    assert os.readlink(link) == new.name
+    assert link.read_text() == "body"
+
+
+@pytest.mark.parametrize(
+    "ignored", ["link_name", "link_relative", "link_absolute", "old", "new", "disabled"]
+)
+def test_moved_symlink_respects_ignores_and_disabled_flag(tmp_path, ignored):
+    repo = _setup_repo(tmp_path)
+    old = repo / "old.md"
+    new = repo / "new.md"
+    old.write_text("body")
+    link = repo / "pins" / "shortcut.md"
+    link.parent.mkdir()
+    link.symlink_to("../old.md")
+    old.rename(new)
+    selectors = {
+        "link_name": link.name,
+        "link_relative": "pins/shortcut.md",
+        "link_absolute": str(link),
+        "old": old.name,
+        "new": new.name,
+    }
+    module = Linker()
+
+    result = module.moved(
+        _context(
+            new,
+            auto_update=ignored != "disabled",
+            ignore=[selectors[ignored]] if ignored in selectors else [],
+            event=FileMovedEvent(str(old), str(new)),
+        ),
+        _system(module),
+    )
+
+    assert result is None
+    assert os.readlink(link) == "../old.md"
+    assert new.read_text() == "body"
+
+
+def test_moved_does_not_touch_unrelated_links_regular_files_or_external_directory(
+    tmp_path,
+):
+    repo = _setup_repo(tmp_path)
+    old = repo / "old.md"
+    new = repo / "new.md"
+    old.write_text("body")
+    link = repo / "shortcut.md"
+    link.symlink_to(old.name)
+    unrelated = repo / "unrelated.md"
+    unrelated.symlink_to("different-missing.md")
+    regular = repo / "regular.md"
+    regular.write_text("user content")
+    external = tmp_path / "external"
+    external.mkdir()
+    external_link = external / "pin.md"
+    external_link.symlink_to(old)
+    (repo / "external").symlink_to(external, target_is_directory=True)
+    git_link = repo / ".git" / "pin.md"
+    git_link.symlink_to(old)
+    old.rename(new)
+    module = Linker()
+
+    result = module.moved(
+        _context(new, event=FileMovedEvent(str(old), str(new))), _system(module)
+    )
+
+    assert result_changes(result) == {str(link): 1}
+    assert os.readlink(unrelated) == "different-missing.md"
+    assert os.readlink(external_link) == str(old)
+    assert os.readlink(git_link) == str(old)
+    assert regular.read_text() == "user content"
+
+
+def test_moved_does_not_rewrite_markdown_through_symlinks(tmp_path):
+    repo = _setup_repo(tmp_path)
+    old = repo / "old.md"
+    new = repo / "new.md"
+    old.write_text("body")
+    nested = repo / "nested"
+    nested.mkdir()
+    actual = nested / "index.md"
+    actual.write_text("[different file](old.md)\n")
+    (nested / "old.md").write_text("different")
+    (repo / "index.md").symlink_to("nested/index.md")
+    outside = tmp_path / "outside.md"
+    outside.write_text("[also different](old.md)\n")
+    (repo / "outside.md").symlink_to(outside)
+    old.rename(new)
+    module = Linker()
+
+    result = module.moved(
+        _context(new, event=FileMovedEvent(str(old), str(new))), _system(module)
+    )
+
+    assert result is None
+    assert actual.read_text() == "[different file](old.md)\n"
+    assert outside.read_text() == "[also different](old.md)\n"
+
+
+def test_modified_markdown_link_also_retargets_symlink(tmp_path):
+    repo = _setup_real_git_repo(tmp_path)
+    old = repo / "old.md"
+    old.write_text("body")
+    link = repo / "pin.md"
+    link.symlink_to(old.name)
+    index = repo / "index.md"
+    index.write_text("[note](old.md)\n")
+    _git_add(repo, old, link, index)
+    index.write_text("[note](nested/new.md)\n")
+    module = Linker()
+
+    result = module.modified(
+        _context(index, event=FileModifiedEvent(str(index))), _system(module)
+    )
+
+    new = repo / "nested" / "new.md"
+    assert result_changes(result) == {str(old): 1, str(new): 1, str(link): 1}
+    assert os.readlink(link) == "nested/new.md"
+    assert link.read_text() == new.read_text() == "body"
+
+
+def test_moved_symlink_write_failure_reports_and_preserves_link(
+    tmp_path, monkeypatch, caplog
+):
+    from demon_lucy.modules.linker import symlinks
+
+    repo = _setup_repo(tmp_path)
+    old = repo / "old.md"
+    new = repo / "new.md"
+    old.write_text("body")
+    link = repo / "pin.md"
+    link.symlink_to(old.name)
+    old.rename(new)
+    notifications = []
+
+    def fail_replace(*_args, **_kwargs):
+        raise PermissionError("read only")
+
+    monkeypatch.setattr(symlinks, "replace_symlink_atomic", fail_replace)
+    monkeypatch.setattr(
+        symlinks,
+        "safe_notify",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+    module = Linker()
+    result = module.moved(
+        _context(new, event=FileMovedEvent(str(old), str(new))), _system(module)
+    )
+
+    assert result is None
+    assert os.readlink(link) == old.name
+    assert "linker.symlink_failed | id=test" in caplog.text
+    assert len(notifications) == 1
+    assert notifications[0][0][0] == f"linker-symlink:{link}"
+    assert notifications[0][1]["use_rare_mode"] is True
+    assert new.read_text() == "body"

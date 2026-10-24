@@ -6,7 +6,7 @@ from pathlib import Path
 from demon_lucy.lib.args.models import Template
 from demon_lucy.lib.args.sources import parse_note_args
 from demon_lucy.lib.logfmt import log_record
-from demon_lucy.lib.path import canonical_path
+from demon_lucy.lib.path import abs_expand_path, canonical_path
 from demon_lucy.lib.operating_system import OperatingSystem
 
 logger = logging.getLogger(__name__)
@@ -24,18 +24,24 @@ def matches_ignore_selector(
     if not selector:
         return False
 
-    path_abs = canonical_path(path_value)
+    paths = {abs_expand_path(path_value), canonical_path(path_value)}
     expanded_path = Path(selector).expanduser()
     if expanded_path.is_absolute():
-        return path_abs == canonical_path(str(expanded_path))
+        return bool(
+            paths
+            & {abs_expand_path(str(expanded_path)), canonical_path(str(expanded_path))}
+        )
 
     has_separator = any(
         separator and separator in selector for separator in (os.sep, os.altsep, "/")
     )
     if has_separator or len(expanded_path.parts) > 1:
-        return path_abs == canonical_path(str(Path(repo_root) / expanded_path))
+        selected_path = str(Path(repo_root) / expanded_path)
+        return bool(
+            paths & {abs_expand_path(selected_path), canonical_path(selected_path)}
+        )
 
-    return Path(path_abs).name == str(expanded_path)
+    return any(Path(path).name == str(expanded_path) for path in paths)
 
 
 def is_ignored_path(

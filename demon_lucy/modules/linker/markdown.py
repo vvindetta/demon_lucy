@@ -7,13 +7,9 @@ import subprocess
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from watchdog.events import FileSystemEvent
-
 from demon_lucy.lib.markdown_links import encode_markdown_path
 from demon_lucy.lib.path import (
     canonical_path,
-    find_parent_git_repo,
-    find_parent_with,
     path_is_inside,
 )
 from demon_lucy.modules.linker.root import is_ignored_path
@@ -267,7 +263,7 @@ def _resolve_link_path_part(*, path_part: str, markdown_dir: str) -> str | None:
     return canonical_path(str(Path(markdown_dir) / path))
 
 
-def _edited_link_moves_from_diff(
+def edited_link_moves_from_diff(
     *,
     markdown_path: str,
     repo_root: str,
@@ -333,87 +329,7 @@ def _edited_link_moves_from_diff(
     return moves
 
 
-def move_targets_for_edited_links(
-    *,
-    markdown_path: str,
-    ignore_selectors: list[str],
-) -> dict[str, int] | None:
-    markdown_path = canonical_path(markdown_path)
-    if not is_supported_reference_file(markdown_path):
-        return None
-    repo_root = find_parent_git_repo(markdown_path)
-    if not repo_root:
-        return None
-    if not path_is_inside(markdown_path, repo_root):
-        return None
-
-    if is_ignored_path(
-        path_value=markdown_path,
-        repo_root=repo_root,
-        ignore_selectors=ignore_selectors,
-    ):
-        return None
-
-    changed_paths: dict[str, int] = {}
-    seen_moves: set[tuple[str, str]] = set()
-    for old_abs, new_abs in _edited_link_moves_from_diff(
-        markdown_path=markdown_path,
-        repo_root=repo_root,
-    ):
-        move = (old_abs, new_abs)
-        if move in seen_moves:
-            continue
-        seen_moves.add(move)
-        if old_abs == new_abs:
-            continue
-        if is_ignored_path(
-            path_value=old_abs,
-            repo_root=repo_root,
-            ignore_selectors=ignore_selectors,
-        ) or is_ignored_path(
-            path_value=new_abs,
-            repo_root=repo_root,
-            ignore_selectors=ignore_selectors,
-        ):
-            continue
-        old_path = Path(old_abs)
-        new_path = Path(new_abs)
-        if not old_path.is_file():
-            continue
-        if old_path.is_symlink():
-            continue
-        if os.path.lexists(new_abs):
-            continue
-        try:
-            new_path.parent.mkdir(parents=True, exist_ok=True)
-            old_path.rename(new_path)
-        except OSError:
-            continue
-        changed_paths[old_abs] = changed_paths.get(old_abs, 0) + 1
-        changed_paths[new_abs] = changed_paths.get(new_abs, 0) + 1
-        _merge_changes_into(
-            changed_paths,
-            update_links_for_moved_paths(
-                moved_from_abs=old_abs,
-                moved_to_abs=new_abs,
-                repo_root=repo_root,
-                ignore_selectors=ignore_selectors,
-            ),
-        )
-    return changed_paths or None
-
-
-def _merge_changes_into(
-    target: dict[str, int],
-    source: dict[str, int] | None,
-) -> None:
-    if not source:
-        return
-    for path_value, times in source.items():
-        target[path_value] = target.get(path_value, 0) + times
-
-
-def update_links_for_moved_paths(
+def update_markdown_links_for_moved_paths(
     *,
     moved_from_abs: str,
     moved_to_abs: str,
@@ -436,6 +352,10 @@ def update_links_for_moved_paths(
         dirs[:] = [name for name in dirs if name != ".git"]
         for file_name in files:
             markdown_path = os.path.abspath(os.path.join(root, file_name))
+            # A symlink's contents belong to its target directory. Reading it
+            # here would rewrite that file using the link's directory instead.
+            if os.path.islink(markdown_path):
+                continue
             if not is_supported_reference_file(markdown_path):
                 continue
             if is_ignored_path(
@@ -453,41 +373,3 @@ def update_links_for_moved_paths(
                 changed_paths[markdown_path] = 1
 
     return changed_paths or None
-
-
-def update_moved_links(
-    *,
-    event: FileSystemEvent,
-    ignore_selectors: list[str],
-) -> dict[str, int] | None:
-    src_path_raw = str(getattr(event, "src_path", "") or "").strip()
-    dest_path_raw = str(getattr(event, "dest_path", "") or "").strip()
-    if not src_path_raw or not dest_path_raw:
-        return None
-
-    moved_from_abs = canonical_path(src_path_raw)
-    moved_to_abs = canonical_path(dest_path_raw)
-    if moved_from_abs == moved_to_abs:
-        return None
-    if not is_supported_reference_file(moved_from_abs):
-        return None
-    if not is_supported_reference_file(moved_to_abs):
-        return None
-
-    repo_root = find_parent_with(moved_to_abs, ".git") or find_parent_with(
-        moved_from_abs, ".git"
-    )
-    if not repo_root:
-        return None
-
-    if not path_is_inside(moved_from_abs, repo_root):
-        return None
-    if not path_is_inside(moved_to_abs, repo_root):
-        return None
-
-    return update_links_for_moved_paths(
-        moved_from_abs=moved_from_abs,
-        moved_to_abs=moved_to_abs,
-        repo_root=repo_root,
-        ignore_selectors=ignore_selectors,
-    )
