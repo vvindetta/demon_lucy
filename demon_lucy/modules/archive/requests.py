@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from demon_lucy.lib.args.models import ArgSource
 from demon_lucy.modules.abstract_module import Context
-from demon_lucy.modules.archive import notify
+from demon_lucy.modules.archive import notify, paths
 from demon_lucy.modules.archive.types import ArchiveOutputMode, ArchiveRequest
 
 
@@ -83,8 +83,7 @@ def idle_and_mode_from_tail_values(
     return idle_hours, output_mode
 
 
-def auto_pair_request(ctx: Context) -> ArchiveRequest | None:
-    values = arg_values(ctx, "archive-auto-pair")
+def _pair_request(ctx: Context, values: list[str]) -> ArchiveRequest | None:
     if not values:
         return None
     if len(values) < 2:
@@ -113,6 +112,64 @@ def auto_pair_request(ctx: Context) -> ArchiveRequest | None:
         idle_hours=idle_hours,
         force=False,
     )
+
+
+def pair_rule_values(ctx: Context) -> list[list[str]]:
+    argument = ctx.args.require("archive-auto-pair")
+    values = [value.strip() for value in argument.value]
+    if not values:
+        return []
+    if not argument.lines:
+        return [values]
+
+    # The parser retains a line number for every value. Keep optional age/mode
+    # tokens with their own pair instead of guessing boundaries from filenames.
+    groups: dict[int, list[str]] = {}
+    for line, value in zip(argument.lines, values, strict=True):
+        groups.setdefault(line, []).append(value)
+    return list(groups.values())
+
+
+def auto_pair_requests(ctx: Context) -> list[ArchiveRequest]:
+    requests: list[ArchiveRequest] = []
+    for values in pair_rule_values(ctx):
+        request = _pair_request(ctx, values)
+        if request is not None:
+            requests.append(request)
+    return requests
+
+
+def manual_pair_request(ctx: Context, *, flag: str) -> ArchiveRequest | None:
+    groups = pair_rule_values(ctx)
+    if not groups:
+        notify.invalid_rule(
+            ctx,
+            flag=flag,
+            reason="missing_archive_auto_pair",
+        )
+        return None
+    requests = auto_pair_requests(ctx)
+    if not requests:
+        return None
+    if len(groups) == 1:
+        return requests[0]
+
+    base_dir = paths.event_base_dir(ctx)
+    matches = [
+        request
+        for request in requests
+        if paths.same_path_or_file(
+            os.path.join(base_dir, request.src_selector), ctx.path
+        )
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    notify.invalid_rule(
+        ctx,
+        flag=flag,
+        reason="multiple_matching_pairs" if matches else "no_matching_pair",
+    )
+    return None
 
 
 def auto_local_request(ctx: Context) -> ArchiveRequest | None:
@@ -164,9 +221,8 @@ def auto_global_request(ctx: Context) -> ArchiveRequest | None:
 
 
 def auto_requests(ctx: Context) -> list[ArchiveRequest]:
-    requests: list[ArchiveRequest] = []
+    requests = auto_pair_requests(ctx)
     for builder in (
-        auto_pair_request,
         auto_local_request,
         auto_global_request,
     ):
@@ -230,13 +286,8 @@ def manual_requests(ctx: Context) -> list[ArchiveRequest]:
         return []
 
     if route == "pair":
-        pair_request = auto_pair_request(ctx)
+        pair_request = manual_pair_request(ctx, flag="--archive-pair")
         if pair_request is None:
-            notify.invalid_rule(
-                ctx,
-                flag="--archive-pair",
-                reason="missing_archive_auto_pair",
-            )
             return []
         return [replace(pair_request, output_mode=mode, force=True)]
 
@@ -254,7 +305,7 @@ def manual_requests(ctx: Context) -> list[ArchiveRequest]:
 
 def archive_command_requests(ctx: Context) -> list[ArchiveRequest]:
     if arg_values(ctx, "archive-auto-pair"):
-        pair_request = auto_pair_request(ctx)
+        pair_request = manual_pair_request(ctx, flag="--archive")
         if pair_request is None:
             return []
         return [replace(pair_request, force=True)]

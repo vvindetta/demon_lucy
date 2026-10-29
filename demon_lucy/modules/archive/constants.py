@@ -32,7 +32,8 @@ ARCHIVE_TEMPLATE: Template = [
         name="archive-auto-pair",
         value_type=str,
         default=[],
-        description="Automatic pair archive rule: <src> <dest> [idle_hours] [text|file]. Text mode appends to a file; file mode writes into a directory. Example: --archive-auto-pair now.md past.md 12 text.",
+        literal_first_value=True,
+        description="Automatic pair archive rule: <src> <dest> [idle_hours] [text|file]. Repeat on separate config or note lines for multiple pairs. Text mode appends to a file; file mode writes into a directory. Example: --archive-auto-pair now.md past.md 12 text.",
     ),
     KnownArg(
         name="archive-auto-local",
